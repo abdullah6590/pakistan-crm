@@ -1,0 +1,271 @@
+"use client";
+
+import { useState, useMemo } from "react";
+import { Plus, Users, Search, Trash2, Edit, Phone, Mail, MapPin } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { PageHeader } from "@/components/shared/page-header";
+import { SearchInput } from "@/components/shared/search-input";
+import { EmptyState } from "@/components/shared/empty-state";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { formatCurrency, formatDate } from "@/lib/utils";
+import { toast } from "sonner";
+
+interface CustomerItem {
+  id: string; name: string; email: string | null; phone: string | null;
+  address: string | null; city: string | null;
+  totalPurchased: number; visitCount: number;
+  notes: string | null; isActive: boolean;
+  createdAt: string; updatedAt: string;
+  _count: { sales: number };
+}
+
+interface Props { customers: CustomerItem[]; }
+
+const emptyForm = { name: "", email: "", phone: "", city: "", address: "", notes: "" };
+
+export default function CustomersClient({ customers: initialCustomers }: Props) {
+  const router = useRouter();
+  const [search, setSearch] = useState("");
+  const [showAdd, setShowAdd] = useState(false);
+  const [editing, setEditing] = useState<CustomerItem | null>(null);
+  const [form, setForm] = useState(emptyForm);
+  const [submitting, setSubmitting] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const filtered = useMemo(() => {
+    if (!search) return initialCustomers;
+    const q = search.toLowerCase();
+    return initialCustomers.filter(c =>
+      c.name.toLowerCase().includes(q) ||
+      (c.email && c.email.toLowerCase().includes(q)) ||
+      (c.phone && c.phone.includes(q)) ||
+      (c.city && c.city.toLowerCase().includes(q))
+    );
+  }, [initialCustomers, search]);
+
+  const totalRevenue = initialCustomers.reduce((s, c) => s + c.totalPurchased, 0);
+
+  const resetForm = () => setForm(emptyForm);
+
+  const openEdit = (c: CustomerItem) => {
+    setEditing(c);
+    setForm({ name: c.name, email: c.email || "", phone: c.phone || "", city: c.city || "", address: c.address || "", notes: c.notes || "" });
+  };
+
+  const handleCreate = async () => {
+    if (!form.name.trim()) { toast.error("Customer name is required"); return; }
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/customers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: form.name, email: form.email || undefined, phone: form.phone || undefined, city: form.city || undefined, address: form.address || undefined }),
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error); }
+      toast.success("Customer added");
+      setShowAdd(false);
+      window.location.reload();
+    } catch (err: any) { toast.error(err.message); }
+    finally { setSubmitting(false); }
+  };
+
+  const handleUpdate = async () => {
+    if (!editing || !form.name.trim()) { toast.error("Customer name is required"); return; }
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/customers/${editing.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: form.name, email: form.email || null, phone: form.phone || null, city: form.city || null, address: form.address || null, notes: form.notes || null }),
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error); }
+      toast.success("Customer updated");
+      setEditing(null);
+      window.location.reload();
+    } catch (err: any) { toast.error(err.message); }
+    finally { setSubmitting(false); }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteId) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/customers/${deleteId}`, { method: "DELETE" });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error); }
+      toast.success("Customer deleted");
+      setDeleteId(null);
+      window.location.reload();
+    } catch (err: any) { toast.error(err.message); }
+    finally { setDeleting(false); }
+  };
+
+  const isEditing = !!editing;
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="Customers"
+        description="Manage registered customers and their purchase history"
+        icon={Users}
+        actions={
+          <Button onClick={() => { resetForm(); setShowAdd(true); }}>
+            <Plus className="h-4 w-4 mr-1" /> Add Customer
+          </Button>
+        }
+      />
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="rounded-full p-2 bg-blue-100 dark:bg-blue-900/30 text-blue-600"><Users className="h-4 w-4" /></div>
+            <div>
+              <p className="text-xs text-muted-foreground">Total Customers</p>
+              <p className="text-xl font-bold">{initialCustomers.length}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="rounded-full p-2 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600"><MapPin className="h-4 w-4" /></div>
+            <div>
+              <p className="text-xs text-muted-foreground">Total Revenue</p>
+              <p className="text-xl font-bold">{formatCurrency(totalRevenue)}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="rounded-full p-2 bg-amber-100 dark:bg-amber-900/30 text-amber-600"><Phone className="h-4 w-4" /></div>
+            <div>
+              <p className="text-xs text-muted-foreground">Total Sales Orders</p>
+              <p className="text-xl font-bold">{initialCustomers.reduce((s, c) => s + c._count.sales, 0)}</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex items-center gap-3">
+            <SearchInput value={search} onChange={setSearch} placeholder="Search customers..." className="max-w-sm" />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="p-0">
+          {filtered.length === 0 ? (
+            <EmptyState
+              icon={Users}
+              title="No customers found"
+              description={search ? "Try adjusting your search" : "Add your first customer"}
+              action={search ? undefined : { label: "Add Customer", onClick: () => setShowAdd(true) }}
+            />
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Contact</TableHead>
+                    <TableHead>City</TableHead>
+                    <TableHead className="text-right">Total Purchased</TableHead>
+                    <TableHead className="text-center">Orders</TableHead>
+                    <TableHead className="text-center">Status</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filtered.map(c => (
+                    <TableRow key={c.id}>
+                      <TableCell className="font-medium">{c.name}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-col gap-0.5 text-sm">
+                          {c.email && <span className="text-muted-foreground flex items-center gap-1"><Mail className="h-3 w-3" />{c.email}</span>}
+                          {c.phone && <span className="text-muted-foreground flex items-center gap-1"><Phone className="h-3 w-3" />{c.phone}</span>}
+                        </div>
+                      </TableCell>
+                      <TableCell>{c.city || "—"}</TableCell>
+                      <TableCell className="text-right font-medium">{formatCurrency(c.totalPurchased)}</TableCell>
+                      <TableCell className="text-center">{c._count.sales}</TableCell>
+                      <TableCell className="text-center">
+                        <Badge variant={c.isActive ? "success" : "secondary"}>{c.isActive ? "Active" : "Inactive"}</Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(c)}>
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setDeleteId(c.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={showAdd || isEditing} onClose={() => { setShowAdd(false); setEditing(null); }}>
+        <DialogHeader><DialogTitle>{isEditing ? "Edit Customer" : "Add Customer"}</DialogTitle></DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1">
+            <Label>Name *</Label>
+            <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Customer name" />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1">
+              <Label>Email</Label>
+              <Input value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="email@example.com" type="email" />
+            </div>
+            <div className="space-y-1">
+              <Label>Phone</Label>
+              <Input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+92 300 1234567" />
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1">
+              <Label>City</Label>
+              <Input value={form.city} onChange={e => setForm({ ...form, city: e.target.value })} placeholder="City" />
+            </div>
+            <div className="space-y-1">
+              <Label>Address</Label>
+              <Input value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} placeholder="Full address" />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label>Notes</Label>
+            <Input value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Optional notes" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => { setShowAdd(false); setEditing(null); }}>Cancel</Button>
+          <Button onClick={isEditing ? handleUpdate : handleCreate} disabled={submitting}>
+            {submitting ? "Saving..." : isEditing ? "Update" : "Add Customer"}
+          </Button>
+        </DialogFooter>
+      </Dialog>
+
+      <ConfirmDialog
+        open={!!deleteId}
+        onClose={() => setDeleteId(null)}
+        onConfirm={handleDelete}
+        loading={deleting}
+        title="Delete Customer"
+        description="Are you sure you want to delete this customer? This cannot be undone."
+      />
+    </div>
+  );
+}

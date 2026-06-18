@@ -1,26 +1,182 @@
+/* src/app/globals.css - Complete Design System for Electronics Startup ERP */
+
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  --color-chart-1: hsl(var(--chart-1));
+  --color-chart-2: hsl(var(--chart-2));
+  --color-chart-3: hsl(var(--chart-3));
+  --color-chart-4: hsl(var(--chart-4));
+  --color-chart-5: hsl(var(--chart-5));
+
+  --color-sidebar: hsl(var(--sidebar-background));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-sidebar-primary: hsl(var(--sidebar-primary));
+  --color-sidebar-primary-foreground: hsl(var(--sidebar-primary-foreground));
+  --color-sidebar-accent: hsl(var(--sidebar-accent));
+  --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
+  --color-sidebar-border: hsl(var(--sidebar-border));
+  --color-sidebar-ring: hsl(var(--sidebar-ring));
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
+@layer base {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: 210 20% 99%; /* Very subtle cool white */
+    --foreground: 230 40% 12%; /* Deep rich navy-slate */
+    --card: 0 0% 100%;
+    --card-foreground: 230 40% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 230 40% 12%;
+    --primary: 230 85% 58%; /* Vibrant Tech Indigo */
+    --primary-foreground: 210 40% 98%;
+    --secondary: 230 20% 94%;
+    --secondary-foreground: 230 40% 15%;
+    --muted: 220 14% 94%;
+    --muted-foreground: 220 15% 45%;
+    --accent: 230 85% 58%; /* Vibrant Tech Indigo */
+    --accent-foreground: 210 40% 98%;
+    --destructive: 350 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 220 13% 88%;
+    --input: 220 13% 88%;
+    --ring: 230 85% 58%;
+    --radius: 0.8rem;
+
+    /* Chart colors - modern distinct palette */
+    --chart-1: 230 85% 58%; /* Indigo */
+    --chart-2: 180 85% 45%; /* Cyan */
+    --chart-3: 330 80% 60%; /* Pink */
+    --chart-4: 40 90% 55%; /* Amber */
+    --chart-5: 280 75% 60%; /* Purple */
+
+    /* Sidebar */
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 230 40% 15%;
+    --sidebar-primary: 230 85% 58%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 14% 94%;
+    --sidebar-accent-foreground: 230 40% 15%;
+    --sidebar-border: 220 13% 88%;
+    --sidebar-ring: 230 85% 58%;
+  }
+
+  .dark {
+    --background: 230 25% 8%; /* Deep sleek tech black */
+    --foreground: 210 40% 98%;
+    --card: 230 25% 11%;
+    --card-foreground: 210 40% 98%;
+    --popover: 230 25% 11%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 225 85% 65%; /* Bright glowing blue/cyan */
+    --primary-foreground: 230 50% 10%;
+    --secondary: 230 20% 16%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 230 20% 16%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 225 85% 65%;
+    --accent-foreground: 230 50% 10%;
+    --destructive: 350 84% 65%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 230 20% 20%;
+    --input: 230 20% 20%;
+    --ring: 225 85% 65%;
+
+    --chart-1: 225 85% 65%; /* Light blue */
+    --chart-2: 160 80% 50%; /* Emerald */
+    --chart-3: 330 80% 65%; /* Pink */
+    --chart-4: 40 90% 60%; /* Amber */
+    --chart-5: 280 75% 70%; /* Purple */
+
+    --sidebar-background: 230 25% 10%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 225 85% 65%;
+    --sidebar-primary-foreground: 230 50% 10%;
+    --sidebar-accent: 230 20% 16%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 230 20% 20%;
+    --sidebar-ring: 225 85% 65%;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.3);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.5);
+}
+
+/* Smooth transitions for theme switching */
+* {
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.1s ease;
+}
+
+/* Print styles */
+@media print {
+  .sidebar, header, footer { display: none !important; }
+  body { background: white !important; }
+}
+
+/* Animation utilities */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in {
+  animation: fadeIn 0.4s ease-out;
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.animate-slide-in {
+  animation: slideInRight 0.3s ease-out;
 }

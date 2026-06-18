@@ -1,0 +1,518 @@
+// prisma/schema.prisma
+// Electronics Startup ERP - Database Schema
+// Supports: PostgreSQL (production) & SQLite (development)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ─── ENUMS ────────────────────────────────────────────────────────
+
+enum UserRole {
+  ADMIN
+  PARTNER
+  EMPLOYEE
+  INVENTORY_MANAGER
+  ACCOUNTANT
+}
+
+enum ProjectStatus {
+  PLANNING
+  IN_PROGRESS
+  COMPLETED
+  ON_HOLD
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PAID
+  PARTIAL
+  PENDING
+  OVERDUE
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+enum IncomeCategory {
+  PROJECT_PAYMENT
+  COMPONENT_SALE
+  INVESTMENT
+  OTHER_INCOME
+}
+
+enum ExpenseCategory {
+  COMPONENT_PURCHASE
+  SALARY
+  UTILITY
+  RENT
+  TRAVEL
+  HARDWARE
+  SOFTWARE
+  MARKETING
+  SHIPPING
+  TAX
+  OTHER_EXPENSE
+}
+
+enum NotificationType {
+  LOW_STOCK
+  PENDING_PAYMENT
+  PROJECT_DEADLINE
+  SUPPLIER_DUE
+  OVERDUE_INVOICE
+  SYSTEM
+}
+
+// ─── USER & AUTH ───────────────────────────────────────────────────
+
+model User {
+  id             String        @id @default(cuid())
+  name           String
+  email          String        @unique
+  password       String
+  role           UserRole      @default(EMPLOYEE)
+  image          String?
+  phone          String?
+  address        String?
+  isActive       Boolean       @default(true)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  projects       Project[]
+  teamMemberships TeamMember[]
+  sales          Sale[]
+  purchases      Purchase[]
+  financeRecords Finance[]
+  notifications  Notification[]
+  accounts       Account[]
+  sessions       Session[]
+
+  @@map("users")
+}
+
+// NextAuth tables
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@map("sessions")
+}
+
+// ─── PROJECT MANAGEMENT ───────────────────────────────────────────
+
+model Project {
+  id              String        @id @default(cuid())
+  projectId       String        @unique // Human-readable: PRJ-001
+  name            String
+  description     String?
+  clientName      String?
+  clientPhone     String?
+  clientEmail     String?
+  startDate       DateTime      @default(now())
+  deadline        DateTime?
+  status          ProjectStatus @default(PLANNING)
+  laborCost       Float         @default(0)
+  otherCosts      Float         @default(0)
+  clientPayment   Float         @default(0)
+  paymentStatus   PaymentStatus @default(PENDING)
+  remainingPayment Float        @default(0)
+  totalCost       Float         @default(0)
+  profit          Float         @default(0)
+  notes           String?
+  color           String        @default("#3B82F6")
+
+  userId          String        // Project Manager
+  user            User          @relation(fields: [userId], references: [id])
+  teamMembers     TeamMember[]
+  components      ProjectComponent[]
+  attachments     Attachment[]
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@map("projects")
+}
+
+model TeamMember {
+  id        String   @id @default(cuid())
+  projectId String
+  userId    String
+  role      String   // e.g., "Developer", "Designer", "Technician"
+  hours     Float    @default(0)
+  rate      Float    @default(0)
+  cost      Float    @default(0) // hours * rate
+
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, userId])
+  @@map("team_members")
+}
+
+model ProjectComponent {
+  id           String   @id @default(cuid())
+  projectId    String
+  componentId  String
+  quantity     Int      @default(1)
+  unitCost     Float    @default(0) // Snapshot of cost at time of use
+  totalCost    Float    @default(0) // quantity * unitCost
+
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  component    Component @relation(fields: [componentId], references: [id])
+
+  createdAt    DateTime @default(now())
+
+  @@unique([projectId, componentId])
+  @@map("project_components")
+}
+
+// ─── INVENTORY MANAGEMENT ─────────────────────────────────────────
+
+model ComponentCategory {
+  id          String      @id @default(cuid())
+  name        String      @unique
+  description String?
+  icon        String?
+  color       String      @default("#6366F1")
+
+  components  Component[]
+
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@map("component_categories")
+}
+
+model Component {
+  id              String             @id @default(cuid())
+  sku             String             @unique // Stock Keeping Unit
+  name            String
+  description     String?
+  categoryId      String
+  category        ComponentCategory  @relation(fields: [categoryId], references: [id])
+  quantity        Int                @default(0)
+  minQuantity     Int                @default(5) // Low stock threshold
+  unitCost        Float              @default(0) // Average cost price
+  unitPrice       Float              @default(0) // Selling price
+  supplierId      String?
+  supplier        Supplier?          @relation(fields: [supplierId], references: [id])
+  location        String?            // Shelf/Bin location
+  datasheetUrl    String?
+  imageUrl        String?
+  isActive        Boolean            @default(true)
+
+  // Tracking
+  totalPurchased  Int                @default(0)
+  totalUsed       Int                @default(0) // Used in projects
+  totalSold       Int                @default(0) // Sold to customers
+  totalDamaged    Int                @default(0)
+  lastPurchasedAt DateTime?
+  lastSoldAt      DateTime?
+
+  // Relations
+  projectComponents ProjectComponent[]
+  saleItems         SaleItem[]
+  purchaseItems     PurchaseItem[]
+  inventoryHistory  InventoryHistory[]
+
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  @@map("components")
+}
+
+model InventoryHistory {
+  id           String       @id @default(cuid())
+  componentId  String
+  component    Component    @relation(fields: [componentId], references: [id])
+  type         String       // "PURCHASE", "PROJECT_USE", "SALE", "DAMAGED", "ADJUSTMENT", "RETURN"
+  quantity     Int          // Positive for additions, negative for deductions
+  balanceAfter Int
+  reference    String?      // Project ID, Sale ID, Purchase ID
+  notes        String?
+  performedBy  String?
+
+  createdAt    DateTime     @default(now())
+
+  @@map("inventory_history")
+}
+
+// ─── SUPPLIERS ─────────────────────────────────────────────────────
+
+model Supplier {
+  id              String       @id @default(cuid())
+  name            String
+  company         String?
+  email           String?
+  phone           String?
+  address         String?
+  city            String?
+  country         String       @default("Pakistan")
+  taxNumber       String?
+  notes           String?
+  totalPurchased  Float        @default(0)
+  balanceDue      Float        @default(0)
+  isActive        Boolean      @default(true)
+
+  components      Component[]
+  purchases       Purchase[]
+
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@map("suppliers")
+}
+
+// ─── CUSTOMERS ─────────────────────────────────────────────────────
+
+model Customer {
+  id             String   @id @default(cuid())
+  name           String
+  email          String?
+  phone          String?
+  address        String?
+  city           String?
+  totalPurchased Float    @default(0)
+  visitCount     Int      @default(0)
+  notes          String?
+  isActive       Boolean  @default(true)
+
+  sales          Sale[]
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("customers")
+}
+
+// ─── SALES MODULE ──────────────────────────────────────────────────
+
+model Sale {
+  id              String        @id @default(cuid())
+  invoiceNumber   String        @unique // INV-001
+  customerId      String?
+  customer       Customer?     @relation(fields: [customerId], references: [id])
+  walkInName     String?       // For walk-in customers without account
+  subtotal        Float         @default(0)
+  discount        Float         @default(0)
+  tax             Float         @default(0)
+  total           Float         @default(0)
+  profit          Float         @default(0)
+  paymentMethod   String        @default("CASH") // CASH, BANK_TRANSFER, JAZZCASH, EASYPAISA
+  paymentStatus   PaymentStatus @default(PAID)
+  notes           String?
+  userId          String        // Who processed the sale
+  user            User          @relation(fields: [userId], references: [id])
+
+  items           SaleItem[]
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@map("sales")
+}
+
+model SaleItem {
+  id          String    @id @default(cuid())
+  saleId      String
+  sale        Sale      @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  componentId String
+  component   Component @relation(fields: [componentId], references: [id])
+  quantity    Int       @default(1)
+  unitCost    Float     @default(0) // Cost price snapshot
+  unitPrice   Float     @default(0) // Selling price
+  totalCost   Float     @default(0)
+  totalPrice  Float     @default(0)
+  profit      Float     @default(0) // (unitPrice - unitCost) * quantity
+
+  createdAt   DateTime  @default(now())
+
+  @@map("sale_items")
+}
+
+// ─── PURCHASE MODULE ───────────────────────────────────────────────
+
+model Purchase {
+  id            String        @id @default(cuid())
+  poNumber      String        @unique // PO-001
+  supplierId    String
+  supplier      Supplier      @relation(fields: [supplierId], references: [id])
+  invoiceRef    String?
+  subtotal      Float         @default(0)
+  tax           Float         @default(0)
+  shipping      Float         @default(0)
+  total         Float         @default(0)
+  paymentStatus PaymentStatus @default(PENDING)
+  paidAmount    Float         @default(0)
+  notes         String?
+  userId        String        // Who created the purchase
+  user          User          @relation(fields: [userId], references: [id])
+
+  items         PurchaseItem[]
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@map("purchases")
+}
+
+model PurchaseItem {
+  id          String    @id @default(cuid())
+  purchaseId  String
+  purchase    Purchase  @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  componentId String
+  component   Component @relation(fields: [componentId], references: [id])
+  quantity    Int       @default(1)
+  unitCost    Float     @default(0)
+  totalCost   Float     @default(0)
+
+  createdAt   DateTime  @default(now())
+
+  @@map("purchase_items")
+}
+
+// ─── FINANCE MODULE ────────────────────────────────────────────────
+
+model Finance {
+  id              String          @id @default(cuid())
+  transactionRef  String          @unique // TXN-001
+  type            TransactionType
+  category        String          // Maps to IncomeCategory or ExpenseCategory
+  amount          Float
+  description     String
+  paymentMethod   String          @default("CASH")
+  reference       String?         // Link to Sale, Purchase, Project, etc.
+  referenceId     String?
+  date            DateTime        @default(now())
+  userId          String
+  user            User            @relation(fields: [userId], references: [id])
+
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@map("finances")
+}
+
+// ─── PARTNER MODULE ────────────────────────────────────────────────
+
+model Partner {
+  id                  String   @id @default(cuid())
+  name                String
+  email               String?
+  phone               String?
+  investmentAmount    Float    @default(0)
+  profitSharePercent  Float    @default(0) // e.g., 25 means 25%
+  totalWithdrawals    Float    @default(0)
+  currentBalance      Float    @default(0)
+  // Calculated: currentBalance = (total_profit * profitSharePercent/100) - totalWithdrawals + investmentAmount
+  notes               String?
+  isActive            Boolean  @default(true)
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@map("partners")
+}
+
+// ─── INVOICES ──────────────────────────────────────────────────────
+
+model Invoice {
+  id            String   @id @default(cuid())
+  invoiceNumber String   @unique
+  type          String   // "SALE", "PROJECT", "PURCHASE"
+  referenceId   String   // Sale ID or Project ID
+  customerName  String
+  customerEmail String?
+  customerPhone String?
+  items         String   // JSON string of items
+  subtotal      Float
+  discount      Float    @default(0)
+  tax           Float    @default(0)
+  total         Float
+  status        String   @default("ISSUED") // DRAFT, ISSUED, PAID, CANCELLED
+  dueDate       DateTime?
+  notes         String?
+  generatedBy   String?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("invoices")
+}
+
+// ─── ATTACHMENTS ───────────────────────────────────────────────────
+
+model Attachment {
+  id         String   @id @default(cuid())
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  filename   String
+  url        String
+  size       Int?
+  type       String?
+
+  createdAt  DateTime @default(now())
+
+  @@map("attachments")
+}
+
+// ─── NOTIFICATIONS ─────────────────────────────────────────────────
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  message   String
+  link      String?
+  isRead    Boolean          @default(false)
+  metadata  String?          // JSON for extra data
+
+  createdAt DateTime         @default(now())
+
+  @@map("notifications")
+}
+
+// ─── SETTINGS ──────────────────────────────────────────────────────
+
+model Setting {
+  id    String @id @default(cuid())
+  key   String @unique
+  value String // JSON value
+
+  @@map("settings")
+}
