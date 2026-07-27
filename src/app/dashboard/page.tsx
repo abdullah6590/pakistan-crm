@@ -3,6 +3,7 @@ import { getAuthUser } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { formatCurrency } from "@/lib/utils";
+import { predictStockLevels, detectAnomalies } from "@/lib/ai-engine";
 import DashboardClient from "./dashboard-client";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +31,7 @@ export default async function DashboardPage() {
     recentSales,
     recentProjects,
     topComponents,
+    allComponents, // for AI predictions
   ] = await Promise.all([
     prisma.component.count(),
     prisma.component.count({
@@ -112,6 +114,9 @@ export default async function DashboardPage() {
       orderBy: { totalSold: "desc" },
       select: { id: true, name: true, sku: true, totalSold: true, quantity: true, unitPrice: true },
     }),
+    prisma.component.findMany({
+      select: { id: true, name: true, quantity: true, minQuantity: true, totalSold: true, createdAt: true },
+    }),
   ]);
 
   const dashboardData = {
@@ -137,6 +142,15 @@ export default async function DashboardPage() {
     recentSales,
     recentProjects,
     topComponents,
+    aiPredictions: predictStockLevels(allComponents as any).slice(0, 5),
+    aiAnomalies: detectAnomalies(recentSales.map(s => ({
+      id: s.id,
+      type: "sale",
+      amount: s.total,
+      customerName: s.customer?.name || s.walkInName || "Walk-in",
+      timestamp: s.createdAt.toISOString(),
+      isNewCustomer: !s.customer, // Simplified logic for walk-ins
+    }))).slice(0, 3),
   };
 
   return <DashboardClient data={dashboardData} user={user} />;

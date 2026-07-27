@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Plus, Truck, Search, Trash2, Edit, Phone, Mail, MapPin, Building2 } from "lucide-react";
+import { Plus, Building2, Search, Trash2, Edit, Phone, Mail, MapPin, Truck, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,8 +13,9 @@ import { SearchInput } from "@/components/shared/search-input";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatDate } from "@/lib/utils";
 import { toast } from "sonner";
+import { findDuplicates, type DuplicateMatch } from "@/lib/ai-engine";
 
 interface SupplierItem {
   id: string; name: string; company: string | null;
@@ -51,6 +52,11 @@ export default function SuppliersClient({ suppliers: initialSuppliers }: Props) 
       (s.city && s.city.toLowerCase().includes(q))
     );
   }, [initialSuppliers, search]);
+
+  const duplicates = useMemo(() => {
+    if (!!editing || !form.name.trim()) return [];
+    return findDuplicates(form.name, form.phone, initialSuppliers);
+  }, [form.name, form.phone, initialSuppliers, editing]);
 
   const totalPurchased = initialSuppliers.reduce((s, sup) => s + sup.totalPurchased, 0);
   const totalBalanceDue = initialSuppliers.reduce((s, sup) => s + sup.balanceDue, 0);
@@ -292,6 +298,27 @@ export default function SuppliersClient({ suppliers: initialSuppliers }: Props) 
             <Label>Notes</Label>
             <Input value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Optional notes" />
           </div>
+
+          {/* Duplicate Warnings */}
+          {!isEditing && duplicates.length > 0 && (
+            <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg space-y-2">
+              <div className="flex items-center gap-2 text-amber-600 dark:text-amber-500 font-medium text-sm">
+                <AlertTriangle className="h-4 w-4" />
+                Potential Duplicates Detected
+              </div>
+              <ul className="text-xs space-y-1 text-muted-foreground ml-6">
+                {duplicates.map(dup => (
+                  <li key={dup.id} className="list-disc">
+                    <strong>{dup.name}</strong> {dup.phone && `(${dup.phone})`} 
+                    <Badge variant="outline" className="ml-2 text-[10px] h-4">
+                      {dup.matchType === "phone" ? "Phone Match" : `${dup.similarity}% match`}
+                    </Badge>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs text-amber-600/80 ml-6">Are you sure you want to add this supplier?</p>
+            </div>
+          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => { setShowAdd(false); setEditing(null); }}>Cancel</Button>

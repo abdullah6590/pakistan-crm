@@ -22,7 +22,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   const { id } = await params;
   const authUser = await getAuthUser();
   if (!authUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!isAdmin(authUser)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!isAdmin(authUser.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = await request.json();
   const data: any = {};
@@ -48,7 +48,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
   const { id } = await params;
   const authUser = await getAuthUser();
   if (!authUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!isAdmin(authUser)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!isAdmin(authUser.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   await prisma.user.delete({ where: { id } });
   return NextResponse.json({ success: true });

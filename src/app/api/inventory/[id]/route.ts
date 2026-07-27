@@ -13,7 +13,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     include: {
       category: true,
       supplier: true,
-      history: { orderBy: { createdAt: "desc" }, take: 20 },
+      inventoryHistory: { orderBy: { createdAt: "desc" }, take: 20 },
     },
   });
 
@@ -38,8 +38,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         componentId: id,
         type: diff > 0 ? "ADD" : "REMOVE",
         quantity: Math.abs(diff),
+        balanceAfter: body.quantity,
         reference: "Manual adjustment",
-        userId: user.userId,
+        performedBy: user.id,
       },
     });
   }

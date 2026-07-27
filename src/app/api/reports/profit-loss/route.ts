@@ -32,14 +32,14 @@ export async function GET(request: NextRequest) {
 
   if (format === "excel") {
     const buffer = await generateFinanceReport(records.map(r => ({
-      ref: r.refNo || r.id.slice(0, 8),
+      ref: r.transactionRef || r.id.slice(0, 8),
       type: r.type,
       category: r.category,
       description: r.description || "",
       amount: r.amount,
       date: r.createdAt.toISOString().slice(0, 10),
     })));
-    return new NextResponse(buffer, {
+    return new NextResponse(buffer as any, {
       headers: { "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Content-Disposition": "attachment; filename=profit-loss-report.xlsx" },
     });
   }

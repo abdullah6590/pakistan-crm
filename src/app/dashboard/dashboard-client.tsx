@@ -18,6 +18,8 @@ import {
   Wrench,
   Cpu,
   Building,
+  Sparkles,
+  Zap,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
@@ -61,6 +63,8 @@ interface DashboardData {
   recentSales: any[];
   recentProjects: any[];
   topComponents: any[];
+  aiPredictions?: any[];
+  aiAnomalies?: any[];
 }
 
 interface DashboardClientProps {
@@ -137,7 +141,7 @@ const paymentStatusMap: Record<string, BadgeVariant> = {
 
 // ─── Main Dashboard ─────────────────────────────────────────
 export default function DashboardClient({ data, user }: DashboardClientProps) {
-  const { counts, finance, sales, monthlyData, recentSales, recentProjects, topComponents } = data;
+  const { counts, finance, sales, monthlyData, recentSales, recentProjects, topComponents, aiPredictions, aiAnomalies } = data;
 
   // Project status distribution
   const projectDistribution = [
@@ -255,7 +259,7 @@ export default function DashboardClient({ data, user }: DashboardClientProps) {
                   <XAxis dataKey="month" className="text-xs" />
                   <YAxis className="text-xs" tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
                   <Tooltip
-                    formatter={(value: number) => [formatCurrency(value), ""]}
+                    formatter={(value: any) => [formatCurrency(Number(value) || 0), ""]}
                     contentStyle={{
                       borderRadius: "12px",
                       border: "1px solid hsl(var(--border))",
@@ -310,7 +314,7 @@ export default function DashboardClient({ data, user }: DashboardClientProps) {
                         ))}
                       </Pie>
                       <Tooltip
-                        formatter={(value: number, name: string) => [value, name]}
+                        formatter={(value: any, name: any) => [value, name]}
                         contentStyle={{ borderRadius: "12px" }}
                       />
                     </PieChart>
@@ -355,6 +359,78 @@ export default function DashboardClient({ data, user }: DashboardClientProps) {
                 </div>
               </div>
             </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ─── AI Insights Row ───────────────────────────────── */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* AI Stock Predictions */}
+        <Card className="border-purple-500/20 shadow-sm bg-gradient-to-br from-purple-50/50 to-transparent dark:from-purple-950/10">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-purple-600 dark:text-purple-400">
+              <Sparkles className="h-5 w-5" />
+              AI Stock Predictions
+            </CardTitle>
+            <CardDescription>Based on your 30-day sales velocity</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {!aiPredictions || aiPredictions.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                Not enough sales data for AI predictions yet.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {aiPredictions.map((pred: any) => (
+                  <div key={pred.componentId} className="flex flex-col p-3 rounded-lg bg-background/50 border">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm font-medium">{pred.componentName}</span>
+                      <Badge variant={pred.urgency === "critical" ? "destructive" : pred.urgency === "warning" ? "warning" : "success"} size="sm" className="text-[10px]">
+                        {pred.daysUntilStockout === 0 ? "Out of Stock" : `${pred.daysUntilStockout} days left`}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground">{pred.recommendation}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* AI Anomaly Detection */}
+        <Card className="border-blue-500/20 shadow-sm bg-gradient-to-br from-blue-50/50 to-transparent dark:from-blue-950/10">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
+              <Zap className="h-5 w-5" />
+              Smart Alerts
+            </CardTitle>
+            <CardDescription>Unusual activity detected in recent transactions</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {!aiAnomalies || aiAnomalies.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
+                <BadgeCheck className="h-8 w-8 mb-2 text-emerald-500/50" />
+                <p className="text-sm">All transactions look normal.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {aiAnomalies.map((anomaly: any) => (
+                  <div key={anomaly.id} className="flex gap-3 p-3 rounded-lg bg-background/50 border">
+                    <div className="mt-0.5">
+                      {anomaly.severity === "high" ? (
+                        <AlertTriangle className="h-4 w-4 text-red-500" />
+                      ) : (
+                        <Zap className="h-4 w-4 text-amber-500" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">{anomaly.message}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{anomaly.details}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

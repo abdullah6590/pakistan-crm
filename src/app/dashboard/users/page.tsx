@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export default async function UsersPage() {
   const user = await getAuthUser();
   if (!user) redirect("/login");
-  if (!isAdmin(user)) redirect("/dashboard");
+  if (!isAdmin(user.role)) redirect("/dashboard");
 
   const users = await prisma.user.findMany({
     select: {
@@ -19,5 +19,5 @@ export default async function UsersPage() {
     orderBy: { createdAt: "desc" },
   });
 
-  return <UsersClient users={users} />;
+  return <UsersClient users={users.map(u => ({ ...u, createdAt: u.createdAt.toISOString() }))} />;
 }

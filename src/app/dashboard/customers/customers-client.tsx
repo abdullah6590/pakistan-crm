@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Plus, Users, Search, Trash2, Edit, Phone, Mail, MapPin } from "lucide-react";
+import { Plus, Users, Search, Trash2, Edit, Phone, Mail, MapPin, AlertTriangle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,7 @@ import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { toast } from "sonner";
+import { findDuplicates, type DuplicateMatch } from "@/lib/ai-engine";
 
 interface CustomerItem {
   id: string; name: string; email: string | null; phone: string | null;
@@ -50,6 +51,11 @@ export default function CustomersClient({ customers: initialCustomers }: Props) 
       (c.city && c.city.toLowerCase().includes(q))
     );
   }, [initialCustomers, search]);
+
+  const duplicates = useMemo(() => {
+    if (!!editing || !form.name.trim()) return [];
+    return findDuplicates(form.name, form.phone, initialCustomers);
+  }, [form.name, form.phone, initialCustomers, editing]);
 
   const totalRevenue = initialCustomers.reduce((s, c) => s + c.totalPurchased, 0);
 
@@ -249,6 +255,27 @@ export default function CustomersClient({ customers: initialCustomers }: Props) 
             <Label>Notes</Label>
             <Input value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Optional notes" />
           </div>
+
+          {/* Duplicate Warnings */}
+          {!isEditing && duplicates.length > 0 && (
+            <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg space-y-2">
+              <div className="flex items-center gap-2 text-amber-600 dark:text-amber-500 font-medium text-sm">
+                <AlertTriangle className="h-4 w-4" />
+                Potential Duplicates Detected
+              </div>
+              <ul className="text-xs space-y-1 text-muted-foreground ml-6">
+                {duplicates.map(dup => (
+                  <li key={dup.id} className="list-disc">
+                    <strong>{dup.name}</strong> {dup.phone && `(${dup.phone})`} 
+                    <Badge variant="outline" className="ml-2 text-[10px] h-4">
+                      {dup.matchType === "phone" ? "Phone Match" : `${dup.similarity}% match`}
+                    </Badge>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs text-amber-600/80 ml-6">Are you sure you want to add this customer?</p>
+            </div>
+          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => { setShowAdd(false); setEditing(null); }}>Cancel</Button>

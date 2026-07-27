@@ -52,10 +52,18 @@ export const componentSchema = z.object({
   minQuantity: z.coerce.number().int().min(0).optional(),
   unitCost: z.coerce.number().min(0),
   unitPrice: z.coerce.number().min(0),
+  packagingUnit: z.string().optional().default("Carton"),
+  itemsPerPackage: z.coerce.number().int().min(1).optional().default(1),
+  supplierPrice: z.coerce.number().min(0).optional().default(0),
+  expenses: z.coerce.number().min(0).optional().default(0),
   supplierId: z.string().optional().nullable(),
   location: z.string().optional(),
   datasheetUrl: z.string().url().optional().or(z.literal('')),
   imageUrl: z.string().optional(),
+  size: z.string().optional(),
+  grams: z.coerce.number().min(0).optional().nullable(),
+  unit: z.string().optional(),
+  customFields: z.string().optional(), // JSON string
 });
 
 export const categorySchema = z.object({
@@ -147,6 +155,69 @@ export const partnerSchema = z.object({
   notes: z.string().optional(),
 });
 
+// ─── Supplier Payment ──────────────────────────────────────────────
+export const supplierPaymentSchema = z.object({
+  supplierId: z.string().min(1, 'Supplier is required'),
+  amount: z.coerce.number().min(0.01, 'Amount must be greater than 0'),
+  paymentMethod: z.enum(['CASH', 'CHEQUE', 'BANK_TRANSFER', 'JAZZCASH', 'EASYPAISA', 'NAYAPAY', 'SADAPAY']),
+  chequeNumber: z.string().optional(),
+  bankName: z.string().optional(),
+  date: z.coerce.date().optional(),
+  notes: z.string().optional(),
+  purchaseId: z.string().optional(),
+});
+
+// ─── Customer Payment ──────────────────────────────────────────────
+export const customerPaymentSchema = z.object({
+  customerId: z.string().min(1, 'Customer is required'),
+  amount: z.coerce.number().min(0.01, 'Amount must be greater than 0'),
+  paymentMethod: z.enum(['CASH', 'CHEQUE', 'BANK_TRANSFER', 'JAZZCASH', 'EASYPAISA', 'NAYAPAY', 'SADAPAY']),
+  chequeNumber: z.string().optional(),
+  bankName: z.string().optional(),
+  date: z.coerce.date().optional(),
+  notes: z.string().optional(),
+  saleId: z.string().optional(),
+});
+
+// ─── Cash Sale ─────────────────────────────────────────────────────
+export const cashSaleSchema = z.object({
+  customerName: z.string().optional(),
+  amount: z.coerce.number().min(0.01, 'Amount must be greater than 0'),
+  remarks: z.string().optional(),
+  paymentMethod: z.enum(['CASH', 'CHEQUE', 'BANK_TRANSFER', 'JAZZCASH', 'EASYPAISA', 'NAYAPAY', 'SADAPAY']).optional(),
+  date: z.coerce.date().optional(),
+});
+
+// ─── Financial Account ─────────────────────────────────────────────
+export const financialAccountSchema = z.object({
+  name: z.string().min(1, 'Account name is required'),
+  type: z.enum(['BANK', 'CASH', 'EXPENSE', 'DIGITAL_WALLET']),
+  accountNumber: z.string().optional(),
+  bankName: z.string().optional(),
+  currentBalance: z.coerce.number().optional(),
+  notes: z.string().optional(),
+});
+
+// ─── Account Transfer ──────────────────────────────────────────────
+export const accountTransferSchema = z.object({
+  fromAccountId: z.string().min(1, 'Source account is required'),
+  toAccountId: z.string().min(1, 'Destination account is required'),
+  amount: z.coerce.number().min(0.01, 'Amount must be greater than 0'),
+  transferType: z.enum(['CASH_TO_BANK', 'BANK_TO_CASH', 'CASH_TO_WALLET', 'WALLET_TO_BANK', 'INTERNAL']),
+  voucherNumber: z.string().optional(),
+  notes: z.string().optional(),
+  date: z.coerce.date().optional(),
+});
+
+// ─── Expenditure ───────────────────────────────────────────────────
+export const expenditureSchema = z.object({
+  category: z.string().min(1, 'Category is required'),
+  amount: z.coerce.number().min(0.01, 'Amount must be greater than 0'),
+  description: z.string().min(1, 'Description is required'),
+  date: z.coerce.date().optional(),
+  accountId: z.string().optional(),
+});
+
 // ─── Types ──────────────────────────────────────────────────────────
 export type LoginInput = z.infer<typeof loginSchema>;
 export type RegisterInput = z.infer<typeof registerSchema>;
@@ -159,3 +230,9 @@ export type SupplierInput = z.infer<typeof supplierSchema>;
 export type PurchaseInput = z.infer<typeof purchaseSchema>;
 export type FinanceInput = z.infer<typeof financeSchema>;
 export type PartnerInput = z.infer<typeof partnerSchema>;
+export type SupplierPaymentInput = z.infer<typeof supplierPaymentSchema>;
+export type CustomerPaymentInput = z.infer<typeof customerPaymentSchema>;
+export type CashSaleInput = z.infer<typeof cashSaleSchema>;
+export type FinancialAccountInput = z.infer<typeof financialAccountSchema>;
+export type AccountTransferInput = z.infer<typeof accountTransferSchema>;
+export type ExpenditureInput = z.infer<typeof expenditureSchema>;

@@ -9,12 +9,12 @@ export async function GET(request: NextRequest) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const notifications = await prisma.notification.findMany({
-    where: { userId: user.userId },
+    where: { userId: user.id },
     orderBy: { createdAt: "desc" },
     take: 50,
   });
 
-  const unreadCount = await getUnreadCount(user.userId);
+  const unreadCount = await getUnreadCount(user.id);
 
   return NextResponse.json({ notifications, unreadCount });
 }
@@ -26,7 +26,7 @@ export async function PUT(request: NextRequest) {
   const body = await request.json();
 
   if (body.markAllRead) {
-    await markAllAsRead(user.userId);
+    await markAllAsRead(user.id);
     return NextResponse.json({ success: true });
   }
 

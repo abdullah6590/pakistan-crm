@@ -13,10 +13,10 @@ export async function GET(request: NextRequest) {
   const customers = await prisma.customer.findMany({
     where: search ? {
       OR: [
-        { name: { contains: search, mode: "insensitive" } },
-        { email: { contains: search, mode: "insensitive" } },
+        { name: { contains: search } },
+        { email: { contains: search } },
         { phone: { contains: search } },
-        { city: { contains: search, mode: "insensitive" } },
+        { city: { contains: search } },
       ],
     } : {},
     orderBy: { totalPurchased: "desc" },

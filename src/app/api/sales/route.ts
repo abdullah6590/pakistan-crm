@@ -19,9 +19,9 @@ export async function GET(request: NextRequest) {
       AND: [
         search ? {
           OR: [
-            { invoiceNumber: { contains: search, mode: "insensitive" } },
-            { walkInName: { contains: search, mode: "insensitive" } },
-            { customer: { name: { contains: search, mode: "insensitive" } } },
+            { invoiceNumber: { contains: search } },
+            { walkInName: { contains: search } },
+            { customer: { name: { contains: search } } },
           ],
         } : {},
         customerId ? { customerId } : {},
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
       profit: 0,
       paymentMethod: body.paymentMethod,
       paymentStatus: body.paymentStatus || "PENDING",
-      userId: user.userId,
+      userId: user.id,
     },
   });
 
@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
     });
 
     // Deduct inventory
-    await prisma.component.update({
+    const updatedComp = await prisma.component.update({
       where: { id: item.componentId },
       data: { quantity: { decrement: qty }, totalSold: { increment: qty } },
     });
@@ -113,8 +113,9 @@ export async function POST(request: NextRequest) {
         componentId: item.componentId,
         type: "REMOVE",
         quantity: qty,
+        balanceAfter: updatedComp.quantity,
         reference: `Sale ${invoiceNumber}`,
-        userId: user.userId,
+        performedBy: user.id,
       },
     });
 
@@ -141,7 +142,7 @@ export async function POST(request: NextRequest) {
         paymentMethod: body.paymentMethod,
         reference: invoiceNumber,
         referenceId: sale.id,
-        userId: user.userId,
+        userId: user.id,
       },
     });
   }

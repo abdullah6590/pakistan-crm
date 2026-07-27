@@ -2,6 +2,7 @@
 import { getAuthUser } from "@/lib/auth";
 import { getUnreadCount } from "@/lib/notifications";
 import { Shell } from "@/components/layout/shell";
+import VoiceAssistant from "@/components/ai/voice-assistant";
 import { redirect } from "next/navigation";
 
 export default async function DashboardLayout({
@@ -27,6 +28,7 @@ export default async function DashboardLayout({
       unreadNotifications={unreadCount}
     >
       {children}
+      <VoiceAssistant />
     </Shell>
   );
 }

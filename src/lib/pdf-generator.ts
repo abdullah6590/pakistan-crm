@@ -180,14 +180,17 @@ export async function generateFinancialReport(summary: {
     // Summary Cards
     doc.fontSize(10);
     doc.font('Helvetica-Bold').text('Total Income:', 50, doc.y, { continued: true });
-    doc.font('Helvetica').text(`  ${formatCurrency(summary.totalIncome)}`, { color: '#10B981' });
+    doc.fillColor('#10B981').font('Helvetica').text(`  ${formatCurrency(summary.totalIncome)}`);
+    doc.fillColor('black');
     
     doc.font('Helvetica-Bold').text('Total Expenses:', 50, doc.y, { continued: true });
-    doc.font('Helvetica').text(`  ${formatCurrency(summary.totalExpenses)}`, { color: '#EF4444' });
+    doc.fillColor('#EF4444').font('Helvetica').text(`  ${formatCurrency(summary.totalExpenses)}`);
+    doc.fillColor('black');
     
     doc.font('Helvetica-Bold').text('Net Profit:', 50, doc.y, { continued: true });
     const profitColor = summary.netProfit >= 0 ? '#10B981' : '#EF4444';
-    doc.font('Helvetica').text(`  ${formatCurrency(summary.netProfit)}`, { color: profitColor });
+    doc.fillColor(profitColor).font('Helvetica').text(`  ${formatCurrency(summary.netProfit)}`);
+    doc.fillColor('black');
     doc.moveDown();
 
     // Monthly Table

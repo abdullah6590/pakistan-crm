@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   Search, Plus, Package, PackageOpen, AlertTriangle, TrendingDown,
-  BarChart3, Edit, Trash2, Filter, ChevronDown, Box,
+  BarChart3, Edit, Trash2, Filter, ChevronDown, Box, Printer, Sparkles, TrendingUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -23,15 +23,18 @@ import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { PageHeader } from "@/components/shared/page-header";
 import { SearchInput } from "@/components/shared/search-input";
 import { EmptyState } from "@/components/shared/empty-state";
-import { formatCurrency, timeAgo } from "@/lib/utils";
-import { DEFAULT_COMPONENT_CATEGORIES } from "@/lib/constants";
+import { formatCurrency, timeAgo, formatDate } from "@/lib/utils";
+import { DEFAULT_COMPONENT_CATEGORIES, COMPANY_INFO } from "@/lib/constants";
 import { toast } from "sonner";
+import { suggestPrices, checkBelowCost } from "@/lib/ai-engine";
 
 interface ComponentItem {
   id: string; sku: string; name: string; description: string | null;
   quantity: number; minQuantity: number; unitCost: number; unitPrice: number;
+  packagingUnit: string; itemsPerPackage: number; supplierPrice: number; expenses: number;
   location: string | null; isActive: boolean; totalPurchased: number;
   totalUsed: number; totalSold: number; createdAt: string; updatedAt: string;
+  size: string | null; grams: number | null; unit: string; customFields: string | null;
   category: { id: string; name: string; color: string };
   supplier: { id: string; name: string } | null;
 }
@@ -61,14 +64,32 @@ export default function InventoryClient({ components: initialComponents, categor
   const [form, setForm] = useState({
     name: "", description: "", sku: "", categoryId: "",
     quantity: "0", minQuantity: "5", unitCost: "0", unitPrice: "0",
-    location: "", supplierId: "none",
+    packagingUnit: "Carton", itemsPerPackage: "1", supplierPrice: "0", expenses: "0",
+    packages: "0", looseQuantity: "0",
+    location: "", supplierId: "none", size: "", grams: "", unit: "piece", customFields: "",
   });
 
   const resetForm = () => setForm({
     name: "", description: "", sku: "", categoryId: "",
     quantity: "0", minQuantity: "5", unitCost: "0", unitPrice: "0",
-    location: "", supplierId: "none",
+    packagingUnit: "Carton", itemsPerPackage: "1", supplierPrice: "0", expenses: "0",
+    packages: "0", looseQuantity: "0",
+    location: "", supplierId: "none", size: "", grams: "", unit: "piece", customFields: "",
   });
+
+  // AI Price Suggestions
+  const priceAI = useMemo(() => {
+    const cost = parseFloat(form.unitCost) || 0;
+    const sale = parseFloat(form.unitPrice) || 0;
+    const supPrice = parseFloat(form.supplierPrice) || 0;
+    const exp = parseFloat(form.expenses) || 0;
+    
+    if (cost <= 0 && supPrice <= 0) return null;
+    return {
+      suggestions: suggestPrices(supPrice || cost, supPrice ? exp : 0).suggestedPrices,
+      warning: checkBelowCost(sale, supPrice || cost, supPrice ? exp : 0)
+    };
+  }, [form.unitCost, form.unitPrice, form.supplierPrice, form.expenses]);
 
   const openEdit = (c: ComponentItem) => {
     setEditing(c);
@@ -77,7 +98,13 @@ export default function InventoryClient({ components: initialComponents, categor
       categoryId: c.category.id, quantity: String(c.quantity),
       minQuantity: String(c.minQuantity), unitCost: String(c.unitCost),
       unitPrice: String(c.unitPrice), location: c.location || "",
+      packagingUnit: c.packagingUnit || "Carton", itemsPerPackage: String(c.itemsPerPackage || 1),
+      supplierPrice: String(c.supplierPrice || 0), expenses: String(c.expenses || 0),
+      packages: String(Math.floor(c.quantity / (c.itemsPerPackage || 1))),
+      looseQuantity: String(c.quantity % (c.itemsPerPackage || 1)),
       supplierId: c.supplier?.id || "none",
+      size: c.size || "", grams: c.grams ? String(c.grams) : "", 
+      unit: c.unit || "piece", customFields: c.customFields || "",
     });
   };
 
@@ -109,7 +136,15 @@ export default function InventoryClient({ components: initialComponents, categor
           unitCost: parseFloat(form.unitCost) || 0,
           unitPrice: parseFloat(form.unitPrice) || 0,
           location: form.location || undefined,
+          packagingUnit: form.packagingUnit || "Carton",
+          itemsPerPackage: parseInt(form.itemsPerPackage) || 1,
+          supplierPrice: parseFloat(form.supplierPrice) || 0,
+          expenses: parseFloat(form.expenses) || 0,
           supplierId: form.supplierId !== "none" ? form.supplierId : undefined,
+          size: form.size || undefined,
+          grams: parseFloat(form.grams) || undefined,
+          unit: form.unit || "piece",
+          customFields: form.customFields || undefined,
         }),
       });
       const data = await res.json();
@@ -140,7 +175,15 @@ export default function InventoryClient({ components: initialComponents, categor
           unitCost: parseFloat(form.unitCost) || 0,
           unitPrice: parseFloat(form.unitPrice) || 0,
           location: form.location || undefined,
+          packagingUnit: form.packagingUnit || "Carton",
+          itemsPerPackage: parseInt(form.itemsPerPackage) || 1,
+          supplierPrice: parseFloat(form.supplierPrice) || 0,
+          expenses: parseFloat(form.expenses) || 0,
           supplierId: form.supplierId !== "none" ? form.supplierId : null,
+          size: form.size || undefined,
+          grams: parseFloat(form.grams) || undefined,
+          unit: form.unit || "piece",
+          customFields: form.customFields || undefined,
         }),
       });
       const data = await res.json();
@@ -180,12 +223,18 @@ export default function InventoryClient({ components: initialComponents, categor
         description="Manage electronic components, stock levels, and suppliers"
         icon={Box}
         actions={
-          <Button onClick={() => { resetForm(); setShowAdd(true); }}>
-            <Plus className="h-4 w-4 mr-1" /> Add Component
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => window.print()}>
+              <Printer className="h-4 w-4 mr-1" /> Print Report
+            </Button>
+            <Button onClick={() => { resetForm(); setShowAdd(true); }}>
+              <Plus className="h-4 w-4 mr-1" /> Add Component
+            </Button>
+          </div>
         }
       />
 
+      <div className="space-y-6 print:hidden">
       {/* Stats Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
@@ -280,9 +329,10 @@ export default function InventoryClient({ components: initialComponents, categor
                     <TableHead>Component</TableHead>
                     <TableHead>Category</TableHead>
                     <TableHead>SKU</TableHead>
-                    <TableHead className="text-right">Stock</TableHead>
-                    <TableHead className="text-right">Unit Cost</TableHead>
-                    <TableHead className="text-right">Unit Price</TableHead>
+                    <TableHead className="text-right">Packaging</TableHead>
+                    <TableHead className="text-right">Total Qty</TableHead>
+                    <TableHead className="text-right">Sup. Price</TableHead>
+                    <TableHead className="text-right">Cost</TableHead>
                     <TableHead className="text-right">Value</TableHead>
                     <TableHead>Supplier</TableHead>
                     <TableHead>Status</TableHead>
@@ -296,6 +346,10 @@ export default function InventoryClient({ components: initialComponents, categor
                         <div>
                           <p className="font-medium text-sm">{c.name}</p>
                           {c.description && <p className="text-xs text-muted-foreground truncate max-w-[200px]">{c.description}</p>}
+                          <div className="flex gap-1 mt-1">
+                            {c.size && <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4">{c.size}</Badge>}
+                            {c.grams && <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4">{c.grams}g</Badge>}
+                          </div>
                         </div>
                       </TableCell>
                       <TableCell>
@@ -304,10 +358,14 @@ export default function InventoryClient({ components: initialComponents, categor
                         </Badge>
                       </TableCell>
                       <TableCell><code className="text-xs bg-muted px-1.5 py-0.5 rounded">{c.sku}</code></TableCell>
+                      <TableCell className="text-right text-sm">
+                        <div className="font-mono">{Math.floor(c.quantity / (c.itemsPerPackage || 1))} {c.packagingUnit}</div>
+                        <div className="text-[10px] text-muted-foreground">{c.quantity % (c.itemsPerPackage || 1)} loose</div>
+                      </TableCell>
                       <TableCell className="text-right font-mono text-sm">{c.quantity}</TableCell>
-                      <TableCell className="text-right font-mono text-sm">{formatCurrency(c.unitCost)}</TableCell>
-                      <TableCell className="text-right font-mono text-sm">{formatCurrency(c.unitPrice)}</TableCell>
-                      <TableCell className="text-right font-mono text-sm">{formatCurrency(c.quantity * c.unitCost)}</TableCell>
+                      <TableCell className="text-right font-mono text-sm">{formatCurrency(c.supplierPrice)}</TableCell>
+                      <TableCell className="text-right font-mono text-sm text-amber-600">{formatCurrency(c.unitCost)}</TableCell>
+                      <TableCell className="text-right font-mono text-sm text-blue-600">{formatCurrency(c.quantity * c.unitCost)}</TableCell>
                       <TableCell className="text-sm">{c.supplier?.name || "—"}</TableCell>
                       <TableCell>{getStockBadge(c)}</TableCell>
                       <TableCell>
@@ -328,6 +386,49 @@ export default function InventoryClient({ components: initialComponents, categor
           )}
         </CardContent>
       </Card>
+      </div>
+
+      {/* Dedicated Print View (Hidden on screen, visible on print) */}
+      <div className="hidden print:block">
+        <div className="flex justify-between items-end mb-6 border-b pb-4">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">Inventory Stock Value Report</h1>
+            <p className="text-sm text-slate-500 mt-1">Generated: {formatDate(new Date().toISOString())}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-sm font-semibold">{COMPANY_INFO?.name || "Company"}</p>
+          </div>
+        </div>
+
+        <table className="w-full text-sm text-left">
+          <thead className="border-b-2 border-slate-800">
+            <tr>
+              <th className="py-2 px-1 text-slate-900 font-semibold">ID</th>
+              <th className="py-2 px-1 text-slate-900 font-semibold">Product Name</th>
+              <th className="py-2 px-1 text-right text-slate-900 font-semibold">C IN Q</th>
+              <th className="py-2 px-1 text-right text-slate-900 font-semibold">Catan</th>
+              <th className="py-2 px-1 text-right text-slate-900 font-semibold">Qty</th>
+              <th className="py-2 px-1 text-right text-slate-900 font-semibold">Amount</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200">
+            {filtered.map((c, i) => (
+              <tr key={c.id}>
+                <td className="py-1.5 px-1 font-mono text-xs">{i + 1}</td>
+                <td className="py-1.5 px-1 font-medium">{c.name} {c.size ? `(${c.size})` : ''}</td>
+                <td className="py-1.5 px-1 text-right font-mono">{c.itemsPerPackage || 1}</td>
+                <td className="py-1.5 px-1 text-right font-mono">{Math.floor(c.quantity / (c.itemsPerPackage || 1)) || "-"}</td>
+                <td className="py-1.5 px-1 text-right font-mono">{c.quantity % (c.itemsPerPackage || 1) || "-"}</td>
+                <td className="py-1.5 px-1 text-right font-mono font-semibold">{formatCurrency(c.quantity * c.unitCost)}</td>
+              </tr>
+            ))}
+            <tr className="border-t-2 border-slate-800 bg-slate-50 font-bold">
+              <td colSpan={5} className="py-2 px-1 text-right">Total Inventory Value:</td>
+              <td className="py-2 px-1 text-right font-mono">{formatCurrency(filtered.reduce((sum, c) => sum + (c.quantity * c.unitCost), 0))}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
       {/* Add / Edit Dialog */}
       <Dialog open={showAdd || !!editing} onClose={() => { setShowAdd(false); setEditing(null); }}>
@@ -374,29 +475,147 @@ export default function InventoryClient({ components: initialComponents, categor
               </Select>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label>Quantity</Label>
-              <Input type="number" value={form.quantity} onChange={e => setForm({...form, quantity: e.target.value})} />
+          <div className="space-y-3 pt-2 border-t mt-2">
+            <h4 className="text-sm font-medium">Packaging & Stock</h4>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label>Packaging Unit</Label>
+                <Input value={form.packagingUnit} onChange={e => setForm({...form, packagingUnit: e.target.value})} placeholder="e.g. Carton, Bottle, Ream" />
+              </div>
+              <div className="space-y-1">
+                <Label>Items per {form.packagingUnit || "Package"}</Label>
+                <Input type="number" min="1" value={form.itemsPerPackage} onChange={e => {
+                  const itemsPerPkg = parseInt(e.target.value) || 1;
+                  const pkgs = parseInt(form.packages) || 0;
+                  const loose = parseInt(form.looseQuantity) || 0;
+                  setForm({...form, itemsPerPackage: e.target.value, quantity: String(pkgs * itemsPerPkg + loose)});
+                }} />
+              </div>
             </div>
-            <div className="space-y-1">
-              <Label>Min Quantity Alert</Label>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1">
+                <Label>{form.packagingUnit || "Packages"} (Stock)</Label>
+                <Input type="number" value={form.packages} onChange={e => {
+                  const pkgs = parseInt(e.target.value) || 0;
+                  const itemsPerPkg = parseInt(form.itemsPerPackage) || 1;
+                  const loose = parseInt(form.looseQuantity) || 0;
+                  setForm({...form, packages: e.target.value, quantity: String(pkgs * itemsPerPkg + loose)});
+                }} />
+              </div>
+              <div className="space-y-1">
+                <Label>Loose Qty</Label>
+                <Input type="number" value={form.looseQuantity} onChange={e => {
+                  const loose = parseInt(e.target.value) || 0;
+                  const itemsPerPkg = parseInt(form.itemsPerPackage) || 1;
+                  const pkgs = parseInt(form.packages) || 0;
+                  setForm({...form, looseQuantity: e.target.value, quantity: String(pkgs * itemsPerPkg + loose)});
+                }} />
+              </div>
+              <div className="space-y-1">
+                <Label>Total Qty</Label>
+                <Input type="number" value={form.quantity} onChange={e => {
+                  const qty = parseInt(e.target.value) || 0;
+                  const itemsPerPkg = parseInt(form.itemsPerPackage) || 1;
+                  setForm({...form, quantity: String(qty), packages: String(Math.floor(qty / itemsPerPkg)), looseQuantity: String(qty % itemsPerPkg)});
+                }} />
+              </div>
+            </div>
+            <div className="space-y-1 w-1/2 pr-1.5">
+              <Label>Min Quantity Alert (Total)</Label>
               <Input type="number" value={form.minQuantity} onChange={e => setForm({...form, minQuantity: e.target.value})} />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label>Unit Cost (Rs.)</Label>
-              <Input type="number" step="0.01" value={form.unitCost} onChange={e => setForm({...form, unitCost: e.target.value})} />
+
+          <div className="space-y-3 pt-2 border-t mt-2">
+            <h4 className="text-sm font-medium">Pricing</h4>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label>Supplier Price (Rs.)</Label>
+                <Input type="number" step="0.01" value={form.supplierPrice} onChange={e => {
+                  const sup = parseFloat(e.target.value) || 0;
+                  const exp = parseFloat(form.expenses) || 0;
+                  setForm({...form, supplierPrice: e.target.value, unitCost: String(sup + exp)});
+                }} />
+              </div>
+              <div className="space-y-1">
+                <Label>Expenses (Rs.)</Label>
+                <Input type="number" step="0.01" value={form.expenses} onChange={e => {
+                  const exp = parseFloat(e.target.value) || 0;
+                  const sup = parseFloat(form.supplierPrice) || 0;
+                  setForm({...form, expenses: e.target.value, unitCost: String(sup + exp)});
+                }} />
+              </div>
             </div>
-            <div className="space-y-1">
-              <Label>Unit Price (Rs.)</Label>
-              <Input type="number" step="0.01" value={form.unitPrice} onChange={e => setForm({...form, unitPrice: e.target.value})} />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label>Purchase Price / Unit Cost (Rs.)</Label>
+                <Input type="number" step="0.01" value={form.unitCost} onChange={e => setForm({...form, unitCost: e.target.value})} />
+              </div>
+              <div className="space-y-1">
+                <Label>Sale Price (Rs.)</Label>
+                <Input type="number" step="0.01" value={form.unitPrice} onChange={e => setForm({...form, unitPrice: e.target.value})} />
+              </div>
             </div>
+
+            {/* AI Price Insights */}
+            {priceAI && priceAI.suggestions.length > 0 && (
+              <div className="bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800 rounded-lg p-3 space-y-2">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-purple-700 dark:text-purple-400">
+                  <Sparkles className="h-3.5 w-3.5" /> AI Price Suggestions
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {priceAI.suggestions.map((sug, i) => (
+                    <Badge 
+                      key={i} 
+                      variant="outline" 
+                      className="cursor-pointer bg-white dark:bg-black hover:bg-purple-100 hover:text-purple-800 transition-colors"
+                      onClick={() => setForm({ ...form, unitPrice: String(sug.price) })}
+                    >
+                      {sug.label}: Rs. {sug.price.toLocaleString()}
+                    </Badge>
+                  ))}
+                </div>
+                {priceAI.warning.isBelow && (
+                  <div className="flex items-start gap-1.5 text-xs font-medium text-red-600 mt-2 bg-red-50 dark:bg-red-950/30 p-2 rounded border border-red-200 dark:border-red-900">
+                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                    <span>{priceAI.warning.message}</span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           <div className="space-y-1">
             <Label>Location</Label>
             <Input value={form.location} onChange={e => setForm({...form, location: e.target.value})} placeholder="e.g. Shelf A-3" />
+          </div>
+          
+          {/* New Fields */}
+          <div className="grid grid-cols-3 gap-3 pt-2 border-t mt-2">
+            <div className="space-y-1">
+              <Label>Size/Dimensions</Label>
+              <Input value={form.size} onChange={e => setForm({...form, size: e.target.value})} placeholder="e.g. 14 inch" />
+            </div>
+            <div className="space-y-1">
+              <Label>Weight (Grams)</Label>
+              <Input type="number" step="0.1" value={form.grams} onChange={e => setForm({...form, grams: e.target.value})} placeholder="0" />
+            </div>
+            <div className="space-y-1">
+              <Label>Unit of Measure</Label>
+              <Select value={form.unit} onChange={v => setForm({...form, unit: v})}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="piece">Piece (pc)</SelectItem>
+                  <SelectItem value="sheet">Sheet</SelectItem>
+                  <SelectItem value="meter">Meter (m)</SelectItem>
+                  <SelectItem value="kg">Kilogram (kg)</SelectItem>
+                  <SelectItem value="set">Set</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label>Custom Fields (JSON format)</Label>
+            <Textarea value={form.customFields} onChange={e => setForm({...form, customFields: e.target.value})} rows={2} placeholder='e.g. {"color": "red", "brand": "XYZ"}' />
           </div>
         </div>
         <DialogFooter>

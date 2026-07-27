@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   ArrowLeft, Plus, Trash2, Save, Truck, Package,
   Search, Building2, FileText, DollarSign, Calculator,
-  Banknote, Smartphone, BadgeCheck, Clock,
+  Banknote, Smartphone, BadgeCheck, Clock, Camera,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,7 @@ import {
 import { PAYMENT_METHODS } from "@/lib/constants";
 import { formatCurrency } from "@/lib/utils";
 import { toast } from "sonner";
+import InvoiceScanner from "@/components/ai/invoice-scanner";
 
 // ─── Types ──────────────────────────────────────────────────────────
 interface ComponentOption {
@@ -66,6 +67,9 @@ export default function NewPurchaseClient({ components, suppliers }: Props) {
 
   // Cart
   const [cart, setCart] = useState<CartItem[]>([]);
+
+  // Scanner
+  const [showScanner, setShowScanner] = useState(false);
 
   // Component search
   const [searchQuery, setSearchQuery] = useState("");
@@ -179,11 +183,66 @@ export default function NewPurchaseClient({ components, suppliers }: Props) {
             <p className="text-sm text-muted-foreground">Record a component purchase from a supplier</p>
           </div>
         </div>
-        <Button onClick={handleSubmit} disabled={loading || cart.length === 0} className="gap-2">
-          {loading ? <Calculator className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-          {loading ? "Creating..." : "Create Purchase"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setShowScanner(true)} className="gap-2 border-purple-300 text-purple-600 hover:bg-purple-50 hover:text-purple-700">
+            <Camera className="h-4 w-4" /> Scan Invoice
+          </Button>
+          <Button onClick={handleSubmit} disabled={loading || cart.length === 0} className="gap-2">
+            {loading ? <Calculator className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            {loading ? "Creating..." : "Create Purchase"}
+          </Button>
+        </div>
       </div>
+
+      {/* AI Invoice Scanner */}
+      <InvoiceScanner
+        open={showScanner}
+        onClose={() => setShowScanner(false)}
+        onConfirm={(scannedItems, meta) => {
+          // Auto-fill supplier if detected
+          if (meta.supplierName && !supplierId) {
+            const matched = suppliers.find(s =>
+              s.name.toLowerCase().includes(meta.supplierName!.toLowerCase()) ||
+              meta.supplierName!.toLowerCase().includes(s.name.toLowerCase())
+            );
+            if (matched) setSupplierId(matched.id);
+          }
+          // Auto-fill invoice ref
+          if (meta.invoiceNumber && !invoiceRef) {
+            setInvoiceRef(meta.invoiceNumber);
+          }
+          // Add scanned items to cart
+          for (const si of scannedItems) {
+            // Try to match with existing components by name
+            const matchedComp = components.find(c =>
+              c.name.toLowerCase().includes(si.name.toLowerCase()) ||
+              si.name.toLowerCase().includes(c.name.toLowerCase())
+            );
+            if (matchedComp) {
+              const existing = cart.find(c => c.componentId === matchedComp.id);
+              if (existing) {
+                setCart(prev => prev.map(c =>
+                  c.componentId === matchedComp.id
+                    ? { ...c, quantity: c.quantity + si.quantity, unitCost: si.unitCost }
+                    : c
+                ));
+              } else {
+                setCart(prev => [...prev, {
+                  componentId: matchedComp.id,
+                  componentName: matchedComp.name,
+                  sku: matchedComp.sku,
+                  quantity: si.quantity,
+                  unitCost: si.unitCost,
+                  currentStock: matchedComp.quantity,
+                }]);
+              }
+            } else {
+              // No match found, add with a temp ID (user will need to match manually)
+              toast.info(`"${si.name}" not found in inventory. Please match it manually.`);
+            }
+          }
+        }}
+      />
 
       <div className="grid gap-6 lg:grid-cols-5">
         {/* ── Left Column: Supplier & Cart ── */}

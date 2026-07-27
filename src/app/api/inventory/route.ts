@@ -19,8 +19,8 @@ export async function GET(request: NextRequest) {
       AND: [
         search ? {
           OR: [
-            { name: { contains: search, mode: "insensitive" } },
-            { sku: { contains: search, mode: "insensitive" } },
+            { name: { contains: search } },
+            { sku: { contains: search } },
           ],
         } : {},
         categoryId ? { categoryId } : {},
@@ -69,8 +69,9 @@ export async function POST(request: NextRequest) {
       componentId: component.id,
       type: "ADD",
       quantity: component.quantity,
+      balanceAfter: component.quantity,
       reference: `Initial stock - ${component.sku}`,
-      userId: user.userId,
+      performedBy: user.id,
     },
   });
 

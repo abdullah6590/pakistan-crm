@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 import { projectSchema } from "@/lib/validations";
+import { generateProjectId } from "@/lib/utils";
 
 export async function GET(request: NextRequest) {
   const user = await getAuthUser();
@@ -18,9 +19,9 @@ export async function GET(request: NextRequest) {
         status && status !== "ALL" ? { status: status as any } : {},
         search ? {
           OR: [
-            { name: { contains: search, mode: "insensitive" } },
-            { clientName: { contains: search, mode: "insensitive" } },
-            { projectId: { contains: search, mode: "insensitive" } },
+            { name: { contains: search } },
+            { clientName: { contains: search } },
+            { projectId: { contains: search } },
           ],
         } : {},
       ],
@@ -45,10 +46,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 400 });
   }
 
+  const count = await prisma.project.count();
+  const projectId = generateProjectId(count + 1);
+
   const project = await prisma.project.create({
     data: {
       ...parsed.data,
-      userId: user.userId,
+      projectId,
+      userId: user.id,
     },
   });
 

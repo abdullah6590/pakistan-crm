@@ -59,6 +59,9 @@ enum ExpenseCategory {
   SHIPPING
   TAX
   OTHER_EXPENSE
+  RENT_SHOP
+  RENT_GODOWN
+  DAILY_MISC
 }
 
 enum NotificationType {
@@ -68,6 +71,31 @@ enum NotificationType {
   SUPPLIER_DUE
   OVERDUE_INVOICE
   SYSTEM
+}
+
+enum PaymentMethodType {
+  CASH
+  CHEQUE
+  BANK_TRANSFER
+  JAZZCASH
+  EASYPAISA
+  NAYAPAY
+  SADAPAY
+}
+
+enum AccountType {
+  BANK
+  CASH
+  EXPENSE
+  DIGITAL_WALLET
+}
+
+enum TransferType {
+  CASH_TO_BANK
+  BANK_TO_CASH
+  CASH_TO_WALLET
+  WALLET_TO_BANK
+  INTERNAL
 }
 
 // ─── USER & AUTH ───────────────────────────────────────────────────
@@ -225,14 +253,28 @@ model Component {
   category        ComponentCategory  @relation(fields: [categoryId], references: [id])
   quantity        Int                @default(0)
   minQuantity     Int                @default(5) // Low stock threshold
-  unitCost        Float              @default(0) // Average cost price
-  unitPrice       Float              @default(0) // Selling price
+  
+  // Bulk Tracking
+  packagingUnit   String             @default("Carton") // e.g. Carton, Bottle, Ream, Pack
+  itemsPerPackage Int                @default(1) // Number of items inside one package
+
+  // Pricing
+  supplierPrice   Float              @default(0) // Base price from supplier
+  expenses        Float              @default(0) // Freight, tax, labor, etc
+  unitCost        Float              @default(0) // Purchase Rate (Calculated or Final)
+  unitPrice       Float              @default(0) // Sale Rate
   supplierId      String?
   supplier        Supplier?          @relation(fields: [supplierId], references: [id])
   location        String?            // Shelf/Bin location
   datasheetUrl    String?
   imageUrl        String?
   isActive        Boolean            @default(true)
+
+  // Stock details
+  size            String?            // e.g., "14 inch", "A4", "Large"
+  grams           Float?             // Weight in grams
+  unit            String             @default("piece") // "piece", "sheet", "meter", "kg"
+  customFields    String?            // JSON string for flexible key-value data
 
   // Tracking
   totalPurchased  Int                @default(0)
@@ -289,6 +331,7 @@ model Supplier {
 
   components      Component[]
   purchases       Purchase[]
+  supplierPayments SupplierPayment[]
 
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
@@ -306,11 +349,13 @@ model Customer {
   address        String?
   city           String?
   totalPurchased Float    @default(0)
+  balanceDue     Float    @default(0)
   visitCount     Int      @default(0)
   notes          String?
   isActive       Boolean  @default(true)
 
   sales          Sale[]
+  customerPayments CustomerPayment[]
 
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -515,4 +560,118 @@ model Setting {
   value String // JSON value
 
   @@map("settings")
+}
+
+// ─── SUPPLIER PAYMENTS ─────────────────────────────────────────────
+
+model SupplierPayment {
+  id            String           @id @default(cuid())
+  supplierId    String
+  supplier      Supplier         @relation(fields: [supplierId], references: [id])
+  amount        Float
+  paymentMethod PaymentMethodType @default(CASH)
+  chequeNumber  String?
+  bankName      String?
+  date          DateTime         @default(now())
+  notes         String?
+  purchaseId    String?          // Optional link to specific purchase
+  userId        String           // Who recorded the payment
+
+  createdAt     DateTime         @default(now())
+
+  @@map("supplier_payments")
+}
+
+// ─── CUSTOMER PAYMENTS ─────────────────────────────────────────────
+
+model CustomerPayment {
+  id            String           @id @default(cuid())
+  customerId    String
+  customer      Customer         @relation(fields: [customerId], references: [id])
+  amount        Float
+  paymentMethod PaymentMethodType @default(CASH)
+  chequeNumber  String?
+  bankName      String?
+  date          DateTime         @default(now())
+  notes         String?
+  saleId        String?          // Optional link to specific sale
+  userId        String           // Who recorded the payment
+
+  createdAt     DateTime         @default(now())
+
+  @@map("customer_payments")
+}
+
+// ─── CASH SALE (Counter Sale) ──────────────────────────────────────
+
+model CashSale {
+  id            String           @id @default(cuid())
+  receiptNo     String           @unique // CS-0001
+  customerName  String?
+  date          DateTime         @default(now())
+  amount        Float
+  remarks       String?
+  paymentMethod PaymentMethodType @default(CASH)
+  userId        String           // Who processed the sale
+
+  createdAt     DateTime         @default(now())
+
+  @@map("cash_sales")
+}
+
+// ─── FINANCIAL ACCOUNTS ────────────────────────────────────────────
+
+model FinancialAccount {
+  id             String            @id @default(cuid())
+  name           String            @unique // "HBL Main", "Shop Cash", "Easypaisa"
+  type           AccountType
+  accountNumber  String?
+  bankName       String?
+  currentBalance Float             @default(0)
+  isActive       Boolean           @default(true)
+  notes          String?
+
+  transfersFrom  AccountTransfer[] @relation("TransferFrom")
+  transfersTo    AccountTransfer[] @relation("TransferTo")
+
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@map("financial_accounts")
+}
+
+// ─── ACCOUNT TRANSFERS ─────────────────────────────────────────────
+
+model AccountTransfer {
+  id              String           @id @default(cuid())
+  fromAccountId   String
+  fromAccount     FinancialAccount @relation("TransferFrom", fields: [fromAccountId], references: [id])
+  toAccountId     String
+  toAccount       FinancialAccount @relation("TransferTo", fields: [toAccountId], references: [id])
+  amount          Float
+  transferType    TransferType
+  voucherNumber   String?
+  notes           String?
+  date            DateTime         @default(now())
+  userId          String           // Who performed the transfer
+
+  createdAt       DateTime         @default(now())
+
+  @@map("account_transfers")
+}
+
+// ─── EXPENDITURE (Daily Expenses) ──────────────────────────────────
+
+model Expenditure {
+  id          String   @id @default(cuid())
+  category    String   // "RENT_SHOP", "RENT_GODOWN", "SALARY", "DAILY_MISC", "UTILITY", etc.
+  amount      Float
+  description String
+  date        DateTime @default(now())
+  accountId   String?  // Which account it was paid from
+  userId      String   // Who recorded the expense
+
+  createdAt   DateTime @default(now())
+
+  @@map("expenditures")
 }

@@ -16,9 +16,15 @@ const roleRouteMap: Record<string, string[]> = {
   "/dashboard/purchases": ["ADMIN", "INVENTORY_MANAGER"],
   "/dashboard/suppliers": ["ADMIN", "INVENTORY_MANAGER"],
   "/dashboard/inventory": ["ADMIN", "INVENTORY_MANAGER", "EMPLOYEE"],
+  "/dashboard/accounts": ["ADMIN", "ACCOUNTANT"],
+  "/dashboard/transfers": ["ADMIN", "ACCOUNTANT"],
+  "/dashboard/expenditures": ["ADMIN", "ACCOUNTANT"],
+  "/dashboard/daybook": ["ADMIN", "ACCOUNTANT", "PARTNER"],
+  "/dashboard/backup": ["ADMIN"],
+  "/dashboard/cash-sales": ["ADMIN", "EMPLOYEE"],
 };
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Public routes

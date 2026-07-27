@@ -8,7 +8,7 @@ import { registerSchema } from "@/lib/validations";
 export async function GET(request: NextRequest) {
   const user = await getAuthUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!isAdmin(user)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!isAdmin(user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const { searchParams } = new URL(request.url);
   const search = searchParams.get("search") || "";
@@ -19,8 +19,8 @@ export async function GET(request: NextRequest) {
       AND: [
         search ? {
           OR: [
-            { name: { contains: search, mode: "insensitive" } },
-            { email: { contains: search, mode: "insensitive" } },
+            { name: { contains: search } },
+            { email: { contains: search } },
           ],
         } : {},
         role ? { role: role as any } : {},
@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const authUser = await getAuthUser();
   if (!authUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!isAdmin(authUser)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!isAdmin(authUser.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = await request.json();
   const parsed = registerSchema.safeParse(body);

@@ -192,11 +192,11 @@ export default function PurchasesClient({ purchases: initialPurchases, suppliers
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{timeAgo(p.createdAt)}</TableCell>
                         <TableCell>
-                          <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-                            <Link href={`/dashboard/purchases/${p.id}`} onClick={e => e.stopPropagation()}>
+                          <Link href={`/dashboard/purchases/${p.id}`} onClick={e => e.stopPropagation()}>
+                            <Button variant="ghost" size="icon" className="h-8 w-8">
                               <Eye className="h-4 w-4" />
-                            </Link>
-                          </Button>
+                            </Button>
+                          </Link>
                         </TableCell>
                       </TableRow>
                     );

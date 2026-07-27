@@ -17,8 +17,8 @@ export async function GET(request: NextRequest) {
       AND: [
         search ? {
           OR: [
-            { poNumber: { contains: search, mode: "insensitive" } },
-            { supplier: { name: { contains: search, mode: "insensitive" } } },
+            { poNumber: { contains: search } },
+            { supplier: { name: { contains: search } } },
           ],
         } : {},
         supplierId ? { supplierId } : {},
@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
       total: 0,
       paymentStatus: body.paymentStatus || "PENDING",
       paidAmount: body.paidAmount || 0,
-      userId: user.userId,
+      userId: user.id,
     },
   });
 
@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
     });
 
     // Add to inventory
-    await prisma.component.update({
+    const updatedComp = await prisma.component.update({
       where: { id: item.componentId },
       data: {
         quantity: { increment: qty },
@@ -95,8 +95,9 @@ export async function POST(request: NextRequest) {
         componentId: item.componentId,
         type: "ADD",
         quantity: qty,
+        balanceAfter: updatedComp.quantity,
         reference: `Purchase ${purchase.poNumber}`,
-        userId: user.userId,
+        performedBy: user.id,
       },
     });
 
@@ -122,7 +123,7 @@ export async function POST(request: NextRequest) {
         paymentMethod: body.paymentMethod || "BANK_TRANSFER",
         reference: purchase.poNumber,
         referenceId: purchase.id,
-        userId: user.userId,
+        userId: user.id,
       },
     });
   }

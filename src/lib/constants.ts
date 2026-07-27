@@ -5,6 +5,8 @@ import {
   Settings, Bell, UserCog, Store,
   Receipt, FileText, AlertTriangle, TrendingUp,
   TrendingDown, Wallet, Banknote, CreditCard,
+  BookOpen, HardDrive, ArrowLeftRight, Building2,
+  Warehouse, HandCoins,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -96,6 +98,42 @@ export const SIDEBAR_NAV: NavItem[] = [
     icon: Settings,
     roles: ['ADMIN', 'PARTNER', 'EMPLOYEE', 'INVENTORY_MANAGER', 'ACCOUNTANT'],
   },
+  {
+    title: 'Cash Sales',
+    href: '/dashboard/cash-sales',
+    icon: Receipt,
+    roles: ['ADMIN', 'EMPLOYEE'],
+  },
+  {
+    title: 'Accounts',
+    href: '/dashboard/accounts',
+    icon: Wallet,
+    roles: ['ADMIN', 'ACCOUNTANT'],
+  },
+  {
+    title: 'Transfers',
+    href: '/dashboard/transfers',
+    icon: ArrowLeftRight,
+    roles: ['ADMIN', 'ACCOUNTANT'],
+  },
+  {
+    title: 'Expenditures',
+    href: '/dashboard/expenditures',
+    icon: TrendingDown,
+    roles: ['ADMIN', 'ACCOUNTANT'],
+  },
+  {
+    title: 'Daybook',
+    href: '/dashboard/daybook',
+    icon: BookOpen,
+    roles: ['ADMIN', 'ACCOUNTANT', 'PARTNER'],
+  },
+  {
+    title: 'Backup',
+    href: '/dashboard/backup',
+    icon: HardDrive,
+    roles: ['ADMIN'],
+  },
 ];
 
 // ─── Income Categories ──────────────────────────────────────────────
@@ -118,6 +156,21 @@ export const EXPENSE_CATEGORIES = [
   { value: 'MARKETING', label: 'Marketing', icon: TrendingUp },
   { value: 'SHIPPING', label: 'Shipping', icon: Truck },
   { value: 'TAX', label: 'Tax', icon: Receipt },
+  { value: 'OTHER_EXPENSE', label: 'Other Expense', icon: AlertTriangle },
+  { value: 'RENT_SHOP', label: 'Shop Rent', icon: Building2 },
+  { value: 'RENT_GODOWN', label: 'Godown/Storage Rent', icon: Warehouse },
+  { value: 'DAILY_MISC', label: 'Daily Miscellaneous', icon: Receipt },
+];
+
+// ─── Expenditure Categories ─────────────────────────────────────────
+export const EXPENDITURE_CATEGORIES = [
+  { value: 'RENT_SHOP', label: 'Shop Rent', icon: Building2 },
+  { value: 'RENT_GODOWN', label: 'Godown/Storage Rent', icon: Warehouse },
+  { value: 'SALARY', label: 'Salaries', icon: Users },
+  { value: 'UTILITY', label: 'Utility Bills', icon: CreditCard },
+  { value: 'DAILY_MISC', label: 'Daily Miscellaneous', icon: Receipt },
+  { value: 'TRAVEL', label: 'Travel', icon: Truck },
+  { value: 'MAINTENANCE', label: 'Maintenance', icon: Settings },
   { value: 'OTHER_EXPENSE', label: 'Other Expense', icon: AlertTriangle },
 ];
 

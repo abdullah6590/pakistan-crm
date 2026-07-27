@@ -114,6 +114,10 @@ export interface ComponentData {
   datasheetUrl: string | null;
   imageUrl: string | null;
   isActive: boolean;
+  size: string | null;
+  grams: number | null;
+  unit: string;
+  customFields: string | null;
   totalPurchased: number;
   totalUsed: number;
   totalSold: number;
@@ -182,6 +186,7 @@ export interface CustomerData {
   address: string | null;
   city: string | null;
   totalPurchased: number;
+  balanceDue: number;
   visitCount: number;
   notes: string | null;
   isActive: boolean;
@@ -258,6 +263,104 @@ export interface PartnerData {
   currentBalance: number;
   notes: string | null;
   isActive: boolean;
+}
+
+// ─── Supplier Payment Types ────────────────────────────────────────
+export interface SupplierPaymentData {
+  id: string;
+  supplierId: string;
+  supplier?: { id: string; name: string; company: string | null };
+  amount: number;
+  paymentMethod: string;
+  chequeNumber: string | null;
+  bankName: string | null;
+  date: Date;
+  notes: string | null;
+  purchaseId: string | null;
+  userId: string;
+  createdAt: Date;
+}
+
+// ─── Customer Payment Types ────────────────────────────────────────
+export interface CustomerPaymentData {
+  id: string;
+  customerId: string;
+  customer?: { id: string; name: string; phone: string | null };
+  amount: number;
+  paymentMethod: string;
+  chequeNumber: string | null;
+  bankName: string | null;
+  date: Date;
+  notes: string | null;
+  saleId: string | null;
+  userId: string;
+  createdAt: Date;
+}
+
+// ─── Cash Sale Types ───────────────────────────────────────────────
+export interface CashSaleData {
+  id: string;
+  receiptNo: string;
+  customerName: string | null;
+  date: Date;
+  amount: number;
+  remarks: string | null;
+  paymentMethod: string;
+  userId: string;
+  createdAt: Date;
+}
+
+// ─── Financial Account Types ───────────────────────────────────────
+export interface FinancialAccountData {
+  id: string;
+  name: string;
+  type: string;
+  accountNumber: string | null;
+  bankName: string | null;
+  currentBalance: number;
+  isActive: boolean;
+  notes: string | null;
+  createdAt: Date;
+}
+
+// ─── Account Transfer Types ────────────────────────────────────────
+export interface AccountTransferData {
+  id: string;
+  fromAccountId: string;
+  fromAccount?: { id: string; name: string; type: string };
+  toAccountId: string;
+  toAccount?: { id: string; name: string; type: string };
+  amount: number;
+  transferType: string;
+  voucherNumber: string | null;
+  notes: string | null;
+  date: Date;
+  userId: string;
+  createdAt: Date;
+}
+
+// ─── Expenditure Types ─────────────────────────────────────────────
+export interface ExpenditureData {
+  id: string;
+  category: string;
+  amount: number;
+  description: string;
+  date: Date;
+  accountId: string | null;
+  userId: string;
+  createdAt: Date;
+}
+
+// ─── Ledger Entry Types ────────────────────────────────────────────
+export interface LedgerEntry {
+  id: string;
+  date: Date;
+  type: 'PURCHASE' | 'PAYMENT' | 'SALE' | 'RECEIPT';
+  description: string;
+  debit: number;
+  credit: number;
+  balance: number;
+  reference: string | null;
 }
 
 // ─── Notification Types ─────────────────────────────────────────────

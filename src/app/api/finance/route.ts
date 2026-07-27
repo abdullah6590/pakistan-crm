@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
       reference: body.reference || null,
       referenceId: body.referenceId || null,
       date: body.date ? new Date(body.date) : new Date(),
-      userId: user.userId,
+      userId: user.id,
     },
   });
 

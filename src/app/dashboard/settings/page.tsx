@@ -7,5 +7,5 @@ export default async function SettingsPage() {
   const user = await getAuthUser();
   if (!user) redirect("/login");
 
-  return <SettingsClient user={JSON.parse(JSON.stringify({ id: user.userId, name: user.name, email: user.email, role: user.role }))} />;
+  return <SettingsClient user={JSON.parse(JSON.stringify({ id: user.id, name: user.name, email: user.email, role: user.role }))} />;
 }

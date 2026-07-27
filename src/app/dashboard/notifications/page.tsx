@@ -10,12 +10,12 @@ export default async function NotificationsPage() {
   if (!user) redirect("/login");
 
   const notifications = await prisma.notification.findMany({
-    where: { userId: user.userId },
+    where: { userId: user.id },
     orderBy: { createdAt: "desc" },
     take: 100,
   });
 
-  const unreadCount = await getUnreadCount(user.userId);
+  const unreadCount = await getUnreadCount(user.id);
 
   return (
     <NotificationsClient
