@@ -59,9 +59,24 @@ export default function VoiceAssistant() {
         };
 
         recognitionRef.current.onresult = (event: any) => {
-          const current = event.resultIndex;
-          const text = event.results[current][0].transcript;
-          setTranscript(text);
+          let currentTranscript = "";
+          let isFinal = false;
+          
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+              isFinal = true;
+              currentTranscript += event.results[i][0].transcript;
+            } else {
+              currentTranscript += event.results[i][0].transcript;
+            }
+          }
+          
+          setTranscript(currentTranscript);
+          
+          if (isFinal) {
+            processCommand(currentTranscript.toLowerCase());
+            setTimeout(() => setTranscript(""), 4000);
+          }
         };
 
         recognitionRef.current.onerror = (event: any) => {
@@ -82,7 +97,10 @@ export default function VoiceAssistant() {
 
         recognitionRef.current.onend = () => {
           setIsListening(false);
-          // Don't clear transcript immediately so the effect can run
+          // Don't clear transcript immediately if we successfully parsed something
+          if (transcript === "Listening...") {
+            setTranscript("");
+          }
         };
       } else {
         setError("Speech recognition is not supported in this browser. Try Google Chrome.");
@@ -95,17 +113,6 @@ export default function VoiceAssistant() {
       }
     };
   }, []);
-
-  // Process the final transcript
-  useEffect(() => {
-    if (!isListening && transcript && transcript !== "Listening..." && !error) {
-      processCommand(transcript.toLowerCase());
-      
-      // Clear transcript after a few seconds
-      const timeout = setTimeout(() => setTranscript(""), 4000);
-      return () => clearTimeout(timeout);
-    }
-  }, [isListening, transcript, error]);
 
   const processCommand = (text: string) => {
     // 1. Check for Navigation Intents
@@ -146,7 +153,9 @@ export default function VoiceAssistant() {
     }
 
     if (isListening) {
-      recognitionRef.current?.stop();
+      recognitionRef.current?.abort(); // Forcefully abort instead of stop to immediately end it
+      setIsListening(false);
+      if (transcript === "Listening...") setTranscript("");
     } else {
       try {
         recognitionRef.current?.start();

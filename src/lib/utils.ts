@@ -58,7 +58,9 @@ export function generateTransactionRef(index: number): string {
 // ─── SKU Generator ──────────────────────────────────────────────────
 export function generateSKU(category: string, index: number): string {
   const prefix = category.substring(0, 3).toUpperCase();
-  return `${prefix}-${String(index).padStart(5, '0')}`;
+  // Use a combination of timestamp and random to avoid collisions
+  const randomStr = Math.random().toString(36).substring(2, 6).toUpperCase();
+  return `${prefix}-${String(index).padStart(5, '0')}-${randomStr}`;
 }
 
 // ─── Status Helpers ─────────────────────────────────────────────────

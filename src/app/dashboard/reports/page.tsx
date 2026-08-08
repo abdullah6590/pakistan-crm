@@ -19,7 +19,6 @@ const REPORT_TYPES = [
   { key: "sales", label: "Sales Report", icon: DollarSign, description: "Sales breakdown by period, customer, payment method" },
   { key: "inventory", label: "Inventory Report", icon: Package, description: "Stock levels, low stock alerts, valuations" },
   { key: "purchases", label: "Purchase Report", icon: Truck, description: "Purchase orders, supplier spend, pending payments" },
-  { key: "projects", label: "Project Report", icon: BarChart3, description: "Project costs, profitability, status breakdown" },
   { key: "customers", label: "Customer Report", icon: Users, description: "Top customers, purchase history, outstanding" },
 ] as const;
 

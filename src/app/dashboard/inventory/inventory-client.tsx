@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   Search, Plus, Package, PackageOpen, AlertTriangle, TrendingDown,
-  BarChart3, Edit, Trash2, Filter, ChevronDown, Box, Printer, Sparkles, TrendingUp,
+  BarChart3, Edit, Trash2, Filter, ChevronDown, ChevronLeft, ChevronRight, Box, Printer, Sparkles, TrendingUp, Weight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -23,6 +23,8 @@ import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { PageHeader } from "@/components/shared/page-header";
 import { SearchInput } from "@/components/shared/search-input";
 import { EmptyState } from "@/components/shared/empty-state";
+import { AdvancedFilter } from "@/components/shared/advanced-filter";
+import PriceCalculator, { type PriceCalcValues, defaultCalcValues } from "@/components/shared/price-calculator";
 import { formatCurrency, timeAgo, formatDate } from "@/lib/utils";
 import { DEFAULT_COMPONENT_CATEGORIES, COMPANY_INFO } from "@/lib/constants";
 import { toast } from "sonner";
@@ -35,6 +37,8 @@ interface ComponentItem {
   location: string | null; isActive: boolean; totalPurchased: number;
   totalUsed: number; totalSold: number; createdAt: string; updatedAt: string;
   size: string | null; grams: number | null; unit: string; customFields: string | null;
+  dimensionX: number | null; dimensionY: number | null; gsm: number | null;
+  divisor: number | null; weightKg: number | null; rimInSheet: number | null; ratePerKg: number | null;
   category: { id: string; name: string; color: string };
   supplier: { id: string; name: string } | null;
 }
@@ -47,18 +51,20 @@ interface InventoryClientProps {
   categories: CategoryItem[];
   suppliers: SupplierOption[];
   stats: { totalQuantity: number; totalValue: number; totalItems: number; lowStockCount: number };
+  pagination: { page: number; totalPages: number; totalRecords: number };
 }
 
-export default function InventoryClient({ components: initialComponents, categories, suppliers, stats }: InventoryClientProps) {
+export default function InventoryClient({ components, categories, suppliers, stats, pagination }: InventoryClientProps) {
   const router = useRouter();
-  const [components, setComponents] = useState(initialComponents);
-  const [search, setSearch] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("all");
-  const [lowStockOnly, setLowStockOnly] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<ComponentItem | null>(null);
   const [deleting, setDeleting] = useState<ComponentItem | null>(null);
   const [loading, setLoading] = useState(false);
+  const [localCategories, setLocalCategories] = useState(categories);
+  const [showAddCategory, setShowAddCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [creatingCategory, setCreatingCategory] = useState(false);
+  const [calcValues, setCalcValues] = useState<PriceCalcValues>(defaultCalcValues);
 
   // Form state
   const [form, setForm] = useState({
@@ -69,13 +75,16 @@ export default function InventoryClient({ components: initialComponents, categor
     location: "", supplierId: "none", size: "", grams: "", unit: "piece", customFields: "",
   });
 
-  const resetForm = () => setForm({
-    name: "", description: "", sku: "", categoryId: "",
-    quantity: "0", minQuantity: "5", unitCost: "0", unitPrice: "0",
-    packagingUnit: "Carton", itemsPerPackage: "1", supplierPrice: "0", expenses: "0",
-    packages: "0", looseQuantity: "0",
-    location: "", supplierId: "none", size: "", grams: "", unit: "piece", customFields: "",
-  });
+  const resetForm = () => {
+    setForm({
+      name: "", description: "", sku: "", categoryId: "",
+      quantity: "0", minQuantity: "5", unitCost: "0", unitPrice: "0",
+      packagingUnit: "Carton", itemsPerPackage: "1", supplierPrice: "0", expenses: "0",
+      packages: "0", looseQuantity: "0",
+      location: "", supplierId: "none", size: "", grams: "", unit: "piece", customFields: "",
+    });
+    setCalcValues(defaultCalcValues);
+  };
 
   // AI Price Suggestions
   const priceAI = useMemo(() => {
@@ -106,21 +115,72 @@ export default function InventoryClient({ components: initialComponents, categor
       size: c.size || "", grams: c.grams ? String(c.grams) : "", 
       unit: c.unit || "piece", customFields: c.customFields || "",
     });
+    setCalcValues({
+      dimensionX: c.dimensionX || 0,
+      dimensionY: c.dimensionY || 0,
+      gsm: c.gsm || 0,
+      divisor: c.divisor || 15500,
+      weightKg: c.weightKg || 0,
+      rimInSheet: c.rimInSheet || 100,
+      ratePerKg: c.ratePerKg || 0,
+      purchasePrice: c.unitCost || 0,
+      salePrice: c.unitPrice || 0,
+    });
   };
 
-  const filtered = useMemo(() => {
-    let list = components;
-    if (search) {
-      const q = search.toLowerCase();
-      list = list.filter(c => c.name.toLowerCase().includes(q) || c.sku.toLowerCase().includes(q));
+  const handleCreateCategory = async (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
     }
-    if (categoryFilter !== "all") list = list.filter(c => c.category.id === categoryFilter);
-    if (lowStockOnly) list = list.filter(c => c.quantity <= c.minQuantity);
-    return list;
-  }, [components, search, categoryFilter, lowStockOnly]);
+    if (!newCategoryName.trim()) return;
+    setCreatingCategory(true);
+    try {
+      const res = await fetch("/api/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newCategoryName }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to create category");
+      setLocalCategories(prev => [...prev, data.category].sort((a, b) => a.name.localeCompare(b.name)));
+      setForm(prev => ({ ...prev, categoryId: data.category.id }));
+      setNewCategoryName("");
+      setShowAddCategory(false);
+      toast.success("Category created successfully");
+      router.refresh();
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setCreatingCategory(false);
+    }
+  };
+
+  const handleSearch = (term: string) => {
+    const params = new URLSearchParams(window.location.search);
+    if (term) params.set("search", term);
+    else params.delete("search");
+    params.set("page", "1");
+    router.push(`/dashboard/inventory?${params.toString()}`);
+  };
+
+  const updateFilter = (key: string, value: string) => {
+    const params = new URLSearchParams(window.location.search);
+    if (value && value !== "all") params.set(key, value);
+    else params.delete(key);
+    params.set("page", "1");
+    router.push(`/dashboard/inventory?${params.toString()}`);
+  };
+
+  const handlePageChange = (newPage: number) => {
+    const params = new URLSearchParams(window.location.search);
+    params.set("page", newPage.toString());
+    router.push(`/dashboard/inventory?${params.toString()}`);
+  };
 
   const handleCreate = async () => {
-    if (!form.name || !form.categoryId) { toast.error("Name and category are required"); return; }
+    if (!form.name) { toast.error("Name is required"); return; }
+    if (!form.categoryId) { toast.error("Category is required"); return; }
     setLoading(true);
     try {
       const res = await fetch("/api/inventory", {
@@ -133,8 +193,8 @@ export default function InventoryClient({ components: initialComponents, categor
           categoryId: form.categoryId,
           quantity: parseInt(form.quantity) || 0,
           minQuantity: parseInt(form.minQuantity) || 5,
-          unitCost: parseFloat(form.unitCost) || 0,
-          unitPrice: parseFloat(form.unitPrice) || 0,
+          unitCost: calcValues.purchasePrice || parseFloat(form.unitCost) || 0,
+          unitPrice: calcValues.salePrice || parseFloat(form.unitPrice) || 0,
           location: form.location || undefined,
           packagingUnit: form.packagingUnit || "Carton",
           itemsPerPackage: parseInt(form.itemsPerPackage) || 1,
@@ -145,21 +205,29 @@ export default function InventoryClient({ components: initialComponents, categor
           grams: parseFloat(form.grams) || undefined,
           unit: form.unit || "piece",
           customFields: form.customFields || undefined,
+          dimensionX: calcValues.dimensionX || undefined,
+          dimensionY: calcValues.dimensionY || undefined,
+          gsm: calcValues.gsm || undefined,
+          divisor: calcValues.divisor || undefined,
+          weightKg: calcValues.weightKg || undefined,
+          rimInSheet: calcValues.rimInSheet || undefined,
+          ratePerKg: calcValues.ratePerKg || undefined,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to create");
-      setComponents(prev => [data.component, ...prev]);
       setShowAdd(false);
       resetForm();
-      toast.success("Component added");
+      toast.success("Product added");
       router.refresh();
     } catch (e: any) { toast.error(e.message);
     } finally { setLoading(false); }
   };
 
   const handleUpdate = async () => {
-    if (!editing || !form.name || !form.categoryId) return;
+    if (!editing) return;
+    if (!form.name) { toast.error("Name is required"); return; }
+    if (!form.categoryId) { toast.error("Category is required"); return; }
     setLoading(true);
     try {
       const res = await fetch(`/api/inventory/${editing.id}`, {
@@ -172,8 +240,8 @@ export default function InventoryClient({ components: initialComponents, categor
           categoryId: form.categoryId,
           quantity: parseInt(form.quantity) || 0,
           minQuantity: parseInt(form.minQuantity) || 5,
-          unitCost: parseFloat(form.unitCost) || 0,
-          unitPrice: parseFloat(form.unitPrice) || 0,
+          unitCost: calcValues.purchasePrice || parseFloat(form.unitCost) || 0,
+          unitPrice: calcValues.salePrice || parseFloat(form.unitPrice) || 0,
           location: form.location || undefined,
           packagingUnit: form.packagingUnit || "Carton",
           itemsPerPackage: parseInt(form.itemsPerPackage) || 1,
@@ -184,13 +252,19 @@ export default function InventoryClient({ components: initialComponents, categor
           grams: parseFloat(form.grams) || undefined,
           unit: form.unit || "piece",
           customFields: form.customFields || undefined,
+          dimensionX: calcValues.dimensionX || null,
+          dimensionY: calcValues.dimensionY || null,
+          gsm: calcValues.gsm || null,
+          divisor: calcValues.divisor || null,
+          weightKg: calcValues.weightKg || null,
+          rimInSheet: calcValues.rimInSheet || null,
+          ratePerKg: calcValues.ratePerKg || null,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to update");
-      setComponents(prev => prev.map(c => c.id === editing.id ? data.component : c));
       setEditing(null);
-      toast.success("Component updated");
+      toast.success("Product updated");
       router.refresh();
     } catch (e: any) { toast.error(e.message);
     } finally { setLoading(false); }
@@ -202,9 +276,8 @@ export default function InventoryClient({ components: initialComponents, categor
     try {
       const res = await fetch(`/api/inventory/${deleting.id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete");
-      setComponents(prev => prev.filter(c => c.id !== deleting.id));
       setDeleting(null);
-      toast.success("Component deleted");
+      toast.success("Product deleted");
       router.refresh();
     } catch (e: any) { toast.error(e.message);
     } finally { setLoading(false); }
@@ -220,7 +293,7 @@ export default function InventoryClient({ components: initialComponents, categor
     <div className="space-y-6">
       <PageHeader
         title="Inventory"
-        description="Manage electronic components, stock levels, and suppliers"
+        description="Manage paper products, stock levels, and suppliers"
         icon={Box}
         actions={
           <div className="flex gap-2">
@@ -228,7 +301,7 @@ export default function InventoryClient({ components: initialComponents, categor
               <Printer className="h-4 w-4 mr-1" /> Print Report
             </Button>
             <Button onClick={() => { resetForm(); setShowAdd(true); }}>
-              <Plus className="h-4 w-4 mr-1" /> Add Component
+              <Plus className="h-4 w-4 mr-1" /> Add Product
             </Button>
           </div>
         }
@@ -284,71 +357,67 @@ export default function InventoryClient({ components: initialComponents, categor
       </div>
 
       {/* Filters */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <SearchInput value={search} onChange={setSearch} placeholder="Search by name or SKU..." className="flex-1" />
-            <Select value={categoryFilter} onChange={setCategoryFilter}>
-              <SelectTrigger className="w-full sm:w-[200px]">
-                <SelectValue placeholder="All Categories" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Categories</SelectItem>
-                {categories.map(c => (
-                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              variant={lowStockOnly ? "default" : "outline"}
-              size="icon"
-              onClick={() => setLowStockOnly(!lowStockOnly)}
-              title="Low stock only"
-            >
-              <TrendingDown className="h-4 w-4" />
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Table */}
+      <AdvancedFilter
+        moduleName="inventory"
+        filters={[
+          { key: "search", label: "Search", type: "search", placeholder: "Search items, SKU, or category..." },
+          { key: "categoryId", label: "Category", type: "select", placeholder: "All Categories", options: categories.map(c => ({ label: c.name, value: c.id })) },
+          { key: "supplierId", label: "Supplier", type: "select", placeholder: "All Suppliers", options: suppliers.map(s => ({ label: s.name, value: s.id })) },
+          { key: "stockStatus", label: "Stock", type: "select", placeholder: "All Stock", options: [
+            { label: "Low Stock", value: "low" },
+            { label: "Out of Stock", value: "out" },
+            { label: "In Stock", value: "in" }
+          ] },
+        ]}
+        onSearchChange={handleSearch}
+      />
       <Card>
         <CardContent className="p-0">
-          {filtered.length === 0 ? (
+          {components.length === 0 ? (
             <EmptyState
               icon={PackageOpen}
-              title="No components found"
-              description={search || categoryFilter !== "all" ? "Try adjusting your filters" : "Add your first component to get started"}
-              action={search || categoryFilter !== "all" ? undefined : { label: "Add Component", onClick: () => setShowAdd(true) }}
+              title="No products found"
+              description="Try adjusting your filters or add your first component"
+              action={{ label: "Add Product", onClick: () => setShowAdd(true) }}
             />
           ) : (
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Component</TableHead>
+                    <TableHead>Product</TableHead>
                     <TableHead>Category</TableHead>
                     <TableHead>SKU</TableHead>
                     <TableHead className="text-right">Packaging</TableHead>
                     <TableHead className="text-right">Total Qty</TableHead>
                     <TableHead className="text-right">Sup. Price</TableHead>
                     <TableHead className="text-right">Cost</TableHead>
-                    <TableHead className="text-right">Value</TableHead>
+                    <TableHead className="text-right">Amount</TableHead>
                     <TableHead>Supplier</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="w-[80px]">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filtered.map((c) => (
+                  {components.map((c) => (
                     <TableRow key={c.id}>
                       <TableCell>
                         <div>
                           <p className="font-medium text-sm">{c.name}</p>
                           {c.description && <p className="text-xs text-muted-foreground truncate max-w-[200px]">{c.description}</p>}
-                          <div className="flex gap-1 mt-1">
+                          <div className="flex gap-1 mt-1 flex-wrap">
                             {c.size && <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4">{c.size}</Badge>}
                             {c.grams && <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4">{c.grams}g</Badge>}
+                            {c.weightKg && c.weightKg > 0 && (
+                              <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 border-indigo-300 text-indigo-600 dark:border-indigo-700 dark:text-indigo-400 gap-0.5">
+                                <Weight className="h-2.5 w-2.5" />{c.weightKg.toFixed(2)}kg
+                              </Badge>
+                            )}
+                            {c.dimensionX && c.dimensionY && (
+                              <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 border-violet-300 text-violet-600 dark:border-violet-700 dark:text-violet-400">
+                                {c.dimensionX}×{c.dimensionY}
+                              </Badge>
+                            )}
                           </div>
                         </div>
                       </TableCell>
@@ -362,10 +431,31 @@ export default function InventoryClient({ components: initialComponents, categor
                         <div className="font-mono">{Math.floor(c.quantity / (c.itemsPerPackage || 1))} {c.packagingUnit}</div>
                         <div className="text-[10px] text-muted-foreground">{c.quantity % (c.itemsPerPackage || 1)} loose</div>
                       </TableCell>
-                      <TableCell className="text-right font-mono text-sm">{c.quantity}</TableCell>
+                      <TableCell className="text-right font-mono text-sm">
+                        <div>{c.quantity}</div>
+                        {c.weightKg && c.weightKg > 0 ? (
+                          <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold mt-0.5">
+                            {(((Math.floor(c.quantity / (c.itemsPerPackage || 1))) * c.weightKg) + ((c.quantity % (c.itemsPerPackage || 1)) / (c.rimInSheet || 100) * c.weightKg)).toFixed(2)} Kg
+                          </div>
+                        ) : null}
+                      </TableCell>
                       <TableCell className="text-right font-mono text-sm">{formatCurrency(c.supplierPrice)}</TableCell>
-                      <TableCell className="text-right font-mono text-sm text-amber-600">{formatCurrency(c.unitCost)}</TableCell>
-                      <TableCell className="text-right font-mono text-sm text-blue-600">{formatCurrency(c.quantity * c.unitCost)}</TableCell>
+                      <TableCell className="text-right font-mono text-sm text-amber-600">
+                        {c.weightKg && c.weightKg > 0 && c.ratePerKg && c.ratePerKg > 0 ? (
+                          <div>
+                            {formatCurrency(c.ratePerKg)}<span className="text-[10px] text-muted-foreground block">/kg</span>
+                          </div>
+                        ) : (
+                          formatCurrency(c.unitCost)
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-sm text-blue-600">
+                        {formatCurrency(
+                          c.weightKg && c.weightKg > 0 && c.ratePerKg && c.ratePerKg > 0
+                            ? (((Math.floor(c.quantity / (c.itemsPerPackage || 1)) * c.weightKg) + ((c.quantity % (c.itemsPerPackage || 1)) / (c.rimInSheet || 100) * c.weightKg)) * c.ratePerKg)
+                            : (c.quantity / (c.itemsPerPackage || 1)) * c.unitCost
+                        )}
+                      </TableCell>
                       <TableCell className="text-sm">{c.supplier?.name || "—"}</TableCell>
                       <TableCell>{getStockBadge(c)}</TableCell>
                       <TableCell>
@@ -385,6 +475,33 @@ export default function InventoryClient({ components: initialComponents, categor
             </div>
           )}
         </CardContent>
+        {/* Pagination Controls */}
+        {pagination.totalPages > 1 && (
+          <div className="p-4 border-t flex items-center justify-between">
+            <p className="text-sm text-muted-foreground">
+              Showing page {pagination.page} of {pagination.totalPages} ({pagination.totalRecords} components)
+            </p>
+            <div className="flex items-center gap-2">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => handlePageChange(pagination.page - 1)} 
+                disabled={pagination.page <= 1}
+              >
+                <ChevronLeft className="h-4 w-4 mr-1" /> Previous
+              </Button>
+              <span className="text-sm font-medium">Page {pagination.page}</span>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => handlePageChange(pagination.page + 1)} 
+                disabled={pagination.page >= pagination.totalPages}
+              >
+                Next <ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            </div>
+          </div>
+        )}
       </Card>
       </div>
 
@@ -412,7 +529,7 @@ export default function InventoryClient({ components: initialComponents, categor
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200">
-            {filtered.map((c, i) => (
+            {components.map((c, i) => (
               <tr key={c.id}>
                 <td className="py-1.5 px-1 font-mono text-xs">{i + 1}</td>
                 <td className="py-1.5 px-1 font-medium">{c.name} {c.size ? `(${c.size})` : ''}</td>
@@ -424,7 +541,7 @@ export default function InventoryClient({ components: initialComponents, categor
             ))}
             <tr className="border-t-2 border-slate-800 bg-slate-50 font-bold">
               <td colSpan={5} className="py-2 px-1 text-right">Total Inventory Value:</td>
-              <td className="py-2 px-1 text-right font-mono">{formatCurrency(filtered.reduce((sum, c) => sum + (c.quantity * c.unitCost), 0))}</td>
+              <td className="py-2 px-1 text-right font-mono">{formatCurrency(components.reduce((sum, c) => sum + (c.quantity * c.unitCost), 0))}</td>
             </tr>
           </tbody>
         </table>
@@ -433,7 +550,7 @@ export default function InventoryClient({ components: initialComponents, categor
       {/* Add / Edit Dialog */}
       <Dialog open={showAdd || !!editing} onClose={() => { setShowAdd(false); setEditing(null); }}>
         <DialogHeader>
-          <DialogTitle>{editing ? "Edit Component" : "Add Component"}</DialogTitle>
+          <DialogTitle>{editing ? "Edit Product" : "Add Product"}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3 mt-4 max-h-[60vh] overflow-y-auto pr-1">
           <div className="grid grid-cols-2 gap-3">
@@ -453,19 +570,52 @@ export default function InventoryClient({ components: initialComponents, categor
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label>Category *</Label>
-              <Select value={form.categoryId} onChange={v => setForm({...form, categoryId: v})}>
-                <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
-                <SelectContent>
-                  {categories.map(c => (
-                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {showAddCategory ? (
+                <div className="flex items-center gap-1.5 h-10">
+                  <Input 
+                    value={newCategoryName} 
+                    onChange={e => setNewCategoryName(e.target.value)} 
+                    placeholder="Category Name" 
+                    className="flex-1 h-10"
+                    autoFocus
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleCreateCategory(); } }}
+                  />
+                  <Button type="button" size="sm" onClick={handleCreateCategory} disabled={!newCategoryName.trim() || creatingCategory} className="px-2.5 shrink-0">
+                    {creatingCategory ? "..." : "Save"}
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" onClick={() => setShowAddCategory(false)} className="px-2.5 shrink-0">
+                    Cancel
+                  </Button>
+                </div>
+              ) : (
+                <Select value={form.categoryId} onChange={v => {
+                  if (v === "add_new_category") setShowAddCategory(true);
+                  else setForm({...form, categoryId: v});
+                }}>
+                  <SelectTrigger>
+                    <span className={`flex-1 text-left truncate ${!form.categoryId ? "text-muted-foreground" : ""}`}>
+                      {localCategories.find(c => c.id === form.categoryId)?.name || "Select category"}
+                    </span>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {localCategories.map(c => (
+                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    ))}
+                    <SelectItem value="add_new_category" className="text-primary font-medium border-t mt-1 pt-1.5 cursor-pointer">
+                      + Add New Category
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
             </div>
             <div className="space-y-1">
               <Label>Supplier</Label>
               <Select value={form.supplierId} onChange={v => setForm({...form, supplierId: v})}>
-                <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
+                <SelectTrigger>
+                  <span className={`flex-1 text-left truncate ${form.supplierId === "none" ? "text-muted-foreground" : ""}`}>
+                    {form.supplierId === "none" ? "None" : suppliers.find(s => s.id === form.supplierId)?.name || "None"}
+                  </span>
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">None</SelectItem>
                   {suppliers.map(s => (
@@ -512,7 +662,14 @@ export default function InventoryClient({ components: initialComponents, categor
                 }} />
               </div>
               <div className="space-y-1">
-                <Label>Total Qty</Label>
+                <div className="flex justify-between items-center">
+                  <Label>Total Qty</Label>
+                  {calcValues.weightKg > 0 && (
+                    <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 tabular-nums">
+                      {(((parseInt(form.packages) || 0) * calcValues.weightKg) + ((parseInt(form.looseQuantity) || 0) / (calcValues.rimInSheet || 100) * calcValues.weightKg)).toFixed(2)} Kg
+                    </span>
+                  )}
+                </div>
                 <Input type="number" value={form.quantity} onChange={e => {
                   const qty = parseInt(e.target.value) || 0;
                   const itemsPerPkg = parseInt(form.itemsPerPackage) || 1;
@@ -520,14 +677,59 @@ export default function InventoryClient({ components: initialComponents, categor
                 }} />
               </div>
             </div>
-            <div className="space-y-1 w-1/2 pr-1.5">
-              <Label>Min Quantity Alert (Total)</Label>
-              <Input type="number" value={form.minQuantity} onChange={e => setForm({...form, minQuantity: e.target.value})} />
+            <div className="flex gap-4">
+              <div className="space-y-1 w-1/2">
+                <Label>Min Quantity Alert (Total)</Label>
+                <Input type="number" value={form.minQuantity} onChange={e => setForm({...form, minQuantity: e.target.value})} />
+              </div>
+              <div className="space-y-1 w-1/2">
+                <Label>Total Amount</Label>
+                <div className="h-10 px-3 bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900 rounded-md flex items-center justify-end font-semibold text-indigo-700 dark:text-indigo-400 font-mono tabular-nums">
+                  {formatCurrency(
+                     calcValues.weightKg > 0 && calcValues.ratePerKg > 0 
+                     ? (((parseInt(form.packages) || 0) * calcValues.weightKg) + ((parseInt(form.looseQuantity) || 0) / (calcValues.rimInSheet || 100) * calcValues.weightKg)) * calcValues.ratePerKg
+                     : (parseInt(form.quantity) || 0) / (parseInt(form.itemsPerPackage) || 1) * (parseFloat(form.unitCost) || 0)
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 
+          {/* Price Calculator */}
+          <div className="pt-2 border-t mt-2">
+            <PriceCalculator
+              values={calcValues}
+              onChange={(newVals) => {
+                setCalcValues(newVals);
+                const updates: any = {};
+                
+                // Sync calculator prices with form
+                if (newVals.purchasePrice !== calcValues.purchasePrice) {
+                  updates.unitCost = String(newVals.purchasePrice);
+                }
+                if (newVals.salePrice !== calcValues.salePrice) {
+                  updates.unitPrice = String(newVals.salePrice);
+                }
+                
+                // Auto-suggest size and grams from dimensions
+                if (newVals.dimensionX > 0 && newVals.dimensionY > 0) {
+                  updates.size = `${newVals.dimensionX}x${newVals.dimensionY}`;
+                }
+                if (newVals.gsm > 0) {
+                  updates.grams = String(newVals.gsm);
+                }
+                
+                if (Object.keys(updates).length > 0) {
+                  setForm(prev => ({ ...prev, ...updates }));
+                }
+              }}
+              compact
+              showSalePrice={true}
+            />
+          </div>
+
           <div className="space-y-3 pt-2 border-t mt-2">
-            <h4 className="text-sm font-medium">Pricing</h4>
+            <h4 className="text-sm font-medium">Additional Pricing</h4>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label>Supplier Price (Rs.)</Label>
@@ -546,16 +748,6 @@ export default function InventoryClient({ components: initialComponents, categor
                 }} />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label>Purchase Price / Unit Cost (Rs.)</Label>
-                <Input type="number" step="0.01" value={form.unitCost} onChange={e => setForm({...form, unitCost: e.target.value})} />
-              </div>
-              <div className="space-y-1">
-                <Label>Sale Price (Rs.)</Label>
-                <Input type="number" step="0.01" value={form.unitPrice} onChange={e => setForm({...form, unitPrice: e.target.value})} />
-              </div>
-            </div>
 
             {/* AI Price Insights */}
             {priceAI && priceAI.suggestions.length > 0 && (
@@ -569,7 +761,10 @@ export default function InventoryClient({ components: initialComponents, categor
                       key={i} 
                       variant="outline" 
                       className="cursor-pointer bg-white dark:bg-black hover:bg-purple-100 hover:text-purple-800 transition-colors"
-                      onClick={() => setForm({ ...form, unitPrice: String(sug.price) })}
+                      onClick={() => {
+                        setForm({ ...form, unitPrice: String(sug.price) });
+                        setCalcValues(prev => ({ ...prev, salePrice: sug.price }));
+                      }}
                     >
                       {sug.label}: Rs. {sug.price.toLocaleString()}
                     </Badge>
@@ -602,7 +797,15 @@ export default function InventoryClient({ components: initialComponents, categor
             <div className="space-y-1">
               <Label>Unit of Measure</Label>
               <Select value={form.unit} onChange={v => setForm({...form, unit: v})}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger>
+                  <span className="flex-1 text-left truncate">
+                    {form.unit === "piece" ? "Piece (pc)" :
+                     form.unit === "sheet" ? "Sheet" :
+                     form.unit === "meter" ? "Meter (m)" :
+                     form.unit === "kg" ? "Kilogram (kg)" :
+                     form.unit === "set" ? "Set" : form.unit}
+                  </span>
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="piece">Piece (pc)</SelectItem>
                   <SelectItem value="sheet">Sheet</SelectItem>
@@ -621,7 +824,7 @@ export default function InventoryClient({ components: initialComponents, categor
         <DialogFooter>
           <Button variant="outline" onClick={() => { setShowAdd(false); setEditing(null); }}>Cancel</Button>
           <Button onClick={editing ? handleUpdate : handleCreate} disabled={loading}>
-            {loading ? "Saving..." : editing ? "Save Changes" : "Add Component"}
+            {loading ? "Saving..." : editing ? "Save Changes" : "Add Product"}
           </Button>
         </DialogFooter>
       </Dialog>
@@ -629,7 +832,7 @@ export default function InventoryClient({ components: initialComponents, categor
       {/* Delete Confirm */}
       <ConfirmDialog
         open={!!deleting} onClose={() => setDeleting(null)} onConfirm={handleDelete}
-        title="Delete Component"
+        title="Delete Product"
         description={`Are you sure you want to delete "${deleting?.name}"? This action cannot be undone.`}
         variant="destructive"
         loading={loading}

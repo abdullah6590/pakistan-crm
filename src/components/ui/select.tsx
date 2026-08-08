@@ -74,10 +74,14 @@ export function SelectTrigger({ children, className }: SelectTriggerProps) {
 
 interface SelectValueProps {
   placeholder?: string;
+  children?: React.ReactNode;
 }
 
-export function SelectValue({ placeholder }: SelectValueProps) {
+export function SelectValue({ placeholder, children }: SelectValueProps) {
   const { value } = useSelect();
+  if (children) {
+    return <span className={cn(!value && "text-muted-foreground")}>{children}</span>;
+  }
   return <span className={cn(!value && "text-muted-foreground")}>{value || placeholder || "Select..."}</span>;
 }
 

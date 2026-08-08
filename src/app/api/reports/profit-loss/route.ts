@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 import { generateFinanceReport } from "@/lib/excel-generator";
+import { generateTablePDF } from "@/lib/pdf-generator";
 
 export async function GET(request: NextRequest) {
   const user = await getAuthUser();
@@ -41,6 +42,19 @@ export async function GET(request: NextRequest) {
     })));
     return new NextResponse(buffer as any, {
       headers: { "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Content-Disposition": "attachment; filename=profit-loss-report.xlsx" },
+    });
+  }
+
+  if (format === "pdf") {
+    const buffer = await generateTablePDF(
+      "Profit & Loss Report",
+      ["Ref", "Type", "Category", "Description", "Amount", "Date"],
+      records.map(r => [
+        r.transactionRef || r.id.slice(0, 8), r.type, r.category, r.description || "", String(r.amount), r.createdAt.toISOString().slice(0, 10)
+      ])
+    );
+    return new NextResponse(buffer as any, {
+      headers: { "Content-Type": "application/pdf", "Content-Disposition": "attachment; filename=profit-loss-report.pdf" },
     });
   }
 

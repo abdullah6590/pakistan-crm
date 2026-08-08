@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 import { generateSalesReport } from "@/lib/excel-generator";
+import { generateTablePDF } from "@/lib/pdf-generator";
 
 export async function GET(request: NextRequest) {
   const user = await getAuthUser();
@@ -41,6 +42,19 @@ export async function GET(request: NextRequest) {
     })));
     return new NextResponse(buffer as any, {
       headers: { "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Content-Disposition": "attachment; filename=sales-report.xlsx" },
+    });
+  }
+
+  if (format === "pdf") {
+    const buffer = await generateTablePDF(
+      "Sales Report",
+      ["Invoice", "Customer", "Date", "Items", "Total", "Profit", "Status"],
+      sales.map(s => [
+        s.invoiceNumber, s.customer?.name || s.walkInName || "Walk-in", s.createdAt.toISOString().slice(0, 10), String(s.items.length), String(s.total), String(s.profit), s.paymentStatus
+      ])
+    );
+    return new NextResponse(buffer as any, {
+      headers: { "Content-Type": "application/pdf", "Content-Disposition": "attachment; filename=sales-report.pdf" },
     });
   }
 

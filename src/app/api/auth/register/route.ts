@@ -17,7 +17,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { name, email, password, phone } = parsed.data;
+    const { name, email, password, phone, role: requestedRole } = parsed.data;
 
     // Check if user already exists
     const existingUser = await prisma.user.findUnique({
@@ -31,9 +31,9 @@ export async function POST(request: Request) {
       );
     }
 
-    // Count existing users - first user is ADMIN, rest are EMPLOYEE
+    // Determine role: use requested role if provided, otherwise first user is ADMIN, rest default to EMPLOYEE
     const userCount = await prisma.user.count();
-    const role = userCount === 0 ? "ADMIN" : "EMPLOYEE";
+    const role = requestedRole || (userCount === 0 ? "ADMIN" : "EMPLOYEE");
 
     // Hash password
     const hashedPassword = await hashPassword(password);

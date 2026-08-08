@@ -115,6 +115,10 @@ export default async function DashboardPage() {
       select: { id: true, name: true, sku: true, totalSold: true, quantity: true, unitPrice: true },
     }),
     prisma.component.findMany({
+      take: 100,
+      orderBy: [
+        { totalSold: "desc" },
+      ],
       select: { id: true, name: true, quantity: true, minQuantity: true, totalSold: true, createdAt: true },
     }),
   ]);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Plus, Wallet, Banknote, Smartphone, Building2, Trash2, Edit, CreditCard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,8 +12,11 @@ import { Dialog, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { SearchInput } from "@/components/shared/search-input";
 import { formatCurrency } from "@/lib/utils";
 import { toast } from "sonner";
+import { useRouter } from "next/navigation";
+import { AdvancedFilter } from "@/components/shared/advanced-filter";
 
 interface AccountItem {
   id: string; name: string; type: string; accountNumber: string | null;
@@ -36,6 +39,7 @@ const ACCOUNT_TYPES = [
 const emptyForm = { name: "", type: "BANK", accountNumber: "", bankName: "", currentBalance: "", notes: "" };
 
 export default function AccountsClient({ accounts: initialAccounts, summary }: Props) {
+  const router = useRouter();
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<AccountItem | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -44,6 +48,14 @@ export default function AccountsClient({ accounts: initialAccounts, summary }: P
   const [deleting, setDeleting] = useState(false);
 
   const resetForm = () => setForm(emptyForm);
+
+  const handleSearch = (term: string) => {
+    const params = new URLSearchParams(window.location.search);
+    if (term) params.set("search", term);
+    else params.delete("search");
+    params.set("page", "1");
+    router.push(`?${params.toString()}`);
+  };
 
   const openEdit = (a: AccountItem) => {
     setEditing(a);
@@ -117,9 +129,24 @@ export default function AccountsClient({ accounts: initialAccounts, summary }: P
         ))}
       </div>
 
+      {/* Filters */}
+      <AdvancedFilter
+        moduleName="accounts"
+        filters={[
+          { key: "search", label: "Search", type: "search", placeholder: "Search accounts by name, bank, or number..." },
+          { key: "type", label: "Type", type: "select", placeholder: "All Types", options: [
+            { label: "Bank Accounts", value: "BANK" },
+            { label: "Cash", value: "CASH" },
+            { label: "Digital Wallet", value: "DIGITAL_WALLET" },
+            { label: "Expense Account", value: "EXPENSE" }
+          ] },
+        ]}
+        onSearchChange={handleSearch}
+      />
+
       {/* Account Cards */}
       {initialAccounts.length === 0 ? (
-        <EmptyState icon={Wallet} title="No accounts yet" description="Add your first bank account or cash register" />
+        <EmptyState icon={Wallet} title="No accounts found" description="Try adjusting your filters or add an account" />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {initialAccounts.map(account => {

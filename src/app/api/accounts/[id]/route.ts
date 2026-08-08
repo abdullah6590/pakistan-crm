@@ -1,7 +1,7 @@
 // src/app/api/accounts/[id]/route.ts - Individual financial account CRUD
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getAuthUser } from "@/lib/auth";
+import { getAuthUser, canManageFinance } from "@/lib/auth";
 import { financialAccountSchema } from "@/lib/validations";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -24,6 +24,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getAuthUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!canManageFinance(user.role)) return NextResponse.json({ error: "Forbidden: Not authorized to modify accounts" }, { status: 403 });
 
   const { id } = await params;
   const body = await request.json();
@@ -47,6 +48,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getAuthUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!canManageFinance(user.role)) return NextResponse.json({ error: "Forbidden: Not authorized to delete accounts" }, { status: 403 });
 
   const { id } = await params;
   await prisma.financialAccount.delete({ where: { id } });

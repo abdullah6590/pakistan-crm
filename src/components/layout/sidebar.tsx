@@ -135,8 +135,8 @@ export function Sidebar({ userRole, userName, userEmail }: SidebarProps) {
             </div>
             {!collapsed && (
               <div>
-                <p className="text-sm font-bold leading-tight">ES-ERP</p>
-                <p className="text-[10px] text-muted-foreground leading-tight">Electronics Startup</p>
+                <p className="text-sm font-bold leading-tight">PM-ERP</p>
+                <p className="text-[10px] text-muted-foreground leading-tight">Paper Mill System</p>
               </div>
             )}
           </Link>

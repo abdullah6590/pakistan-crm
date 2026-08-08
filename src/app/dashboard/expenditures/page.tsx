@@ -3,28 +3,44 @@ import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import ExpendituresClient from "./expenditures-client";
+import { buildExpendituresWhere } from "@/lib/filters";
 
-export default async function ExpendituresPage() {
+export default async function ExpendituresPage({ searchParams }: { searchParams: { [key: string]: string | undefined } }) {
   const user = await getAuthUser();
   if (!user) redirect("/login");
 
-  const expenditures = await prisma.expenditure.findMany({
-    orderBy: { date: "desc" },
-    take: 200,
-  });
+  const params = await searchParams;
+  const page = parseInt((params as any).page || "1", 10);
+  const limit = 50;
+  const skip = (page - 1) * limit;
+  const whereClause = buildExpendituresWhere(params as any);
 
-  const accounts = await prisma.financialAccount.findMany({
-    where: { isActive: true },
-    select: { id: true, name: true, type: true },
-  });
+  const [expenditures, totalExpenditures, accounts, categoryTotals, totalExpenseAggregate] = await Promise.all([
+    prisma.expenditure.findMany({
+      where: whereClause,
+      orderBy: { date: "desc" },
+      take: limit,
+      skip,
+    }),
+    prisma.expenditure.count({ where: whereClause }),
+    prisma.financialAccount.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true, type: true },
+    }),
+    prisma.expenditure.groupBy({
+      by: ["category"],
+      where: whereClause,
+      _sum: { amount: true },
+      _count: true,
+    }),
+    prisma.expenditure.aggregate({
+      where: whereClause,
+      _sum: { amount: true },
+    })
+  ]);
 
-  const categoryTotals = await prisma.expenditure.groupBy({
-    by: ["category"],
-    _sum: { amount: true },
-    _count: true,
-  });
-
-  const totalExpense = expenditures.reduce((s, e) => s + e.amount, 0);
+  const totalExpense = totalExpenseAggregate._sum.amount || 0;
+  const totalPages = Math.ceil(totalExpenditures / limit);
 
   return (
     <ExpendituresClient
@@ -32,6 +48,7 @@ export default async function ExpendituresPage() {
       accounts={accounts}
       categoryBreakdown={categoryTotals.map(c => ({ category: c.category, total: c._sum.amount || 0, count: c._count }))}
       totalExpense={totalExpense}
+      pagination={{ page, totalPages, totalRecords: totalExpenditures }}
     />
   );
 }

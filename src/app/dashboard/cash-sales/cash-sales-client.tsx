@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useRef, useEffect } from "react";
-import { Plus, Receipt, Search, Trash2, Zap, Calendar, DollarSign, Users } from "lucide-react";
+import { Plus, Receipt, Search, Trash2, Zap, Calendar, DollarSign, Users, Calculator } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,6 +16,7 @@ import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { PAYMENT_METHODS } from "@/lib/constants";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import { toast } from "sonner";
+import PriceCalculator, { type PriceCalcValues, defaultCalcValues } from "@/components/shared/price-calculator";
 
 interface CashSaleItem {
   id: string; receiptNo: string; customerName: string | null;
@@ -37,6 +38,8 @@ export default function CashSalesClient({ sales: initialSales, todayStats, allSt
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const amountRef = useRef<HTMLInputElement>(null);
+  const [showCalc, setShowCalc] = useState(false);
+  const [calcValues, setCalcValues] = useState<PriceCalcValues>(defaultCalcValues);
 
   // Auto-focus amount field when dialog opens for fast entry
   useEffect(() => {
@@ -55,7 +58,11 @@ export default function CashSalesClient({ sales: initialSales, todayStats, allSt
     );
   }, [initialSales, search]);
 
-  const resetForm = () => setForm({ customerName: "", amount: "", remarks: "", paymentMethod: "CASH" });
+  const resetForm = () => {
+    setForm({ customerName: "", amount: "", remarks: "", paymentMethod: "CASH" });
+    setShowCalc(false);
+    setCalcValues(defaultCalcValues);
+  };
 
   const handleCreate = async () => {
     if (!form.amount || parseFloat(form.amount) <= 0) {
@@ -213,10 +220,37 @@ export default function CashSalesClient({ sales: initialSales, todayStats, allSt
           </DialogHeader>
           <div className="grid gap-4">
             <div>
-              <Label>Amount (PKR) *</Label>
+              <div className="flex items-center justify-between mb-1">
+                <Label>Amount (PKR) *</Label>
+                <Button 
+                  type="button" 
+                  variant={showCalc ? "default" : "outline"} 
+                  size="sm" 
+                  className="h-6 text-[10px] gap-1"
+                  onClick={() => setShowCalc(!showCalc)}
+                >
+                  <Calculator className="h-3 w-3" />
+                  {showCalc ? "Hide Calculator" : "Use Calculator"}
+                </Button>
+              </div>
               <Input ref={amountRef} type="number" step="1" min="1" placeholder="Enter amount" value={form.amount}
                 onChange={e => setForm(p => ({ ...p, amount: e.target.value }))} />
             </div>
+            {showCalc && (
+              <PriceCalculator
+                values={calcValues}
+                onChange={(newVals) => {
+                  setCalcValues(newVals);
+                  // Auto-fill amount from calculator purchase price or sale price
+                  const calcAmount = newVals.salePrice > 0 ? newVals.salePrice : newVals.purchasePrice;
+                  if (calcAmount > 0) {
+                    setForm(p => ({ ...p, amount: String(Math.round(calcAmount)) }));
+                  }
+                }}
+                compact
+                showSalePrice={true}
+              />
+            )}
             <div>
               <Label>Customer Name (optional)</Label>
               <Input placeholder="Walk-in customer name" value={form.customerName}

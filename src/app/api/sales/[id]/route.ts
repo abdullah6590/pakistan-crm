@@ -35,6 +35,11 @@ export async function PUT(
   const existing = await prisma.sale.findUnique({ where: { id } });
   if (!existing) return NextResponse.json({ error: "Sale not found" }, { status: 404 });
 
+  // Authorization Check: Only ADMIN or the creator can modify
+  if (user.role !== "ADMIN" && existing.userId !== user.id) {
+    return NextResponse.json({ error: "Forbidden: Not authorized to modify this sale" }, { status: 403 });
+  }
+
   const body = await request.json();
   const sale = await prisma.sale.update({
     where: { id },

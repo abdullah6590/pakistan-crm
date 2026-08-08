@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import {
   Plus, DollarSign, TrendingUp, TrendingDown, Wallet,
   FileText, Search, Banknote, Smartphone, Trash2,
+  ChevronLeft, ChevronRight
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +24,8 @@ import { PageHeader } from "@/components/shared/page-header";
 import { SearchInput } from "@/components/shared/search-input";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { AdvancedFilter } from "@/components/shared/advanced-filter";
+import { Pagination } from "@/components/shared/pagination";
 import { INCOME_CATEGORIES, EXPENSE_CATEGORIES, PAYMENT_METHODS } from "@/lib/constants";
 import { formatCurrency, formatDate, timeAgo } from "@/lib/utils";
 import { toast } from "sonner";
@@ -37,6 +41,7 @@ interface FinanceRecord {
 interface Props {
   records: FinanceRecord[];
   summary: { totalIncome: number; totalExpense: number; netProfit: number };
+  pagination: { page: number; totalPages: number; totalRecords: number };
 }
 
 const PAYMENT_ICONS: Record<string, React.ElementType> = {
@@ -50,28 +55,27 @@ const ALL_CATEGORIES = [
   ...EXPENSE_CATEGORIES.map(c => ({ ...c, type: "EXPENSE" as const })),
 ];
 
-export default function FinanceClient({ records: initialRecords, summary }: Props) {
-  const [search, setSearch] = useState("");
-  const [typeFilter, setTypeFilter] = useState("all");
-  const [categoryFilter, setCategoryFilter] = useState("all");
+export default function FinanceClient({ records, summary, pagination }: Props) {
+  const router = useRouter();
 
   // Add dialog
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ type: "INCOME", category: "", amount: "", description: "", paymentMethod: "", reference: "", date: new Date().toISOString().split("T")[0] });
   const [submitting, setSubmitting] = useState(false);
 
+  const handleSearch = (term: string) => {
+    const params = new URLSearchParams(window.location.search);
+    if (term) params.set("search", term);
+    else params.delete("search");
+    params.set("page", "1");
+    router.push(`/dashboard/finance?${params.toString()}`);
+  };
+
   // Delete
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const filtered = useMemo(() => {
-    return initialRecords.filter(r => {
-      if (search && !r.description.toLowerCase().includes(search.toLowerCase()) && !r.transactionRef.toLowerCase().includes(search.toLowerCase())) return false;
-      if (typeFilter !== "all" && r.type !== typeFilter) return false;
-      if (categoryFilter !== "all" && r.category !== categoryFilter) return false;
-      return true;
-    });
-  }, [initialRecords, search, typeFilter, categoryFilter]);
+
 
   const resetForm = () => setForm({ type: "INCOME", category: "", amount: "", description: "", paymentMethod: "", reference: "", date: new Date().toISOString().split("T")[0] });
 
@@ -162,38 +166,27 @@ export default function FinanceClient({ records: initialRecords, summary }: Prop
       </div>
 
       {/* Filters */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <SearchInput value={search} onChange={setSearch} placeholder="Search transactions..." className="flex-1" />
-            <Select value={typeFilter} onChange={setTypeFilter}>
-              <SelectTrigger className="w-full sm:w-32"><SelectValue placeholder="All Types" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Types</SelectItem>
-                <SelectItem value="INCOME">Income</SelectItem>
-                <SelectItem value="EXPENSE">Expense</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={categoryFilter} onChange={setCategoryFilter}>
-              <SelectTrigger className="w-full sm:w-44"><SelectValue placeholder="All Categories" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Categories</SelectItem>
-                {ALL_CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
+      <AdvancedFilter
+        moduleName="finance"
+        filters={[
+          { key: "search", label: "Search", type: "search", placeholder: "Search description or reference..." },
+          { key: "type", label: "Type", type: "select", placeholder: "All Types", options: [
+            { label: "Income", value: "INCOME" },
+            { label: "Expense", value: "EXPENSE" }
+          ] },
+          { key: "category", label: "Category", type: "select", placeholder: "All Categories", options: ALL_CATEGORIES.map(c => ({ label: c.label, value: c.value })) },
+        ]}
+        onSearchChange={handleSearch}
+      />
 
       {/* Table */}
       <Card>
         <CardContent className="p-0">
-          {filtered.length === 0 ? (
+          {records.length === 0 ? (
             <EmptyState
-              icon={DollarSign}
-              title="No finance records"
-              description={search || typeFilter !== "all" || categoryFilter !== "all" ? "Try adjusting filters" : "Start tracking income and expenses"}
-              action={search || typeFilter !== "all" || categoryFilter !== "all" ? undefined : { label: "Add Record", onClick: () => setShowAdd(true) }}
+              icon={Wallet}
+              title="No transactions found"
+              description="Try adjusting your filters or record a new transaction."
             />
           ) : (
             <div className="overflow-x-auto">
@@ -201,36 +194,37 @@ export default function FinanceClient({ records: initialRecords, summary }: Prop
                 <TableHeader>
                   <TableRow>
                     <TableHead>Ref</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Category</TableHead>
+                    <TableHead>Date</TableHead>
                     <TableHead>Description</TableHead>
+                    <TableHead>Category</TableHead>
                     <TableHead>Payment</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead className="w-16"></TableHead>
+                    <TableHead className="w-[80px]">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filtered.map(r => {
+                  {records.map((r) => {
                     const cat = ALL_CATEGORIES.find(c => c.value === r.category);
                     const paymentIcon = r.paymentMethod ? (PAYMENT_ICONS[r.paymentMethod] || Banknote) : null;
                     return (
                       <TableRow key={r.id}>
                         <TableCell className="font-mono text-xs">{r.transactionRef}</TableCell>
-                        <TableCell>
-                          <Badge variant={r.type === "INCOME" ? "success" : "destructive"}>{r.type}</Badge>
+                        <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{formatDate(r.date)}</TableCell>
+                        <TableCell className="max-w-[200px] truncate text-sm">
+                          <div className="flex flex-col">
+                            <span>{r.description}</span>
+                            <span className="mt-1"><Badge variant={r.type === "INCOME" ? "success" : "destructive"} className="text-[10px] h-4">{r.type}</Badge></span>
+                          </div>
                         </TableCell>
                         <TableCell>
                           <span className="text-sm">{cat?.label || r.category}</span>
                         </TableCell>
-                        <TableCell className="max-w-[200px] truncate text-sm">{r.description}</TableCell>
                         <TableCell>
-                          {(() => { const PaymentIcon = paymentIcon; return PaymentIcon ? <PaymentIcon className="h-3.5 w-3.5 text-muted-foreground" /> : null; })()}
+                          {(() => { const PaymentIcon = paymentIcon; return PaymentIcon ? <PaymentIcon className="h-3.5 w-3.5 text-muted-foreground" /> : <span className="text-muted-foreground text-xs">N/A</span>; })()}
                         </TableCell>
                         <TableCell className={`text-right font-semibold tabular-nums ${r.type === "INCOME" ? "text-emerald-600" : "text-red-600"}`}>
                           {r.type === "EXPENSE" ? "-" : ""}{formatCurrency(r.amount)}
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{formatDate(r.date)}</TableCell>
                         <TableCell>
                           <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setDeleteId(r.id)}>
                             <Trash2 className="h-4 w-4" />
@@ -245,6 +239,21 @@ export default function FinanceClient({ records: initialRecords, summary }: Prop
           )}
         </CardContent>
       </Card>
+
+      {/* Pagination Controls */}
+      {pagination.totalPages > 1 && (
+        <div className="py-4">
+          <Pagination 
+            currentPage={pagination.page} 
+            totalPages={pagination.totalPages} 
+            onPageChange={(p: number) => {
+              const params = new URLSearchParams(window.location.search);
+              params.set("page", p.toString());
+              router.push(`/dashboard/finance?${params.toString()}`);
+            }}
+          />
+        </div>
+      )}
 
       {/* Add Dialog */}
       <Dialog open={showAdd} onClose={() => setShowAdd(false)}>

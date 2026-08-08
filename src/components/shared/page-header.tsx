@@ -10,7 +10,7 @@ interface PageHeaderProps {
 
 export function PageHeader({ title, description, icon: Icon, actions }: PageHeaderProps) {
   return (
-    <div className="flex items-start justify-between">
+    <div className="flex items-start justify-between print:hidden">
       <div className="flex items-center gap-3">
         {Icon && (
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">

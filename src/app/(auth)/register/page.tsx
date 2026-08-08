@@ -1,4 +1,3 @@
-// src/app/(auth)/register/page.tsx
 "use client";
 
 import { useState } from "react";
@@ -9,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 
 export default function RegisterPage() {
@@ -16,6 +16,7 @@ export default function RegisterPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [role, setRole] = useState("ADMIN");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -43,7 +44,7 @@ export default function RegisterPage() {
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, password, phone: phone || undefined }),
+        body: JSON.stringify({ name, email, password, phone: phone || undefined, role }),
       });
 
       const data = await res.json();
@@ -105,6 +106,21 @@ export default function RegisterPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="role">Account Role</Label>
+              <Select value={role} onChange={(val: string) => setRole(val)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select Account Role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ADMIN">Admin - Full Access</SelectItem>
+                  <SelectItem value="PARTNER">Partner - Dashboard & Reports</SelectItem>
+                  <SelectItem value="EMPLOYEE">Employee - Sales & Inventory</SelectItem>
+                  <SelectItem value="INVENTORY_MANAGER">Inventory Manager - Stock Control</SelectItem>
+                  <SelectItem value="ACCOUNTANT">Accountant - Finance & Reports</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
               <Label htmlFor="phone">Phone (optional)</Label>

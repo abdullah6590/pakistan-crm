@@ -18,9 +18,9 @@ export async function generateInvoicePDF(invoice: InvoiceData): Promise<Buffer> 
     doc.moveDown();
 
     // Company Info
-    doc.fontSize(14).font('Helvetica-Bold').text('Electronics Startup ERP');
+    doc.fontSize(14).font('Helvetica-Bold').text('Paper Mill ERP');
     doc.fontSize(9).font('Helvetica')
-      .text('IoT & Electronics Solutions')
+      .text('Paper & Packaging Solutions')
       .text('Pakistan')
       .moveDown();
 
@@ -217,6 +217,51 @@ export async function generateFinancialReport(summary: {
     doc.moveDown(2);
     doc.fontSize(8).fillColor('#9CA3AF').text(`Generated: ${formatDate(new Date())}`, { align: 'center' });
 
+    doc.end();
+  });
+}
+
+export async function generateTablePDF(title: string, headers: string[], rows: string[][]): Promise<Buffer> {
+  return new Promise((resolve) => {
+    const doc = new PDFDocument({ size: 'A4', margin: 40 });
+    const chunks: Buffer[] = [];
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+
+    // Header
+    doc.fontSize(16).font('Helvetica-Bold').text(title, { align: 'center' });
+    doc.moveDown(1);
+    doc.fontSize(9).font('Helvetica').text('Paper Mill ERP - Generated on ' + new Date().toLocaleDateString(), { align: 'center' });
+    doc.moveDown(2);
+
+    const startX = 40;
+    let currentY = doc.y;
+    
+    // Auto column widths
+    const colWidth = (595 - 80) / headers.length;
+
+    // Draw headers
+    doc.font('Helvetica-Bold').fontSize(9);
+    headers.forEach((h, i) => {
+      doc.text(h, startX + (i * colWidth), currentY, { width: colWidth, align: 'left' });
+    });
+    currentY += 15;
+    doc.moveTo(startX, currentY).lineTo(555, currentY).stroke('#E5E7EB');
+    currentY += 10;
+
+    // Draw rows
+    doc.font('Helvetica').fontSize(8);
+    for (const row of rows) {
+      if (currentY > 750) {
+        doc.addPage();
+        currentY = 40;
+      }
+      row.forEach((cell, i) => {
+        doc.text(String(cell || ''), startX + (i * colWidth), currentY, { width: colWidth - 5, align: 'left' });
+      });
+      currentY += 15;
+    }
+    
     doc.end();
   });
 }

@@ -3,9 +3,11 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose";
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || "crm-electronics-super-secret-key-2024"
-);
+if (!process.env.JWT_SECRET) {
+  throw new Error("CRITICAL ERROR: JWT_SECRET environment variable is not set.");
+}
+
+const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET);
 
 // Routes that require specific roles
 const roleRouteMap: Record<string, string[]> = {

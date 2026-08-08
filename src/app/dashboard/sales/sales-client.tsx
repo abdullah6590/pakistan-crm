@@ -6,7 +6,7 @@ import Link from "next/link";
 import {
   Plus, ShoppingCart, DollarSign, TrendingUp, FileText,
   Search, Eye, BadgeCheck, Clock, Ban, Banknote, Smartphone,
-  User, Hash,
+  User, Hash, ChevronLeft, ChevronRight
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +22,7 @@ import { SearchInput } from "@/components/shared/search-input";
 import { EmptyState } from "@/components/shared/empty-state";
 import { formatCurrency, formatDate, timeAgo } from "@/lib/utils";
 import { PAYMENT_METHODS } from "@/lib/constants";
+import { AdvancedFilter } from "@/components/shared/advanced-filter";
 
 interface SaleItem {
   id: string; invoiceNumber: string; customer: { id: string; name: string; phone: string } | null;
@@ -37,6 +38,7 @@ interface Props {
   sales: SaleItem[];
   customers: CustomerOption[];
   stats: { totalRevenue: number; totalProfit: number; totalSales: number };
+  pagination: { page: number; totalPages: number; totalRecords: number };
 }
 
 const statusConfig: Record<string, { icon: React.ElementType; variant: "success"|"warning"|"destructive"|"secondary"; label: string }> = {
@@ -46,26 +48,33 @@ const statusConfig: Record<string, { icon: React.ElementType; variant: "success"
   OVERDUE: { icon: Ban, variant: "destructive", label: "Overdue" },
 };
 
-export default function SalesClient({ sales: initialSales, customers, stats }: Props) {
+export default function SalesClient({ sales, customers, stats, pagination }: Props) {
   const router = useRouter();
-  const [search, setSearch] = useState("");
-  const [customerFilter, setCustomerFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
+  
+  // Use debounced search to update URL
+  const handleSearch = (term: string) => {
+    const params = new URLSearchParams(window.location.search);
+    if (term) params.set("search", term);
+    else params.delete("search");
+    params.set("page", "1"); // reset page
+    router.push(`/dashboard/sales?${params.toString()}`);
+  };
 
-  const filtered = useMemo(() => {
-    let list = initialSales;
-    if (search) {
-      const q = search.toLowerCase();
-      list = list.filter(s =>
-        s.invoiceNumber.toLowerCase().includes(q) ||
-        s.customer?.name.toLowerCase().includes(q) ||
-        s.walkInName?.toLowerCase().includes(q)
-      );
-    }
-    if (customerFilter !== "all") list = list.filter(s => s.customer?.id === customerFilter);
-    if (statusFilter !== "all") list = list.filter(s => s.paymentStatus === statusFilter);
-    return list;
-  }, [initialSales, search, customerFilter, statusFilter]);
+  const updateFilter = (key: string, value: string) => {
+    const params = new URLSearchParams(window.location.search);
+    if (value && value !== "all") params.set(key, value);
+    else params.delete(key);
+    params.set("page", "1"); // reset page
+    router.push(`/dashboard/sales?${params.toString()}`);
+  };
+
+  const handlePageChange = (newPage: number) => {
+    const params = new URLSearchParams(window.location.search);
+    params.set("page", newPage.toString());
+    router.push(`/dashboard/sales?${params.toString()}`);
+  };
+
+
 
   const paymentIcon: Record<string, React.ElementType> = {
     CASH: Banknote, JAZZCASH: Smartphone, EASYPAISA: Smartphone, BANK_TRANSFER: DollarSign,
@@ -101,51 +110,52 @@ export default function SalesClient({ sales: initialSales, customers, stats }: P
         </CardContent></Card>
       </div>
 
-      {/* Filters */}
-      <Card><CardContent className="p-4">
-        <div className="flex flex-col sm:flex-row gap-3">
-          <SearchInput value={search} onChange={setSearch} placeholder="Search invoice or customer..." className="flex-1" />
-          <Select value={customerFilter} onChange={setCustomerFilter}>
-            <SelectTrigger className="w-full sm:w-[200px]"><SelectValue placeholder="All Customers" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Customers</SelectItem>
-              {customers.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Select value={statusFilter} onChange={setStatusFilter}>
-            <SelectTrigger className="w-full sm:w-[150px]"><SelectValue placeholder="All Status" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="PAID">Paid</SelectItem>
-              <SelectItem value="PARTIAL">Partial</SelectItem>
-              <SelectItem value="PENDING">Pending</SelectItem>
-              <SelectItem value="OVERDUE">Overdue</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </CardContent></Card>
+      {/* Filter */}
+      <AdvancedFilter
+        moduleName="sales"
+        filters={[
+          { key: "search", label: "Search", type: "search", placeholder: "Search invoice, customer, items..." },
+          { key: "customerId", label: "Customer", type: "select", placeholder: "All Customers", options: customers.map(c => ({ label: c.name, value: c.id })) },
+          { key: "paymentStatus", label: "Status", type: "select", placeholder: "All Status", options: [
+            { label: "Paid", value: "PAID" },
+            { label: "Partial", value: "PARTIAL" },
+            { label: "Pending", value: "PENDING" },
+            { label: "Overdue", value: "OVERDUE" },
+          ] },
+          { key: "from", label: "From", type: "date" },
+          { key: "to", label: "To", type: "date" },
+          { key: "minAmount", label: "Min Amount", type: "number", placeholder: "Min" },
+          { key: "maxAmount", label: "Max Amount", type: "number", placeholder: "Max" },
+        ]}
+        onSearchChange={handleSearch}
+      />
 
       {/* Table */}
-      <Card><CardContent className="p-0">
-        {filtered.length === 0 ? (
-          <EmptyState icon={ShoppingCart} title="No sales found" description={search ? "Try adjusting your filters" : "Record your first sale"} action={!search ? { label: "New Sale", onClick: () => router.push("/dashboard/sales/new") } : undefined} />
-        ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Invoice</TableHead>
-                  <TableHead>Customer</TableHead>
-                  <TableHead>Items</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
-                  <TableHead className="text-right">Profit</TableHead>
-                  <TableHead>Payment</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Date</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filtered.map(s => {
+      <Card>
+        <CardContent className="p-0">
+          {sales.length === 0 ? (
+            <EmptyState
+              icon={ShoppingCart}
+              title="No sales found"
+              description="Try adjusting your filters or create a new sale."
+            />
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Invoice</TableHead>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Items</TableHead>
+                    <TableHead className="text-right">Total</TableHead>
+                    <TableHead>Payment</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead className="w-[80px]">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sales.map((s) => {
                   const sConfig = statusConfig[s.paymentStatus] || statusConfig.PENDING;
                   const PI = paymentIcon[s.paymentMethod] || Banknote;
                   return (
@@ -159,7 +169,6 @@ export default function SalesClient({ sales: initialSales, customers, stats }: P
                       </TableCell>
                       <TableCell className="text-sm">{s.items.length} item{s.items.length !== 1 ? "s" : ""}</TableCell>
                       <TableCell className="text-right font-mono text-sm font-bold">{formatCurrency(s.total)}</TableCell>
-                      <TableCell className={`text-right font-mono text-sm ${s.profit >= 0 ? "text-emerald-600" : "text-red-600"}`}>{formatCurrency(s.profit)}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1 text-sm">
                           <PI className="h-3.5 w-3.5 text-muted-foreground" />
@@ -171,11 +180,30 @@ export default function SalesClient({ sales: initialSales, customers, stats }: P
                     </TableRow>
                   );
                 })}
-              </TableBody>
-            </Table>
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Pagination Controls */}
+      {pagination.totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            Showing page {pagination.page} of {pagination.totalPages} ({pagination.totalRecords} records)
+          </p>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => handlePageChange(pagination.page - 1)} disabled={pagination.page <= 1}>
+              <ChevronLeft className="h-4 w-4 mr-1" /> Previous
+            </Button>
+            <span className="text-sm font-medium">Page {pagination.page}</span>
+            <Button variant="outline" size="sm" onClick={() => handlePageChange(pagination.page + 1)} disabled={pagination.page >= pagination.totalPages}>
+              Next <ChevronRight className="h-4 w-4 ml-1" />
+            </Button>
           </div>
-        )}
-      </CardContent></Card>
+        </div>
+      )}
     </div>
   );
 }

@@ -276,6 +276,15 @@ model Component {
   unit            String             @default("piece") // "piece", "sheet", "meter", "kg"
   customFields    String?            // JSON string for flexible key-value data
 
+  // Paper Product Dimensions & Pricing Formula
+  dimensionX     Float?             // Length (inches)
+  dimensionY     Float?             // Width (inches)
+  gsm            Float?             // Grams per square meter
+  divisor        Float?             @default(15500) // Weight divisor (varies by category/size)
+  weightKg       Float?             // Calculated: (X × Y × GSM) / Divisor
+  rimInSheet     Int?               @default(100) // Sheets per ream (adjustable)
+  ratePerKg      Float?             // Rate per KG for auto-pricing
+
   // Tracking
   totalPurchased  Int                @default(0)
   totalUsed       Int                @default(0) // Used in projects
@@ -293,6 +302,9 @@ model Component {
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
 
+  @@index([categoryId])
+  @@index([supplierId])
+  @@index([sku])
   @@map("components")
 }
 
@@ -387,6 +399,10 @@ model Sale {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
+  @@index([customerId])
+  @@index([paymentStatus])
+  @@index([createdAt])
+  @@index([invoiceNumber])
   @@map("sales")
 }
 
@@ -405,6 +421,8 @@ model SaleItem {
 
   createdAt   DateTime  @default(now())
 
+  @@index([saleId])
+  @@index([componentId])
   @@map("sale_items")
 }
 
@@ -431,6 +449,10 @@ model Purchase {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
+  @@index([supplierId])
+  @@index([paymentStatus])
+  @@index([createdAt])
+  @@index([poNumber])
   @@map("purchases")
 }
 
@@ -446,6 +468,8 @@ model PurchaseItem {
 
   createdAt   DateTime  @default(now())
 
+  @@index([purchaseId])
+  @@index([componentId])
   @@map("purchase_items")
 }
 
@@ -468,6 +492,11 @@ model Finance {
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
+  @@index([type])
+  @@index([category])
+  @@index([date])
+  @@index([userId])
+  @@index([transactionRef])
   @@map("finances")
 }
 

@@ -21,6 +21,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   const { id } = await params;
   const user = await getAuthUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (user.role !== "ADMIN") return NextResponse.json({ error: "Forbidden: Only ADMIN can modify customers" }, { status: 403 });
 
   const body = await request.json();
   const customer = await prisma.customer.update({ where: { id }, data: body });
@@ -31,6 +32,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
   const { id } = await params;
   const user = await getAuthUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (user.role !== "ADMIN") return NextResponse.json({ error: "Forbidden: Only ADMIN can delete customers" }, { status: 403 });
 
   await prisma.customer.delete({ where: { id } });
   return NextResponse.json({ success: true });

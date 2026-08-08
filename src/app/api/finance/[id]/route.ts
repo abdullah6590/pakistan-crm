@@ -1,7 +1,7 @@
 // src/app/api/finance/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { getAuthUser, isAdmin } from "@/lib/auth";
+import { getAuthUser, isAdmin, canManageFinance } from "@/lib/auth";
 
 export async function GET(
   request: NextRequest,
@@ -30,6 +30,10 @@ export async function PUT(
   const { id } = await params;
   const existing = await prisma.finance.findUnique({ where: { id } });
   if (!existing) return NextResponse.json({ error: "Record not found" }, { status: 404 });
+
+  if (!canManageFinance(user.role) && existing.userId !== user.id) {
+    return NextResponse.json({ error: "Forbidden: Not authorized to modify this record" }, { status: 403 });
+  }
 
   const body = await request.json();
   const record = await prisma.finance.update({

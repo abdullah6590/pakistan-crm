@@ -1,5 +1,10 @@
 # Electronics Startup ERP
 
+TO RUN:
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+npm run dev
+
+
 A full-featured **ERP (Enterprise Resource Planning)** system built specifically for electronics and IoT hardware startups in Pakistan. Manages projects, inventory, sales (walk-in + registered), purchases, expense/income tracking, profit/loss, supplier/customer relationships, team members, partner profit sharing, and dashboard analytics — all in one place.
 
 Built with **Next.js 16**, **Prisma v7**, **Tailwind CSS v4**, and **SQLite/PostgreSQL**.

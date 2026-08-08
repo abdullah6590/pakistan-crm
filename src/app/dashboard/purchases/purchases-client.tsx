@@ -6,7 +6,7 @@ import Link from "next/link";
 import {
   Plus, Truck, DollarSign, Receipt, FileText,
   Search, Eye, BadgeCheck, Clock, Ban, Hash,
-  TrendingDown, Wallet,
+  TrendingDown, Wallet, ChevronLeft, ChevronRight
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +21,7 @@ import { PageHeader } from "@/components/shared/page-header";
 import { SearchInput } from "@/components/shared/search-input";
 import { EmptyState } from "@/components/shared/empty-state";
 import { formatCurrency, formatDate, timeAgo } from "@/lib/utils";
+import { AdvancedFilter } from "@/components/shared/advanced-filter";
 
 interface PurchaseItem {
   id: string; poNumber: string;
@@ -38,6 +39,7 @@ interface Props {
   purchases: PurchaseItem[];
   suppliers: SupplierOption[];
   stats: { totalSpent: number; totalPaid: number; totalPending: number; totalPurchases: number };
+  pagination: { page: number; totalPages: number; totalRecords: number };
 }
 
 const statusConfig: Record<string, { icon: React.ElementType; variant: "success"|"warning"|"destructive"|"secondary"; label: string }> = {
@@ -47,20 +49,33 @@ const statusConfig: Record<string, { icon: React.ElementType; variant: "success"
   OVERDUE: { icon: Ban, variant: "destructive", label: "Overdue" },
 };
 
-export default function PurchasesClient({ purchases: initialPurchases, suppliers, stats }: Props) {
+export default function PurchasesClient({ purchases, suppliers, stats, pagination }: Props) {
   const router = useRouter();
-  const [search, setSearch] = useState("");
-  const [supplierFilter, setSupplierFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
+  
+  // Use debounced search to update URL
+  const handleSearch = (term: string) => {
+    const params = new URLSearchParams(window.location.search);
+    if (term) params.set("search", term);
+    else params.delete("search");
+    params.set("page", "1");
+    router.push(`/dashboard/purchases?${params.toString()}`);
+  };
 
-  const filtered = useMemo(() => {
-    return initialPurchases.filter(p => {
-      if (search && !p.poNumber.toLowerCase().includes(search.toLowerCase()) && !p.supplier.name.toLowerCase().includes(search.toLowerCase())) return false;
-      if (supplierFilter !== "all" && p.supplier.id !== supplierFilter) return false;
-      if (statusFilter !== "all" && p.paymentStatus !== statusFilter) return false;
-      return true;
-    });
-  }, [initialPurchases, search, supplierFilter, statusFilter]);
+  const updateFilter = (key: string, value: string) => {
+    const params = new URLSearchParams(window.location.search);
+    if (value && value !== "all") params.set(key, value);
+    else params.delete(key);
+    params.set("page", "1");
+    router.push(`/dashboard/purchases?${params.toString()}`);
+  };
+
+  const handlePageChange = (newPage: number) => {
+    const params = new URLSearchParams(window.location.search);
+    params.set("page", newPage.toString());
+    router.push(`/dashboard/purchases?${params.toString()}`);
+  };
+
+
 
   return (
     <div className="space-y-6">
@@ -116,39 +131,33 @@ export default function PurchasesClient({ purchases: initialPurchases, suppliers
       </div>
 
       {/* Filters */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <SearchInput value={search} onChange={setSearch} placeholder="Search by PO number or supplier..." className="flex-1" />
-            <Select value={supplierFilter} onChange={setSupplierFilter}>
-              <SelectTrigger className="w-full sm:w-48"><SelectValue placeholder="All Suppliers" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Suppliers</SelectItem>
-                {suppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Select value={statusFilter} onChange={setStatusFilter}>
-              <SelectTrigger className="w-full sm:w-40"><SelectValue placeholder="All Status" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="PAID">Paid</SelectItem>
-                <SelectItem value="PARTIAL">Partial</SelectItem>
-                <SelectItem value="PENDING">Pending</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Filters */}
+      <AdvancedFilter
+        moduleName="purchases"
+        filters={[
+          { key: "search", label: "Search", type: "search", placeholder: "Search PO number or supplier..." },
+          { key: "supplierId", label: "Supplier", type: "select", placeholder: "All Suppliers", options: suppliers.map(s => ({ label: s.name, value: s.id })) },
+          { key: "paymentStatus", label: "Status", type: "select", placeholder: "All Status", options: [
+            { label: "Paid", value: "PAID" },
+            { label: "Partial", value: "PARTIAL" },
+            { label: "Pending", value: "PENDING" },
+          ] },
+          { key: "from", label: "From", type: "date" },
+          { key: "to", label: "To", type: "date" },
+          { key: "minAmount", label: "Min Amount", type: "number", placeholder: "Min" },
+          { key: "maxAmount", label: "Max Amount", type: "number", placeholder: "Max" },
+        ]}
+        onSearchChange={handleSearch}
+      />
 
       {/* Table */}
       <Card>
         <CardContent className="p-0">
-          {filtered.length === 0 ? (
+          {purchases.length === 0 ? (
             <EmptyState
               icon={Truck}
               title="No purchases found"
-              description={search || supplierFilter !== "all" || statusFilter !== "all" ? "Try adjusting your filters" : "Start by creating your first purchase order"}
-              action={search || supplierFilter !== "all" || statusFilter !== "all" ? undefined : { label: "New Purchase", onClick: () => router.push("/dashboard/purchases/new") }}
+              description="Try adjusting your filters or create a new purchase order."
             />
           ) : (
             <div className="overflow-x-auto">
@@ -158,15 +167,14 @@ export default function PurchasesClient({ purchases: initialPurchases, suppliers
                     <TableHead>PO Number</TableHead>
                     <TableHead>Supplier</TableHead>
                     <TableHead>Items</TableHead>
-                    <TableHead>Total</TableHead>
-                    <TableHead>Paid</TableHead>
-                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Total</TableHead>
+                    <TableHead>Payment</TableHead>
                     <TableHead>Date</TableHead>
-                    <TableHead className="w-16"></TableHead>
+                    <TableHead className="w-[80px]">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filtered.map(p => {
+                  {purchases.map((p) => {
                     const status = statusConfig[p.paymentStatus] || statusConfig.PENDING;
                     const StatusIcon = status.icon;
                     return (
@@ -207,6 +215,24 @@ export default function PurchasesClient({ purchases: initialPurchases, suppliers
           )}
         </CardContent>
       </Card>
+
+      {/* Pagination Controls */}
+      {pagination.totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            Showing page {pagination.page} of {pagination.totalPages} ({pagination.totalRecords} records)
+          </p>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => handlePageChange(pagination.page - 1)} disabled={pagination.page <= 1}>
+              <ChevronLeft className="h-4 w-4 mr-1" /> Previous
+            </Button>
+            <span className="text-sm font-medium">Page {pagination.page}</span>
+            <Button variant="outline" size="sm" onClick={() => handlePageChange(pagination.page + 1)} disabled={pagination.page >= pagination.totalPages}>
+              Next <ChevronRight className="h-4 w-4 ml-1" />
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -17,6 +17,9 @@ import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { EXPENDITURE_CATEGORIES } from "@/lib/constants";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { toast } from "sonner";
+import { useRouter } from "next/navigation";
+import { AdvancedFilter } from "@/components/shared/advanced-filter";
+import { Pagination } from "@/components/shared/pagination";
 
 interface ExpenditureItem {
   id: string; category: string; amount: number; description: string;
@@ -28,24 +31,24 @@ interface Props {
   accounts: { id: string; name: string; type: string }[];
   categoryBreakdown: { category: string; total: number; count: number }[];
   totalExpense: number;
+  pagination: { page: number; totalPages: number; totalRecords: number };
 }
 
-export default function ExpendituresClient({ expenditures: initialData, accounts, categoryBreakdown, totalExpense }: Props) {
-  const [search, setSearch] = useState("");
-  const [catFilter, setCatFilter] = useState("all");
+export default function ExpendituresClient({ expenditures: initialData, accounts, categoryBreakdown, totalExpense, pagination }: Props) {
+  const router = useRouter();
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ category: "", amount: "", description: "", date: new Date().toISOString().split("T")[0], accountId: "" });
   const [submitting, setSubmitting] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const filtered = useMemo(() => {
-    return initialData.filter(e => {
-      if (search && !e.description.toLowerCase().includes(search.toLowerCase())) return false;
-      if (catFilter !== "all" && e.category !== catFilter) return false;
-      return true;
-    });
-  }, [initialData, search, catFilter]);
+  const handleSearch = (term: string) => {
+    const params = new URLSearchParams(window.location.search);
+    if (term) params.set("search", term);
+    else params.delete("search");
+    params.set("page", "1");
+    router.push(`?${params.toString()}`);
+  };
 
   const resetForm = () => setForm({ category: "", amount: "", description: "", date: new Date().toISOString().split("T")[0], accountId: "" });
 
@@ -99,21 +102,21 @@ export default function ExpendituresClient({ expenditures: initialData, accounts
       </div>
 
       {/* Filters */}
-      <div className="flex gap-3 flex-wrap">
-        <div className="flex-1 min-w-64">
-          <SearchInput value={search} onChange={setSearch} placeholder="Search by description..." />
-        </div>
-        <Select value={catFilter} onChange={setCatFilter}>
-          <SelectTrigger className="w-48"><SelectValue placeholder="All categories" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Categories</SelectItem>
-            {EXPENDITURE_CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </div>
+      <AdvancedFilter
+        moduleName="expenditures"
+        filters={[
+          { key: "search", label: "Search", type: "search", placeholder: "Search description..." },
+          { key: "category", label: "Category", type: "select", placeholder: "All Categories", options: EXPENDITURE_CATEGORIES },
+          { key: "from", label: "From", type: "date" },
+          { key: "to", label: "To", type: "date" },
+          { key: "minAmount", label: "Min Amount", type: "number", placeholder: "Min" },
+          { key: "maxAmount", label: "Max Amount", type: "number", placeholder: "Max" },
+        ]}
+        onSearchChange={handleSearch}
+      />
 
       {/* Table */}
-      {filtered.length === 0 ? (
+      {initialData.length === 0 ? (
         <EmptyState icon={TrendingDown} title="No expenditures" description="Record your first expense" />
       ) : (
         <Card>
@@ -129,7 +132,7 @@ export default function ExpendituresClient({ expenditures: initialData, accounts
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map(exp => (
+                {initialData.map(exp => (
                   <TableRow key={exp.id}>
                     <TableCell className="text-muted-foreground">{formatDate(exp.date)}</TableCell>
                     <TableCell><Badge variant="secondary">{getCatLabel(exp.category)}</Badge></TableCell>
@@ -146,6 +149,20 @@ export default function ExpendituresClient({ expenditures: initialData, accounts
             </Table>
           </CardContent>
         </Card>
+      )}
+
+      {pagination.totalPages > 1 && (
+        <div className="py-4">
+          <Pagination 
+            currentPage={pagination.page} 
+            totalPages={pagination.totalPages} 
+            onPageChange={(p: number) => {
+              const params = new URLSearchParams(window.location.search);
+              params.set("page", p.toString());
+              router.push(`?${params.toString()}`);
+            }}
+          />
+        </div>
       )}
 
       {/* Add Dialog */}

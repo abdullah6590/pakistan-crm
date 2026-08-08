@@ -1,13 +1,17 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Plus, Building2, Search, Trash2, Edit, Phone, Mail, MapPin, Truck, AlertTriangle } from "lucide-react";
+import Link from "next/link";
+import { Plus, Building2, Search, Trash2, Edit, Phone, Mail, MapPin, Truck, AlertTriangle, Printer, Eye, Filter, FileText, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useRouter } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { PageHeader } from "@/components/shared/page-header";
 import { SearchInput } from "@/components/shared/search-input";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -16,6 +20,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { toast } from "sonner";
 import { findDuplicates, type DuplicateMatch } from "@/lib/ai-engine";
+import { AdvancedFilter } from "@/components/shared/advanced-filter";
+import { Pagination } from "@/components/shared/pagination";
 
 interface SupplierItem {
   id: string; name: string; company: string | null;
@@ -28,30 +34,33 @@ interface SupplierItem {
   _count: { purchases: number; components: number };
 }
 
-interface Props { suppliers: SupplierItem[]; }
+
+
+interface Props { 
+  suppliers: SupplierItem[]; 
+  pagination: { page: number; totalPages: number; totalRecords: number };
+}
 
 const emptyForm = { name: "", company: "", email: "", phone: "", city: "", country: "Pakistan", address: "", taxNumber: "", notes: "" };
 
-export default function SuppliersClient({ suppliers: initialSuppliers }: Props) {
-  const [search, setSearch] = useState("");
+export default function SuppliersClient({ suppliers: initialSuppliers, pagination }: Props) {
+  const [search, setSearch] = useState(typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("search") || "" : "");
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<SupplierItem | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [submitting, setSubmitting] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const router = useRouter();
 
-  const filtered = useMemo(() => {
-    if (!search) return initialSuppliers;
-    const q = search.toLowerCase();
-    return initialSuppliers.filter(s =>
-      s.name.toLowerCase().includes(q) ||
-      (s.company && s.company.toLowerCase().includes(q)) ||
-      (s.email && s.email.toLowerCase().includes(q)) ||
-      (s.phone && s.phone.includes(q)) ||
-      (s.city && s.city.toLowerCase().includes(q))
-    );
-  }, [initialSuppliers, search]);
+  const handleSearch = (term: string) => {
+    setSearch(term);
+    const params = new URLSearchParams(window.location.search);
+    if (term) params.set("search", term);
+    else params.delete("search");
+    params.set("page", "1");
+    router.push(`?${params.toString()}`);
+  };
 
   const duplicates = useMemo(() => {
     if (!!editing || !form.name.trim()) return [];
@@ -135,15 +144,21 @@ export default function SuppliersClient({ suppliers: initialSuppliers }: Props) 
     <div className="space-y-6">
       <PageHeader
         title="Suppliers"
-        description="Manage component suppliers and purchase history"
+        description="Manage paper suppliers, purchase history, and due balances"
         icon={Truck}
         actions={
-          <Button onClick={() => { resetForm(); setShowAdd(true); }}>
-            <Plus className="h-4 w-4 mr-1" /> Add Supplier
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => window.print()}>
+              <Printer className="h-4 w-4 mr-1" /> Print Report
+            </Button>
+            <Button onClick={() => { resetForm(); setShowAdd(true); }}>
+              <Plus className="h-4 w-4 mr-1" /> Add Supplier
+            </Button>
+          </div>
         }
       />
 
+      <div className="space-y-6 print:hidden">
       <div className="grid gap-4 sm:grid-cols-4">
         <Card>
           <CardContent className="p-4 flex items-center gap-3">
@@ -183,17 +198,27 @@ export default function SuppliersClient({ suppliers: initialSuppliers }: Props) 
         </Card>
       </div>
 
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex items-center gap-3">
-            <SearchInput value={search} onChange={setSearch} placeholder="Search suppliers..." className="max-w-sm" />
-          </div>
-        </CardContent>
-      </Card>
+      <AdvancedFilter
+        moduleName="suppliers"
+        filters={[
+          { key: "search", label: "Search", type: "search", placeholder: "Search supplier by name, company, city, phone..." },
+          { key: "balance", label: "Balance", type: "select", placeholder: "All Balances", options: [
+            { label: "Has Balance Due", value: "pending" },
+            { label: "Settled / Zero", value: "settled" }
+          ] },
+          { key: "status", label: "Status", type: "select", placeholder: "All Status", options: [
+            { label: "Active Only", value: "active" },
+            { label: "Inactive Only", value: "inactive" }
+          ] },
+          { key: "from", label: "From", type: "date" },
+          { key: "to", label: "To", type: "date" },
+        ]}
+        onSearchChange={handleSearch}
+      />
 
       <Card>
         <CardContent className="p-0">
-          {filtered.length === 0 ? (
+          {initialSuppliers.length === 0 ? (
             <EmptyState
               icon={Truck}
               title="No suppliers found"
@@ -212,12 +237,12 @@ export default function SuppliersClient({ suppliers: initialSuppliers }: Props) 
                     <TableHead className="text-right">Total Purchased</TableHead>
                     <TableHead className="text-right">Balance Due</TableHead>
                     <TableHead className="text-center">P.O. #</TableHead>
-                    <TableHead className="text-center">Components</TableHead>
+                    <TableHead className="text-center">Products</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filtered.map(s => (
+                  {initialSuppliers.map(s => (
                     <TableRow key={s.id}>
                       <TableCell className="font-medium">{s.name}</TableCell>
                       <TableCell>{s.company || "—"}</TableCell>
@@ -236,12 +261,26 @@ export default function SuppliersClient({ suppliers: initialSuppliers }: Props) 
                       <TableCell className="text-center">{s._count.components}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(s)}>
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setDeleteId(s.id)}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" className="h-8 w-8 p-0"><MoreHorizontal className="h-4 w-4" /></Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => openEdit(s)}>
+                                <Edit className="h-4 w-4 mr-2" /> Edit Supplier
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => router.push(`/dashboard/suppliers/${s.id}/ledger`)}>
+                                <Eye className="h-4 w-4 mr-2" /> View Ledger
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => router.push(`/dashboard/suppliers/${s.id}/statement`)}>
+                                <FileText className="h-4 w-4 mr-2" /> View Statement
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem className="text-destructive" onClick={() => setDeleteId(s.id)}>
+                                <Trash2 className="h-4 w-4 mr-2" /> Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -252,6 +291,23 @@ export default function SuppliersClient({ suppliers: initialSuppliers }: Props) 
           )}
         </CardContent>
       </Card>
+
+      {pagination.totalPages > 1 && (
+        <div className="py-4">
+          <Pagination 
+            currentPage={pagination.page} 
+            totalPages={pagination.totalPages} 
+            onPageChange={(p: number) => {
+              const params = new URLSearchParams(window.location.search);
+              params.set("page", p.toString());
+              router.push(`?${params.toString()}`);
+            }}
+          />
+        </div>
+      )}
+      </div>
+
+
 
       <Dialog open={showAdd || isEditing} onClose={() => { setShowAdd(false); setEditing(null); }}>
         <DialogHeader><DialogTitle>{isEditing ? "Edit Supplier" : "Add Supplier"}</DialogTitle></DialogHeader>

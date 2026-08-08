@@ -242,7 +242,7 @@ export function NewProjectClient({ users, components }: { users: UserOption[]; c
           <CardTitle>Components Used</CardTitle>
           <div className="flex gap-2">
             <Select value="" onChange={(v) => v && addComponent(v)}>
-              <SelectTrigger className="h-9 text-xs w-48"><SelectValue placeholder="Add component..." /></SelectTrigger>
+              <SelectTrigger className="h-9 text-xs w-48"><SelectValue placeholder="Add Product..." /></SelectTrigger>
               <SelectContent>
                 {components.filter(c => !projectComponents.some(pc => pc.componentId === c.id)).map(c => (
                   <SelectItem key={c.id} value={c.id}>{c.name} ({c.sku})</SelectItem>

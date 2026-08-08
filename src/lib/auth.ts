@@ -4,9 +4,11 @@ import { SignJWT, jwtVerify } from 'jose';
 import { cookies } from 'next/headers';
 import prisma from './prisma';
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'crm-electronics-super-secret-key-2024'
-);
+if (!process.env.JWT_SECRET) {
+  throw new Error("CRITICAL ERROR: JWT_SECRET environment variable is not set. Refusing to start.");
+}
+
+const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET);
 
 const SALT_ROUNDS = 12;
 

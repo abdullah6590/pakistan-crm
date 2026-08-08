@@ -106,7 +106,7 @@ export default function InventoryDetailClient({ component: initial, categories, 
       if (!res.ok) throw new Error(data.error || "Update failed");
       setComponent(data.component);
       setEditing(false);
-      toast.success("Component updated");
+      toast.success("Product updated");
       router.refresh();
     } catch (e: any) { toast.error(e.message);
     } finally { setLoading(false); }
@@ -117,7 +117,7 @@ export default function InventoryDetailClient({ component: initial, categories, 
     try {
       const res = await fetch(`/api/inventory/${component.id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Delete failed");
-      toast.success("Component deleted");
+      toast.success("Product deleted");
       router.push("/dashboard/inventory");
     } catch (e: any) { toast.error(e.message);
     } finally { setLoading(false); }
@@ -441,7 +441,7 @@ export default function InventoryDetailClient({ component: initial, categories, 
       {/* Delete Confirm */}
       <ConfirmDialog
         open={deleting} onClose={() => setDeleting(false)} onConfirm={handleDelete}
-        title="Delete Component"
+        title="Delete Product"
         description={`Are you sure you want to delete "${component.name}"? This will remove all inventory history.`}
         variant="destructive"
         loading={loading}

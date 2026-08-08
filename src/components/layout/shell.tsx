@@ -36,7 +36,7 @@ export function Shell({ children, user, unreadNotifications = 0 }: ShellProps) {
           </main>
           <footer className="border-t py-3 px-6">
             <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <p>&copy; {new Date().getFullYear()} Electronics Startup ERP. All rights reserved.</p>
+              <p>&copy; {new Date().getFullYear()} Paper Mill ERP. All rights reserved.</p>
               <p>Made in Pakistan 🇵🇰</p>
             </div>
           </footer>

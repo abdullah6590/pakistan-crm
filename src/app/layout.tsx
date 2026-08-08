@@ -5,12 +5,12 @@ import { ThemeProvider } from "@/components/theme-provider";
 
 export const metadata: Metadata = {
   title: {
-    default: "ES-ERP | Electronics Startup ERP",
-    template: "%s | ES-ERP",
+    default: "PM-ERP | Paper Mill ERP",
+    template: "%s | PM-ERP",
   },
-  description: "Complete Business Management System for Electronics & IoT Startups",
-  keywords: ["ERP", "electronics", "IoT", "inventory", "Pakistan", "business management"],
-  authors: [{ name: "Electronics Startup ERP" }],
+  description: "Complete Business Management System for Paper Mills & Packaging",
+  keywords: ["ERP", "paper", "packaging", "inventory", "Pakistan", "business management", "paper mill"],
+  authors: [{ name: "Paper Mill ERP" }],
 };
 
 export const viewport: Viewport = {

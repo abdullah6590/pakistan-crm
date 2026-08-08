@@ -12,6 +12,7 @@ export const registerSchema = z.object({
   email: z.string().email('Invalid email address'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
   phone: z.string().optional(),
+  role: z.enum(['ADMIN', 'PARTNER', 'EMPLOYEE', 'INVENTORY_MANAGER', 'ACCOUNTANT']).optional(),
 });
 
 // ─── Project ────────────────────────────────────────────────────────
@@ -64,6 +65,14 @@ export const componentSchema = z.object({
   grams: z.coerce.number().min(0).optional().nullable(),
   unit: z.string().optional(),
   customFields: z.string().optional(), // JSON string
+  // Paper Product Dimensions
+  dimensionX: z.coerce.number().min(0).optional().nullable(),
+  dimensionY: z.coerce.number().min(0).optional().nullable(),
+  gsm: z.coerce.number().min(0).optional().nullable(),
+  divisor: z.coerce.number().min(0).optional().nullable(),
+  weightKg: z.coerce.number().min(0).optional().nullable(),
+  rimInSheet: z.coerce.number().int().min(1).optional().nullable(),
+  ratePerKg: z.coerce.number().min(0).optional().nullable(),
 });
 
 export const categorySchema = z.object({

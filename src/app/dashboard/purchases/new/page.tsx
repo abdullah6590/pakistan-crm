@@ -8,18 +8,28 @@ export default async function NewPurchasePage() {
   const user = await getAuthUser();
   if (!user) redirect("/login");
 
-  const [components, suppliers] = await Promise.all([
+  const [initialComponents, initialSuppliers] = await Promise.all([
     prisma.component.findMany({
-      include: { category: { select: { name: true } }, supplier: { select: { name: true } } },
-      orderBy: { name: "asc" },
+      where: { isActive: true },
+      orderBy: { totalSold: "desc" },
+      take: 15,
+      select: {
+        id: true, name: true, sku: true, quantity: true,
+        unitCost: true, unitPrice: true, minQuantity: true
+      },
     }),
-    prisma.supplier.findMany({ where: { isActive: true }, select: { id: true, name: true, phone: true }, orderBy: { name: "asc" } }),
+    prisma.supplier.findMany({ 
+      where: { isActive: true }, 
+      select: { id: true, name: true, phone: true }, 
+      orderBy: { updatedAt: "desc" },
+      take: 10,
+    }),
   ]);
 
   return (
     <NewPurchaseClient
-      components={JSON.parse(JSON.stringify(components))}
-      suppliers={JSON.parse(JSON.stringify(suppliers))}
+      initialComponents={JSON.parse(JSON.stringify(initialComponents))}
+      initialSuppliers={JSON.parse(JSON.stringify(initialSuppliers))}
     />
   );
 }

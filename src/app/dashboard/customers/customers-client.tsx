@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Plus, Users, Search, Trash2, Edit, Phone, Mail, MapPin, AlertTriangle } from "lucide-react";
+import { Plus, Users, Search, Trash2, Edit, Phone, Mail, MapPin, AlertTriangle, Wallet, FileText, MoreHorizontal } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { PageHeader } from "@/components/shared/page-header";
 import { SearchInput } from "@/components/shared/search-input";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -17,6 +19,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { toast } from "sonner";
 import { findDuplicates, type DuplicateMatch } from "@/lib/ai-engine";
+import { AdvancedFilter } from "@/components/shared/advanced-filter";
+import { Pagination } from "@/components/shared/pagination";
 
 interface CustomerItem {
   id: string; name: string; email: string | null; phone: string | null;
@@ -27,13 +31,18 @@ interface CustomerItem {
   _count: { sales: number };
 }
 
-interface Props { customers: CustomerItem[]; }
+
+
+interface Props { 
+  customers: CustomerItem[];
+  pagination: { page: number; totalPages: number; totalRecords: number };
+}
 
 const emptyForm = { name: "", email: "", phone: "", city: "", address: "", notes: "" };
 
-export default function CustomersClient({ customers: initialCustomers }: Props) {
+export default function CustomersClient({ customers: initialCustomers, pagination }: Props) {
   const router = useRouter();
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("search") || "" : "");
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<CustomerItem | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -41,16 +50,14 @@ export default function CustomersClient({ customers: initialCustomers }: Props) 
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const filtered = useMemo(() => {
-    if (!search) return initialCustomers;
-    const q = search.toLowerCase();
-    return initialCustomers.filter(c =>
-      c.name.toLowerCase().includes(q) ||
-      (c.email && c.email.toLowerCase().includes(q)) ||
-      (c.phone && c.phone.includes(q)) ||
-      (c.city && c.city.toLowerCase().includes(q))
-    );
-  }, [initialCustomers, search]);
+  const handleSearch = (term: string) => {
+    setSearch(term);
+    const params = new URLSearchParams(window.location.search);
+    if (term) params.set("search", term);
+    else params.delete("search");
+    params.set("page", "1");
+    router.push(`?${params.toString()}`);
+  };
 
   const duplicates = useMemo(() => {
     if (!!editing || !form.name.trim()) return [];
@@ -158,17 +165,23 @@ export default function CustomersClient({ customers: initialCustomers }: Props) 
         </Card>
       </div>
 
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex items-center gap-3">
-            <SearchInput value={search} onChange={setSearch} placeholder="Search customers..." className="max-w-sm" />
-          </div>
-        </CardContent>
-      </Card>
+      <AdvancedFilter
+        moduleName="customers"
+        filters={[
+          { key: "search", label: "Search", type: "search", placeholder: "Search customer by name, email, phone, city..." },
+          { key: "status", label: "Status", type: "select", placeholder: "All Status", options: [
+            { label: "Active Only", value: "active" },
+            { label: "Inactive Only", value: "inactive" }
+          ] },
+          { key: "from", label: "From", type: "date" },
+          { key: "to", label: "To", type: "date" },
+        ]}
+        onSearchChange={handleSearch}
+      />
 
       <Card>
         <CardContent className="p-0">
-          {filtered.length === 0 ? (
+          {initialCustomers.length === 0 ? (
             <EmptyState
               icon={Users}
               title="No customers found"
@@ -190,7 +203,7 @@ export default function CustomersClient({ customers: initialCustomers }: Props) 
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filtered.map(c => (
+                  {initialCustomers.map(c => (
                     <TableRow key={c.id}>
                       <TableCell className="font-medium">{c.name}</TableCell>
                       <TableCell>
@@ -207,12 +220,23 @@ export default function CustomersClient({ customers: initialCustomers }: Props) 
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(c)}>
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setDeleteId(c.id)}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" className="h-8 w-8 p-0"><MoreHorizontal className="h-4 w-4" /></Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => openEdit(c)}>
+                                <Edit className="h-4 w-4 mr-2" /> Edit Customer
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => router.push(`/dashboard/customers/${c.id}/statement`)}>
+                                <FileText className="h-4 w-4 mr-2" /> View Statement
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem className="text-destructive" onClick={() => setDeleteId(c.id)}>
+                                <Trash2 className="h-4 w-4 mr-2" /> Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -223,6 +247,20 @@ export default function CustomersClient({ customers: initialCustomers }: Props) 
           )}
         </CardContent>
       </Card>
+
+      {pagination.totalPages > 1 && (
+        <div className="py-4">
+          <Pagination 
+            currentPage={pagination.page} 
+            totalPages={pagination.totalPages} 
+            onPageChange={(p: number) => {
+              const params = new URLSearchParams(window.location.search);
+              params.set("page", p.toString());
+              router.push(`?${params.toString()}`);
+            }}
+          />
+        </div>
+      )}
 
       <Dialog open={showAdd || isEditing} onClose={() => { setShowAdd(false); setEditing(null); }}>
         <DialogHeader><DialogTitle>{isEditing ? "Edit Customer" : "Add Customer"}</DialogTitle></DialogHeader>

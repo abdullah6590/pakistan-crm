@@ -1,7 +1,7 @@
 // src/app/api/expenditures/[id]/route.ts - Individual expenditure CRUD
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getAuthUser } from "@/lib/auth";
+import { getAuthUser, canManageFinance } from "@/lib/auth";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getAuthUser();
@@ -18,6 +18,13 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
+  const existing = await prisma.expenditure.findUnique({ where: { id } });
+  if (!existing) return NextResponse.json({ error: "Expenditure not found" }, { status: 404 });
+
+  if (!canManageFinance(user.role) && existing.userId !== user.id) {
+    return NextResponse.json({ error: "Forbidden: Not authorized to modify this record" }, { status: 403 });
+  }
+
   const body = await request.json();
 
   const expenditure = await prisma.expenditure.update({
@@ -38,6 +45,12 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
+  const existing = await prisma.expenditure.findUnique({ where: { id } });
+  if (!existing) return NextResponse.json({ error: "Expenditure not found" }, { status: 404 });
+
+  if (!canManageFinance(user.role) && existing.userId !== user.id) {
+    return NextResponse.json({ error: "Forbidden: Not authorized to delete this record" }, { status: 403 });
+  }
   const expenditure = await prisma.expenditure.findUnique({ where: { id } });
   if (!expenditure) return NextResponse.json({ error: "Expenditure not found" }, { status: 404 });
 

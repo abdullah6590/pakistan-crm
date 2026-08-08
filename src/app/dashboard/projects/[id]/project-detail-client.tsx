@@ -107,7 +107,7 @@ export function ProjectDetailClient({ project: initialProject, users, components
   };
 
   const handleAddComponent = async () => {
-    if (!newComp.componentId) { toast.error("Select a component"); return; }
+    if (!newComp.componentId) { toast.error("Select a product"); return; }
     setLoading(true);
     try {
       const res = await fetch(`/api/projects/${project.id}`, {
@@ -122,7 +122,7 @@ export function ProjectDetailClient({ project: initialProject, users, components
       setProject(data.project);
       setNewComp({ componentId: "", quantity: "1" });
       setAddingComponent(false);
-      toast.success("Component added");
+      toast.success("Product added");
       router.refresh();
     } catch (e: any) { toast.error(e.message);
     } finally { setLoading(false); }
@@ -363,13 +363,13 @@ export function ProjectDetailClient({ project: initialProject, users, components
         </DialogFooter>
       </Dialog>
 
-      {/* Add Component Dialog */}
+      {/* Add Product Dialog */}
       <Dialog open={addingComponent} onClose={() => setAddingComponent(false)}>
-        <DialogHeader><DialogTitle>Add Component</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>Add Product</DialogTitle></DialogHeader>
         <div className="space-y-3 mt-4">
-          <div className="space-y-1"><Label>Component</Label>
+          <div className="space-y-1"><Label>Product</Label>
             <Select value={newComp.componentId} onChange={v => setNewComp({...newComp, componentId: v})}>
-              <SelectTrigger><SelectValue placeholder="Select component" /></SelectTrigger>
+              <SelectTrigger><SelectValue placeholder="Select Product" /></SelectTrigger>
               <SelectContent>
                 {components.filter(c => !project.components.some(pc => pc.componentId === c.id)).map(c => (
                   <SelectItem key={c.id} value={c.id}>{c.name} ({c.sku}) - Stock: {c.quantity}</SelectItem>

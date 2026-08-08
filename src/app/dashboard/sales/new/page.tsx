@@ -8,18 +8,28 @@ export default async function NewSalePage() {
   const user = await getAuthUser();
   if (!user) redirect("/login");
 
-  const [components, customers] = await Promise.all([
+  const [initialComponents, initialCustomers] = await Promise.all([
     prisma.component.findMany({
-      include: { category: { select: { name: true } }, supplier: { select: { name: true } } },
-      orderBy: { name: "asc" },
+      where: { isActive: true },
+      orderBy: { totalSold: "desc" },
+      take: 15,
+      select: {
+        id: true, name: true, sku: true, quantity: true,
+        unitCost: true, unitPrice: true, minQuantity: true
+      },
     }),
-    prisma.customer.findMany({ where: { isActive: true }, select: { id: true, name: true, phone: true }, orderBy: { name: "asc" } }),
+    prisma.customer.findMany({ 
+      where: { isActive: true }, 
+      select: { id: true, name: true, phone: true }, 
+      orderBy: { visitCount: "desc" },
+      take: 10,
+    }),
   ]);
 
   return (
     <NewSaleClient
-      components={JSON.parse(JSON.stringify(components))}
-      customers={JSON.parse(JSON.stringify(customers))}
+      initialComponents={JSON.parse(JSON.stringify(initialComponents))}
+      initialCustomers={JSON.parse(JSON.stringify(initialCustomers))}
     />
   );
 }

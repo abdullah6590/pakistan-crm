@@ -24,6 +24,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   const { id } = await params;
   const user = await getAuthUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (user.role !== "ADMIN") return NextResponse.json({ error: "Forbidden: Only ADMIN can modify suppliers" }, { status: 403 });
 
   const body = await request.json();
   const supplier = await prisma.supplier.update({ where: { id }, data: body });
@@ -34,6 +35,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
   const { id } = await params;
   const user = await getAuthUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (user.role !== "ADMIN") return NextResponse.json({ error: "Forbidden: Only ADMIN can delete suppliers" }, { status: 403 });
 
   await prisma.supplier.delete({ where: { id } });
   return NextResponse.json({ success: true });

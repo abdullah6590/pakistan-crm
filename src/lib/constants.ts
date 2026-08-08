@@ -27,12 +27,6 @@ export const SIDEBAR_NAV: NavItem[] = [
     roles: ['ADMIN', 'PARTNER', 'EMPLOYEE', 'INVENTORY_MANAGER', 'ACCOUNTANT'],
   },
   {
-    title: 'Projects',
-    href: '/dashboard/projects',
-    icon: FolderKanban,
-    roles: ['ADMIN', 'PARTNER', 'EMPLOYEE'],
-  },
-  {
     title: 'Inventory',
     href: '/dashboard/inventory',
     icon: Package,
@@ -138,7 +132,7 @@ export const SIDEBAR_NAV: NavItem[] = [
 
 // ─── Income Categories ──────────────────────────────────────────────
 export const INCOME_CATEGORIES = [
-  { value: 'PROJECT_PAYMENT', label: 'Project Payment', icon: FolderKanban },
+  { value: 'PRODUCT_SALE', label: 'Product Sale Payment', icon: ShoppingCart },
   { value: 'COMPONENT_SALE', label: 'Component Sale', icon: ShoppingCart },
   { value: 'INVESTMENT', label: 'Investment', icon: TrendingUp },
   { value: 'OTHER_INCOME', label: 'Other Income', icon: Wallet },
@@ -193,25 +187,21 @@ export const PROJECT_STATUSES = [
   { value: 'CANCELLED', label: 'Cancelled', color: 'bg-red-500' },
 ];
 
-// ─── Component Categories ───────────────────────────────────────────
+// ─── Product Categories (Paper Mill) ────────────────────────────────
 export const DEFAULT_COMPONENT_CATEGORIES = [
-  { name: 'Resistors', icon: '🔌', color: '#EF4444' },
-  { name: 'Capacitors', icon: '💾', color: '#3B82F6' },
-  { name: 'Inductors', icon: '🧲', color: '#10B981' },
-  { name: 'Diodes', icon: '💡', color: '#F59E0B' },
-  { name: 'Transistors', icon: '🔹', color: '#8B5CF6' },
-  { name: 'ICs & Chips', icon: '🧠', color: '#EC4899' },
-  { name: 'Microcontrollers', icon: '🖥️', color: '#6366F1' },
-  { name: 'Sensors', icon: '📡', color: '#14B8A6' },
-  { name: 'Connectors', icon: '🔗', color: '#F97316' },
-  { name: 'Cables & Wires', icon: '🔌', color: '#84CC16' },
-  { name: 'PCB Boards', icon: '📋', color: '#06B6D4' },
-  { name: 'Power Supplies', icon: '⚡', color: '#E11D48' },
-  { name: 'LEDs & Displays', icon: '💡', color: '#D946EF' },
-  { name: 'Motors', icon: '⚙️', color: '#0EA5E9' },
-  { name: 'Breadboards', icon: '📐', color: '#F43F5E' },
-  { name: 'Tools', icon: '🔧', color: '#64748B' },
-  { name: 'Kits', icon: '📦', color: '#78716C' },
+  { name: 'Kraft Paper', icon: '📦', color: '#D97706' },
+  { name: 'Board Paper', icon: '📋', color: '#3B82F6' },
+  { name: 'Duplex Board', icon: '🗂️', color: '#8B5CF6' },
+  { name: 'Corrugated Sheets', icon: '📄', color: '#10B981' },
+  { name: 'Art Paper', icon: '🎨', color: '#EC4899' },
+  { name: 'Tissue Paper', icon: '🧻', color: '#06B6D4' },
+  { name: 'Newsprint', icon: '📰', color: '#6366F1' },
+  { name: 'Packaging Material', icon: '📦', color: '#F97316' },
+  { name: 'Rolls', icon: '🧵', color: '#EF4444' },
+  { name: 'Chemicals & Dyes', icon: '🧪', color: '#14B8A6' },
+  { name: 'Adhesives & Gum', icon: '🔗', color: '#F59E0B' },
+  { name: 'Machinery Parts', icon: '⚙️', color: '#64748B' },
+  { name: 'Ink & Printing', icon: '🖨️', color: '#E11D48' },
   { name: 'Other', icon: '📌', color: '#94A3B8' },
 ];
 
@@ -219,16 +209,16 @@ export const DEFAULT_COMPONENT_CATEGORIES = [
 export const USER_ROLES = [
   { value: 'ADMIN', label: 'Admin - Full Access' },
   { value: 'PARTNER', label: 'Partner - Dashboard & Reports' },
-  { value: 'EMPLOYEE', label: 'Employee - Projects & Sales' },
+  { value: 'EMPLOYEE', label: 'Employee - Sales & Inventory' },
   { value: 'INVENTORY_MANAGER', label: 'Inventory Manager - Stock Control' },
   { value: 'ACCOUNTANT', label: 'Accountant - Finance & Reports' },
 ];
 
 // ─── Company Info (configurable) ────────────────────────────────────
 export const COMPANY_INFO = {
-  name: 'Electronics Startup ERP',
-  shortName: 'ES-ERP',
-  tagline: 'IoT & Electronics Solutions',
+  name: 'Paper Mill ERP',
+  shortName: 'PM-ERP',
+  tagline: 'Paper & Packaging Solutions',
   address: 'Pakistan',
   phone: '',
   email: '',

@@ -20,6 +20,7 @@ import {
   Building,
   Sparkles,
   Zap,
+  Box,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
@@ -435,20 +436,20 @@ export default function DashboardClient({ data, user }: DashboardClientProps) {
         </Card>
       </div>
 
-      {/* ─── Top Components ────────────────────────────────── */}
+      {/* ─── Top Products ────────────────────────────────── */}
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Cpu className="h-5 w-5 text-muted-foreground" />
-              Top Selling Components
+              <Box className="h-5 w-5 text-indigo-500" />
+              Top Selling Products
             </CardTitle>
           </CardHeader>
           <CardContent>
             {topComponents.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-6">
-                No sales data yet. Start selling components to see insights.
-              </p>
+              <div className="py-6 text-center text-sm text-muted-foreground">
+                No sales data yet. Start selling products to see insights.
+              </div>
             ) : (
               <div className="space-y-3">
                 {topComponents.map((comp, i) => (
