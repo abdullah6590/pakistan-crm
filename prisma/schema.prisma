@@ -298,6 +298,11 @@ model Component {
   saleItems         SaleItem[]
   purchaseItems     PurchaseItem[]
   inventoryHistory  InventoryHistory[]
+  unitProfile       ItemUnitProfile?
+  documentLines     AccountingDocumentLine[]
+  stockMovements    StockMovement[]
+  stockBalances     ItemStockBalance[]
+  costState         ItemCostState?
 
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
@@ -703,4 +708,498 @@ model Expenditure {
   createdAt   DateTime @default(now())
 
   @@map("expenditures")
+}
+
+
+// ═══ ACCOUNTING CORE (audit Reports 13/15; owner decisions OD-01..OD-11) ═══
+// Additive tables. The older Sale/Purchase/CashSale/Finance tables are left unchanged.
+// Quantities and exact document amounts are stored as exact decimal text (src/lib/domain/decimal.ts);
+// journal amounts are whole paisa so balances can be summed exactly in SQL.
+
+// Chart of accounts: system GL accounts, parties (customers, suppliers, press, Counter Sale) and cash/bank
+model LedgerAccount {
+  id                 String   @id @default(cuid())
+  code               String   @unique // "SALES_REVENUE", "COUNTER_SALE", "P-0001"
+  name               String
+  kind               String   // "GL" | "PARTY" | "CASH_BANK"
+  subType            String?  // GL: ASSET/LIABILITY/EQUITY/INCOME/EXPENSE; PARTY: CUSTOMER/SUPPLIER/PRESS/OTHER; CASH_BANK: CASH/BANK
+  customerId         String?  @unique
+  supplierId         String?  @unique
+  financialAccountId String?  @unique
+  phone              String?
+  address            String?
+  isSystem           Boolean  @default(false)
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  journalLines       JournalLine[]
+  partyDocuments     AccountingDocument[] @relation("DocumentParty")
+  cashDocuments      AccountingDocument[] @relation("DocumentCashAccount")
+  pressLocations     StockLocation[]
+
+  @@index([kind])
+  @@map("ledger_accounts")
+}
+
+// Per-item unit model (F-01): base unit, configured pack units with conversion factors, reference cost
+model ItemUnitProfile {
+  id                     String   @id @default(cuid())
+  componentId            String   @unique
+  component              Component @relation(fields: [componentId], references: [id])
+  kind                   String   @default("PIECE") // PAPER | PIECE | WEIGHT | ROLL | SERVICE
+  baseUnit               String   @default("piece")
+  baseDecimals           Int      @default(0)
+  purchaseUnit           String?
+  saleUnit               String?
+  confirmed              Boolean  @default(false) // false = shown as "unit unconfirmed" (Report 13 D-C)
+  referencePurchasePrice String?  // per purchase unit (F-02); paper: rate per kg
+  referenceExpenses      String?  // per purchase unit; paper: expense per kg
+  updatedById            String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  conversions            ItemUnitConversion[]
+
+  @@map("item_unit_profiles")
+}
+
+model ItemUnitConversion {
+  id        String          @id @default(cuid())
+  profileId String
+  profile   ItemUnitProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  code      String          // "packet", "carton", "roll"
+  factor    String          // base units per one of this unit
+  decimals  Int             @default(0)
+
+  @@unique([profileId, code])
+  @@map("item_unit_conversions")
+}
+
+// Where stock physically is: the main store, or material held at a printing press (WIP, decision 2c)
+model StockLocation {
+  id             String         @id @default(cuid())
+  code           String         @unique // "MAIN", "PRESS-<party code>"
+  name           String
+  kind           String         // "STORE" | "PRESS"
+  partyAccountId String?
+  partyAccount   LedgerAccount? @relation(fields: [partyAccountId], references: [id])
+  isActive       Boolean        @default(true)
+  createdAt      DateTime       @default(now())
+
+  movements      StockMovement[]
+
+  @@map("stock_locations")
+}
+
+// Every financial or stock document: invoices, cash sales, stock issues, press movements, vouchers
+model AccountingDocument {
+  id               String         @id @default(cuid())
+  type             String         // PURCHASE_INVOICE | SALE_INVOICE | CASH_SALE | STOCK_ISSUE | PRESS_DISPATCH | PRESS_RECEIPT | PRESS_RETURN | PRESS_LOSS | VOUCHER | TRANSFER | OPENING_BALANCE
+  series           String         // numbering series, e.g. "PI", "SI", "CS", "SIS", "CRV", "BRV", "CPV", "BPV", "JV"
+  number           Int
+  revision         Int            @default(0) // amendments keep the number and add a revision (OD-11)
+  docNo            String         // series + number (+ revision), e.g. "CRV-0007", "SI-0012/R1"
+  date             DateTime
+  status           String         // DRAFT | PENDING_APPROVAL | POSTED | REJECTED | CANCELLED
+  partyAccountId   String?
+  partyAccount     LedgerAccount? @relation("DocumentParty", fields: [partyAccountId], references: [id])
+  cashAccountId    String?
+  cashAccount      LedgerAccount? @relation("DocumentCashAccount", fields: [cashAccountId], references: [id])
+  counterAccountId String?        // voucher/stock issue: the other account (expense, party, GL)
+  locationId       String?        // stock from/at
+  toLocationId     String?        // stock to (press dispatch/return)
+  reason           String?        // stock issue / loss reason code
+  remarks          String?
+  vendorBillNo     String?
+  vendorBillDate   DateTime?      // null when blank (F-07)
+  biltyNo          String?
+  biltyDate        DateTime?
+  roundingMode     String?        // RUPEE_HALF_EVEN | PAISA_HALF_EVEN
+  exactTotal       String         @default("0")
+  total            String         @default("0") // printed/posted total
+  roundingAdjustment String       @default("0")
+  amountReceived   String?        // cash sale
+  extraCharge      String?        // press receipt: printing charge billed by the press
+  previousBalance  String?        // party balance before this document (OD-09), set when posted
+  newBalance       String?
+  hasCostEstimate  Boolean        @default(false) // a line cost is ESTIMATED or UNAVAILABLE (OD-03)
+  hasNegativeStock Boolean        @default(false) // a line left stock below zero (OD-04)
+  createdById      String
+  submittedAt      DateTime?
+  approvedById     String?
+  approvedAt       DateTime?
+  rejectedById     String?
+  rejectedAt       DateTime?
+  rejectionReason  String?
+  postedAt         DateTime?
+  cancelledById    String?
+  cancelledAt      DateTime?
+  cancelReason     String?
+  supersedesId     String?        @unique // amended documents point at the version they replace (OD-11)
+  supersedes       AccountingDocument?  @relation("Amendment", fields: [supersedesId], references: [id])
+  supersededBy     AccountingDocument?  @relation("Amendment")
+  printCount       Int            @default(0) // reprint marker (Report 14 §2)
+  lastPrintedAt    DateTime?
+  chargeId         String?        // CHARGE_EXPENSE: the charge record this posting belongs to
+  returnOfId       String?        // SALE_RETURN / PURCHASE_RETURN: the original document
+  returnOf         AccountingDocument?  @relation("Returns", fields: [returnOfId], references: [id])
+  returns          AccountingDocument[] @relation("Returns")
+  charge           ChargeRecord?  @relation("ChargePostings", fields: [chargeId], references: [id])
+  commandId        String?        @unique // sync command that created this document (idempotency, Report 21)
+  originDeviceId   String?        // device or hub the command came from; null when entered online
+  source           String         @default("APP") // APP | LEGACY_IMPORT
+  legacyRef        String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  lines            AccountingDocumentLine[]
+  journalEntries   JournalEntry[]
+  stockMovements   StockMovement[]
+  relatedCharges   ChargeRecord[] @relation("ChargeSource")
+
+  @@unique([series, number, revision])
+  @@index([chargeId])
+  @@index([returnOfId])
+  @@index([type, date])
+  @@index([partyAccountId, date])
+  @@index([status])
+  @@map("accounting_documents")
+}
+
+model AccountingDocumentLine {
+  id           String             @id @default(cuid())
+  documentId   String
+  document     AccountingDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  lineNo       Int
+  componentId  String?
+  component    Component?         @relation(fields: [componentId], references: [id])
+  description  String?
+  quantity     String             @default("0") // in `unit`
+  unit         String?
+  loose        String             @default("0") // loose base units (legacy "Qty")
+  baseQuantity String             @default("0")
+  unitPrice    String             @default("0") // per `unit`
+  loosePrice   String             @default("0") // per base unit
+  amount       String             @default("0") // exact line amount
+  costAmount   String?            // cost of the quantity issued, null when unavailable
+  costStatus   String?            // ACTUAL | ESTIMATED | UNAVAILABLE
+  costNote     String?
+  stockWarning String?            // negative stock warning (OD-04)
+  consumedComponentId String?     // press receipt: material consumed to produce this line
+  consumedQuantity    String?     // base units of that material
+  returnOfLineNo      Int?        // return: line number on the original document
+  bookQuantity        String?     // stock count: book quantity when the count was approved
+
+  @@unique([documentId, lineNo])
+  @@index([componentId])
+  @@map("accounting_document_lines")
+}
+
+model JournalEntry {
+  id           String             @id @default(cuid())
+  documentId   String
+  document     AccountingDocument @relation(fields: [documentId], references: [id])
+  date         DateTime
+  kind         String             @default("POSTING") // POSTING | REVERSAL
+  createdById  String
+  createdAt    DateTime           @default(now())
+
+  lines        JournalLine[]
+
+  @@index([documentId])
+  @@index([date])
+  @@map("journal_entries")
+}
+
+model JournalLine {
+  id          String        @id @default(cuid())
+  entryId     String
+  entry       JournalEntry  @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  accountId   String
+  account     LedgerAccount @relation(fields: [accountId], references: [id])
+  debitPaisa  BigInt        @default(0)
+  creditPaisa BigInt        @default(0)
+  memo        String?
+
+  @@index([accountId])
+  @@index([entryId])
+  @@map("journal_lines")
+}
+
+model StockMovement {
+  id           String             @id @default(cuid())
+  documentId   String
+  document     AccountingDocument @relation(fields: [documentId], references: [id])
+  lineNo       Int?
+  componentId  String
+  component    Component          @relation(fields: [componentId], references: [id])
+  locationId   String
+  location     StockLocation      @relation(fields: [locationId], references: [id])
+  date         DateTime
+  kind         String             // RECEIPT (costed in) | ISSUE (costed out) | RELOCATE (between locations, cost unchanged)
+  quantity     String             // signed base units (+ in, - out)
+  balanceAfter String             // item balance at this location after the movement
+  costAmount   String?            // signed value moved, null when unavailable
+  costStatus   String?
+  warning      String?
+  createdAt    DateTime           @default(now())
+
+  @@index([componentId, locationId])
+  @@index([documentId])
+  @@map("stock_movements")
+}
+
+// Running weighted-average cost and stock per item and location (rebuildable from StockMovement)
+model ItemStockBalance {
+  id          String   @id @default(cuid())
+  componentId String
+  component   Component @relation(fields: [componentId], references: [id])
+  locationId  String
+  onHand      String   @default("0")
+  updatedAt   DateTime @updatedAt
+
+  @@unique([componentId, locationId])
+  @@map("item_stock_balances")
+}
+
+model ItemCostState {
+  id          String   @id @default(cuid())
+  componentId String   @unique
+  component   Component @relation(fields: [componentId], references: [id])
+  onHand      String   @default("0") // all locations
+  averageCost String?  // per base unit; null = never costed
+  updatedAt   DateTime @updatedAt
+
+  @@map("item_cost_states")
+}
+
+model DocumentSeries {
+  series     String @id
+  nextNumber Int    @default(1)
+
+  @@map("document_series")
+}
+
+// Who did what and when, with before/after snapshots (OD-11)
+model AuditLog {
+  id         String   @id @default(cuid())
+  entity     String   // "AccountingDocument", "ItemUnitProfile", "AccountingSetting"
+  entityId   String
+  action     String   // CREATE | SUBMIT | APPROVE | REJECT | POST | CANCEL | AMEND | UPDATE
+  userId     String
+  reason     String?
+  before     String?  // JSON
+  after      String?  // JSON
+  createdAt  DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@map("audit_logs")
+}
+
+model AccountingSetting {
+  key         String   @id // NEGATIVE_STOCK_POLICY, STOCK_ISSUE_APPROVAL, COUNTER_SALE_ACCOUNT, ...
+  value       String
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("accounting_settings")
+}
+
+// Freight, loading, bilty and printing charges (owner rules of 2026-10-22). Recording a charge never
+// posts anything; only an explicit "Post as expense" creates a CHARGE_EXPENSE document and journal.
+model ChargeRecord {
+  id               String              @id @default(cuid())
+  number           Int                 @unique
+  chargeNo         String              @unique // "CHG-0001"
+  kind             String              // FREIGHT | LOADING | BILTY | OTHER_PURCHASE | PRINTING
+  date             DateTime
+  amount           String              // exact, at most 2 decimals
+  description      String
+  partyAccountId   String?             // supplier, press or transporter the charge relates to
+  documentId       String?             // purchase or press-work document it relates to
+  document         AccountingDocument? @relation("ChargeSource", fields: [documentId], references: [id])
+  reference        String?             // free-text reference (bilty no, press job, bill no)
+  status           String              // RECORDED | POSTED | CANCELLED
+  postedDocumentId String?             @unique // the one active expense posting; null unless POSTED
+  commandId        String?             @unique // sync command that recorded this charge
+  createdById      String
+  cancelledById    String?
+  cancelledAt      DateTime?
+  cancelReason     String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  postings         AccountingDocument[] @relation("ChargePostings")
+
+  @@index([documentId])
+  @@index([status])
+  @@map("charge_records")
+}
+
+// ═══ OFFLINE SYNC FOUNDATION (Reports 20/21) ═══
+// Devices and hubs never post to the ledger: they queue commands that the cloud (the only ledger
+// authority) executes exactly once. Results return to every replica through the change log.
+
+model Device {
+  id            String    @id @default(cuid())
+  code          String    @unique // short code used in provisional references, e.g. "D03"
+  name          String
+  role          String    // DEVICE | HUB
+  secretHash    String    // sha256 of the device secret; the secret itself is only on the device (DPAPI)
+  status        String    @default("ACTIVE") // ACTIVE | REVOKED
+  hubId         String?   // devices in an office sync through this hub (Mode A)
+  registeredById String
+  registeredAt  DateTime  @default(now())
+  revokedAt     DateTime?
+  lastSeenAt    DateTime?
+  appVersion    String?
+
+  @@map("devices")
+}
+
+// Authority side: one row per (device, command) ever received, so retries return the stored result
+model SyncInbox {
+  id          String   @id @default(cuid())
+  deviceId    String
+  commandId   String
+  requestHash String   // sha256 of the canonical command; a different body under the same id is refused
+  status      String   // ACCEPTED | REJECTED | CONFLICT
+  result      String   // JSON result returned to the device
+  documentId  String?
+  createdAt   DateTime @default(now())
+
+  @@unique([deviceId, commandId])
+  @@map("sync_inbox")
+}
+
+// Device / hub side: durable queue of commands waiting for the authority
+model OutboxCommand {
+  id             String    @id // command id (UUID), stable across retries
+  seq            Int       @unique // submission order on this node
+  type           String    // CREATE_DOCUMENT | DOCUMENT_ACTION | RECORD_CHARGE | CHARGE_ACTION
+  payload        String    // JSON command body
+  preview        String?   // JSON preview computed locally with the same posting service
+  provisionalRef String?   // "P-D03-0007" shown and printed until the official number arrives
+  officialNumber String?   // number assigned by a hub from a reserved block (Mode A)
+  dependsOn      String?   // command id that must be accepted first (e.g. approve after create)
+  originDeviceId String?   // hub relay: the device that submitted the command
+  status         String    // PENDING_SYNC | SYNCING | SYNCED | NEEDS_REVIEW | FAILED_RETRY | CANCELLED
+  attempts       Int       @default(0)
+  nextAttemptAt  DateTime?
+  lastError      String?
+  result         String?   // JSON from the authority: status, documentId, docNo, message
+  createdById    String
+  createdAt      DateTime  @default(now())
+  syncedAt       DateTime?
+
+  @@index([status, seq])
+  @@map("outbox_commands")
+}
+
+// Row changes recorded by triggers; the change feed that replicas pull (Report 21 §4)
+model ChangeLog {
+  seq   Int      @id @default(autoincrement())
+  tbl   String
+  rowId String
+  op    String   // I | U | D
+  at    String   @default("") // UTC text written by the triggers
+
+  @@map("change_log")
+}
+
+model SyncCursor {
+  upstreamId String   @id // which upstream (cloud or hub) the cursor belongs to
+  lastSeq    Int      @default(0)
+  epoch      String? // the upstream's SYNC_EPOCH when last synchronised; a change means it was restored
+  updatedAt  DateTime @updatedAt
+
+  @@map("sync_cursors")
+}
+
+/// Values belonging to this computer only; never replicated (Report 23 §5).
+model NodeState {
+  key       String   @id
+  value     String
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@map("node_state")
+}
+
+// Official number ranges reserved by the cloud for a hub, so a hub can number documents during an outage
+model NumberBlock {
+  id         String   @id @default(cuid())
+  series     String
+  fromNumber Int
+  toNumber   Int
+  nextNumber Int
+  deviceId   String   // the hub holding the block
+  status     String   @default("ACTIVE") // ACTIVE | EXHAUSTED | RELEASED
+  createdAt  DateTime @default(now())
+
+  @@unique([series, fromNumber])
+  @@map("number_blocks")
+}
+
+// ═══ LOCAL BACKUPS (Report 22) — per node, never replicated ═══
+model BackupSettings {
+  id                  String   @id @default("local")
+  enabled             Boolean  @default(false)
+  directory           String?  // folder chosen by the owner (Windows folder picker on desktops)
+  dailyTime           String   @default("02:00") // local time HH:MM
+  frequentMinutes     Int      @default(60)      // extra snapshots while there are changes; 0 = off
+  keepDaily           Int      @default(14)
+  keepFrequent        Int      @default(24)
+  protectedPassphrase String?  // DPAPI-protected on Windows; never stored in plain text
+  updatedById         String?
+  updatedAt           DateTime @updatedAt
+
+  @@map("backup_settings")
+}
+
+model BackupRun {
+  id           String    @id // backup id (UUID), also in the file name and manifest
+  type         String    // DAILY | FREQUENT | MANUAL | PRE_RESTORE
+  status       String    // RUNNING | VERIFIED | FAILED | DELETED
+  trigger      String    // SCHEDULE | MISSED_AT_STARTUP | USER | SYSTEM
+  file         String?
+  sizeBytes    Int?
+  changeSeq    Int?      // change-log position covered by the backup
+  manifest     String?   // JSON
+  error        String?
+  startedAt    DateTime  @default(now())
+  finishedAt   DateTime?
+  uploadStatus String?   // Google Drive (Phase 7): QUEUED | UPLOADING | UPLOADED | FAILED
+  uploadRef    String?   // remote file id once uploaded and verified
+  uploadError  String?
+  uploadedAt   DateTime?
+  uploadSession  String?  // resumable upload session URL (resumes after a restart)
+  uploadAttempts Int      @default(0)
+  uploadNextAt   DateTime?
+
+  @@index([status, startedAt])
+  @@map("backup_runs")
+}
+
+// Google Drive destination for this node's backups (Report 22 §8). Never replicated.
+model DriveConnection {
+  id                    String    @id @default("local")
+  status                String    // PENDING | CONNECTED | REVOKED | ERROR
+  accountEmail          String?
+  folderId              String?
+  folderName            String?
+  protectedRefreshToken String?   // DPAPI on desktops; AES-GCM with CRM_TOKEN_KEY on servers
+  pkceVerifier          String?   // only while an authorisation is in progress
+  oauthState            String?
+  redirectUri           String?
+  uploadFrequent        Boolean   @default(false) // also upload the extra (frequent) backups
+  keepRemote            Int       @default(30)
+  lastError             String?
+  quotaBytes            String?
+  usedBytes             String?
+  connectedById         String?
+  connectedAt           DateTime?
+  updatedAt             DateTime  @updatedAt
+
+  @@map("drive_connections")
 }

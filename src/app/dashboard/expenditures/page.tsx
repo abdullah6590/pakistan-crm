@@ -4,8 +4,9 @@ import { getAuthUser } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import ExpendituresClient from "./expenditures-client";
 import { buildExpendituresWhere } from "@/lib/filters";
+import { parseSortParams, buildOrderBy, EXPENDITURES_SORT_WHITELIST } from "@/lib/sort";
 
-export default async function ExpendituresPage({ searchParams }: { searchParams: { [key: string]: string | undefined } }) {
+export default async function ExpendituresPage({ searchParams }: { searchParams: Promise<{ [key: string]: string | undefined }> }) {
   const user = await getAuthUser();
   if (!user) redirect("/login");
 
@@ -14,11 +15,14 @@ export default async function ExpendituresPage({ searchParams }: { searchParams:
   const limit = 50;
   const skip = (page - 1) * limit;
   const whereClause = buildExpendituresWhere(params as any);
+  
+  const sortConfig = parseSortParams(params as any);
+  const orderByClause = buildOrderBy(sortConfig, EXPENDITURES_SORT_WHITELIST, { date: "desc" });
 
   const [expenditures, totalExpenditures, accounts, categoryTotals, totalExpenseAggregate] = await Promise.all([
     prisma.expenditure.findMany({
       where: whereClause,
-      orderBy: { date: "desc" },
+      orderBy: orderByClause,
       take: limit,
       skip,
     }),

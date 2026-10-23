@@ -4,18 +4,27 @@ import { getAuthUser } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import AccountsClient from "./accounts-client";
 import { buildAccountsWhere } from "@/lib/filters";
+import { parseSortParams, buildOrderBy, ACCOUNTS_SORT_WHITELIST } from "@/lib/sort";
 
-export default async function AccountsPage({ searchParams }: { searchParams: { [key: string]: string | undefined } }) {
+export default async function AccountsPage({ searchParams }: { searchParams: Promise<{ [key: string]: string | undefined }> }) {
   const user = await getAuthUser();
   if (!user) redirect("/login");
 
   const params = await searchParams;
+  const page = parseInt(params.page || "1");
+  const limit = 50;
+  const skip = (page - 1) * limit;
   const whereClause = buildAccountsWhere(params as any);
+  
+  const sortConfig = parseSortParams(params as any);
+  const orderByClause = buildOrderBy(sortConfig, ACCOUNTS_SORT_WHITELIST, { name: "asc" });
 
   const [accounts, allAccountsForSummary] = await Promise.all([
     prisma.financialAccount.findMany({
       where: whereClause,
-      orderBy: { createdAt: "desc" },
+      orderBy: orderByClause,
+      skip,
+      take: limit,
     }),
     prisma.financialAccount.findMany({
       orderBy: { createdAt: "desc" },

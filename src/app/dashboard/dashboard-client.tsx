@@ -66,6 +66,7 @@ interface DashboardData {
   topComponents: any[];
   aiPredictions?: any[];
   aiAnomalies?: any[];
+  visibility?: { finance: boolean; sales: boolean; purchases: boolean; projects: boolean; partners: boolean };
 }
 
 interface DashboardClientProps {
@@ -143,6 +144,8 @@ const paymentStatusMap: Record<string, BadgeVariant> = {
 // ─── Main Dashboard ─────────────────────────────────────────
 export default function DashboardClient({ data, user }: DashboardClientProps) {
   const { counts, finance, sales, monthlyData, recentSales, recentProjects, topComponents, aiPredictions, aiAnomalies } = data;
+  // Sections not explicitly permitted by the server stay hidden (audit R-SEC-1)
+  const vis = data.visibility ?? { finance: false, sales: false, purchases: false, projects: false, partners: false };
 
   // Project status distribution
   const projectDistribution = [
@@ -171,6 +174,7 @@ export default function DashboardClient({ data, user }: DashboardClientProps) {
 
       {/* ─── Stats Grid ────────────────────────────────────── */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        {vis.finance && (<>
         <StatCard
           title="Monthly Revenue"
           value={formatCurrency(finance.monthIncome)}
@@ -196,6 +200,8 @@ export default function DashboardClient({ data, user }: DashboardClientProps) {
           trend={finance.monthProfit > 0 ? "up" : "down"}
           color="info"
         />
+        </>)}
+        {vis.projects && (
         <StatCard
           title="Active Projects"
           value={String(counts.activeProjects)}
@@ -203,6 +209,7 @@ export default function DashboardClient({ data, user }: DashboardClientProps) {
           icon={FolderKanban}
           color="default"
         />
+        )}
       </div>
 
       {/* ─── Second Stats Row ──────────────────────────────── */}
@@ -226,17 +233,20 @@ export default function DashboardClient({ data, user }: DashboardClientProps) {
           icon={Building}
           color="default"
         />
+        {vis.partners && (
         <StatCard
           title="Partners"
           value={String(counts.partners)}
           icon={HandCoins}
           color="success"
         />
+        )}
       </div>
 
       {/* ─── Charts Row ────────────────────────────────────── */}
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Revenue vs Expense Chart */}
+        {vis.finance && (
         <Card>
           <CardHeader>
             <CardTitle>Revenue vs Expenses</CardTitle>
@@ -288,6 +298,7 @@ export default function DashboardClient({ data, user }: DashboardClientProps) {
             </div>
           </CardContent>
         </Card>
+        )}
 
         {/* Inventory & Project Overview */}
         <Card>
@@ -399,6 +410,7 @@ export default function DashboardClient({ data, user }: DashboardClientProps) {
         </Card>
 
         {/* AI Anomaly Detection */}
+        {vis.sales && (
         <Card className="border-blue-500/20 shadow-sm bg-gradient-to-br from-blue-50/50 to-transparent dark:from-blue-950/10">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-blue-600 dark:text-blue-400">
@@ -434,6 +446,7 @@ export default function DashboardClient({ data, user }: DashboardClientProps) {
             )}
           </CardContent>
         </Card>
+        )}
       </div>
 
       {/* ─── Top Products ────────────────────────────────── */}
@@ -473,6 +486,7 @@ export default function DashboardClient({ data, user }: DashboardClientProps) {
         </Card>
 
         {/* Recent Sales */}
+        {vis.sales && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -514,9 +528,11 @@ export default function DashboardClient({ data, user }: DashboardClientProps) {
             )}
           </CardContent>
         </Card>
+        )}
       </div>
 
       {/* ─── Recent Projects ───────────────────────────────── */}
+      {vis.projects && (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -564,6 +580,7 @@ export default function DashboardClient({ data, user }: DashboardClientProps) {
           )}
         </CardContent>
       </Card>
+      )}
     </div>
   );
 }

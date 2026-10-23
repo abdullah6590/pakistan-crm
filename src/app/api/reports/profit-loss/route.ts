@@ -1,13 +1,15 @@
 // src/app/api/reports/profit-loss/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { authorize } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 import { generateFinanceReport } from "@/lib/excel-generator";
 import { generateTablePDF } from "@/lib/pdf-generator";
 
 export async function GET(request: NextRequest) {
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await authorize("reports", "read");
+  if (auth.response) return auth.response;
+  const user = auth.user;
 
   const { searchParams } = new URL(request.url);
   const from = searchParams.get("from");

@@ -4,8 +4,9 @@ import { getAuthUser } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import PurchasesClient from "./purchases-client";
 import { buildPurchasesWhere } from "@/lib/filters";
+import { parseSortParams, buildOrderBy, PURCHASES_SORT_WHITELIST } from "@/lib/sort";
 
-export default async function PurchasesPage({ searchParams }: { searchParams: { page?: string, search?: string, supplierId?: string, paymentStatus?: string } }) {
+export default async function PurchasesPage({ searchParams }: { searchParams: Promise<{ page?: string, search?: string, supplierId?: string, paymentStatus?: string }> }) {
   const user = await getAuthUser();
   if (!user) redirect("/login");
 
@@ -14,6 +15,9 @@ export default async function PurchasesPage({ searchParams }: { searchParams: { 
   const limit = 50;
   const skip = (page - 1) * limit;
   const whereClause = buildPurchasesWhere(params as any);
+  
+  const sortConfig = parseSortParams(params as any);
+  const orderByClause = buildOrderBy(sortConfig, PURCHASES_SORT_WHITELIST, { createdAt: "desc" });
 
   const [purchases, totalPurchasesCount, allStats, suppliers] = await Promise.all([
     prisma.purchase.findMany({
@@ -22,7 +26,7 @@ export default async function PurchasesPage({ searchParams }: { searchParams: { 
         supplier: { select: { id: true, name: true, phone: true } },
         items: { include: { component: { select: { id: true, name: true, sku: true } } } },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: orderByClause,
       skip,
       take: limit,
     }),

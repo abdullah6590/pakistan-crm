@@ -1,12 +1,14 @@
 // src/app/api/supplier-payments/route.ts - Supplier Payment management API
 import { NextRequest, NextResponse } from "next/server";
+import { authorize } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 import { supplierPaymentSchema } from "@/lib/validations";
 
 export async function GET(request: NextRequest) {
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await authorize("supplierPayments", "read");
+  if (auth.response) return auth.response;
+  const user = auth.user;
 
   const { searchParams } = new URL(request.url);
   const supplierId = searchParams.get("supplierId");
@@ -45,8 +47,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await authorize("supplierPayments", "write");
+  if (auth.response) return auth.response;
+  const user = auth.user;
 
   const body = await request.json();
   const validation = supplierPaymentSchema.safeParse(body);

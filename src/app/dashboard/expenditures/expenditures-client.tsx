@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { Plus, TrendingDown, Trash2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SortableTableHead } from "@/components/shared/sortable-table-head";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -124,10 +125,10 @@ export default function ExpendituresClient({ expenditures: initialData, accounts
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Category</TableHead>
+                  <SortableTableHead field="date">Date</SortableTableHead>
+                  <SortableTableHead field="category">Category</SortableTableHead>
                   <TableHead>Description</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
+                  <SortableTableHead field="amount" className="text-right">Amount</SortableTableHead>
                   <TableHead className="w-16"></TableHead>
                 </TableRow>
               </TableHeader>

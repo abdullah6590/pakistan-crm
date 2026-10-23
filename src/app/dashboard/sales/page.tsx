@@ -4,8 +4,9 @@ import { getAuthUser } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import SalesClient from "./sales-client";
 import { buildSalesWhere } from "@/lib/filters";
+import { parseSortParams, buildOrderBy, SALES_SORT_WHITELIST } from "@/lib/sort";
 
-export default async function SalesPage({ searchParams }: { searchParams: { page?: string, search?: string, customerId?: string, paymentStatus?: string } }) {
+export default async function SalesPage({ searchParams }: { searchParams: Promise<{ page?: string, search?: string, customerId?: string, paymentStatus?: string }> }) {
   const user = await getAuthUser();
   if (!user) redirect("/login");
 
@@ -14,6 +15,9 @@ export default async function SalesPage({ searchParams }: { searchParams: { page
   const limit = 50;
   const skip = (page - 1) * limit;
   const whereClause = buildSalesWhere(params as any);
+  
+  const sortConfig = parseSortParams(params as any);
+  const orderByClause = buildOrderBy(sortConfig, SALES_SORT_WHITELIST, { createdAt: "desc" });
 
   const [sales, totalSalesCount, allStats, customers] = await Promise.all([
     prisma.sale.findMany({
@@ -23,7 +27,7 @@ export default async function SalesPage({ searchParams }: { searchParams: { page
         items: { include: { component: { select: { id: true, name: true, sku: true } } } },
         user: { select: { name: true } },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: orderByClause,
       skip,
       take: limit,
     }),

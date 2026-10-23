@@ -1,385 +1,182 @@
-# Electronics Startup ERP
+# Pakistan CRM (PM-ERP · Paper Mill System)
 
-TO RUN:
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-npm run dev
+Business management for a Pakistani paper and packaging business: stock, sales, purchases, customer and supplier accounts, double-entry books, printing-press work, cash and bank, reports and backups. It runs as a website or as a Windows desktop app that keeps working without internet and syncs when the connection returns.
 
+Built with **Next.js 16** (App Router, Turbopack), **Prisma 7** with **libSQL/SQLite**, **Tailwind CSS 4**, and a **Tauri 2** desktop shell.
 
-A full-featured **ERP (Enterprise Resource Planning)** system built specifically for electronics and IoT hardware startups in Pakistan. Manages projects, inventory, sales (walk-in + registered), purchases, expense/income tracking, profit/loss, supplier/customer relationships, team members, partner profit sharing, and dashboard analytics — all in one place.
-
-Built with **Next.js 16**, **Prisma v7**, **Tailwind CSS v4**, and **SQLite/PostgreSQL**.
+> **Where things stand:** see [PROJECT_LOG.md](PROJECT_LOG.md) (current state, open items, change history) and the reports in [`audit-reports/`](audit-reports/). The reports analyse the legacy business database, so they are kept on the owner's computer and are not in this repository; links to them work only in the local copy. Nothing has been deployed to production yet.
 
 ---
 
-## ✨ Features
+## Quick start (development, Windows)
 
-| Module               | Description                                                                                      |
-| -------------------- | ------------------------------------------------------------------------------------------------ |
-| **📊 Dashboard**     | Revenue/expense charts, top components, project pipeline, recent sales, profit margins           |
-| **📁 Projects**      | Full project lifecycle with team assignments, component usage tracking, costing & profitability  |
-| **📦 Inventory**     | SKU-based component management with stock levels, low-stock alerts, purchase/sale/usage history  |
-| **🛒 Sales**         | Registered customer sales + walk-in sales with JazzCash/EasyPaisa/Bank/Cash payments             |
-| **📥 Purchases**     | Purchase orders from suppliers, payment tracking, inventory auto-update                          |
-| **💰 Finance**       | Income & expense ledger with 6+ categories, transaction references, payment tracking             |
-| **👥 Partners**      | Partner investment tracking, profit share calculations, withdrawal history                       |
-| **🏪 Customers**     | Customer directory with purchase history, visit tracking, contact management                     |
-| **🚚 Suppliers**     | Supplier directory with purchase history, balance due tracking, component catalog                |
-| **📈 Reports**       | Profit/Loss, Sales, Inventory, Purchases, Projects, Customers — with JSON preview & Excel export |
-| **🔔 Notifications** | Low stock, pending payments, project deadlines, supplier dues, overdue invoices, system alerts   |
-| **👤 Users & RBAC**  | Admin, Partner, Employee, Inventory Manager, Accountant — role-based access control              |
-| **⚙️ Settings**      | Profile editing, password change, system information                                             |
-
----
-
-## 🏗️ Tech Stack
-
-| Layer                | Technology                                                                    |
-| -------------------- | ----------------------------------------------------------------------------- |
-| **Framework**        | [Next.js 16](https://nextjs.org) (App Router)                                 |
-| **Language**         | TypeScript 5                                                                  |
-| **Database**         | SQLite (dev) / PostgreSQL (production)                                        |
-| **ORM**              | [Prisma v7](https://www.prisma.io) with `@prisma/adapter-libsql`              |
-| **Auth**             | Custom JWT (via `jose`) + httpOnly cookies                                    |
-| **Styling**          | [Tailwind CSS v4](https://tailwindcss.com) + `next-themes` dark mode          |
-| **UI Primitives**    | [Radix UI](https://www.radix-ui.com) (Dialog, Select, Dropdown, Avatar, etc.) |
-| **Charts**           | [Recharts v3](https://recharts.org)                                           |
-| **Icons**            | [Lucide React](https://lucide.dev)                                            |
-| **Toasts**           | [Sonner v2](https://sonner.emilkowal.ski)                                     |
-| **PDF**              | [PDFKit](https://pdfkit.org)                                                  |
-| **Excel**            | [ExcelJS](https://github.com/exceljs/exceljs)                                 |
-| **Validation**       | [Zod v4](https://zod.dev)                                                     |
-| **Password Hashing** | [bcryptjs](https://github.com/dcodeIO/bcrypt.js)                              |
-
----
-
-## 🚀 Quick Start
-
-### Prerequisites
-
-- **Node.js** ≥ 18
-- **npm** ≥ 9
-
-### 1. Clone & Install
-
-```bash
-cd crm
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser   # once, so npm scripts can run
 npm install
+npm run dev
 ```
 
-### 2. Environment Variables
-
-Create a `.env` file (a default one is provided):
+Open <http://localhost:3000>. The database and secrets come from **`.env.local`** (not committed):
 
 ```env
-DATABASE_URL="file:./dev.db"
-JWT_SECRET="your-secret-key-change-in-production"
-NEXT_PUBLIC_APP_NAME="Electronics Startup ERP"
-NEXT_PUBLIC_APP_URL="http://localhost:3000"
+DATABASE_URL="file:./crm.db"
+JWT_SECRET="<a long random value>"
+CRM_AUTO_MIGRATE="1"
 ```
 
-### 3. Database Setup
+Generate a secret with `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`.
 
-```bash
-# Run migrations (creates SQLite dev.db)
-npx prisma migrate dev --name init
+- `crm.db` is the clean development and acceptance database. The first person to **Register** on an empty database becomes its administrator; after that, use **Sign in**.
+- `CRM_AUTO_MIGRATE=1` brings the database up to date with `prisma/migrations` when the server starts.
+- **Forgot a password?** In the project folder: `npx tsx scripts\reset-password.ts <email>`. It asks for the new password twice (hidden), takes a backup first and records the change.
 
-# Seed with sample data
-npm run seed
+> ⚠️ `dev.db`, `test.db` and `U2024-21-Oct-26-08-40.bak` are protected evidence files. Never point the app, a script or a migration at them, and never import real financial data before the acceptance tests and migration plan are approved (see [PROJECT_LOG.md §1](PROJECT_LOG.md)).
+
+---
+
+## Features
+
+### Everyday screens
+
+| Module | What it does |
+|---|---|
+| **Dashboard** | Sales, expenses and profit at a glance; recent activity |
+| **Sales** | Bills for registered or walk-in customers. **Bills can be edited after saving**: stock, the customer's balance and Finance are corrected with the bill, the invoice number stays, and every change is kept in the bill's history. **Print** (the print window also offers *Save as PDF*) and **Download PDF**. New customers can be created from the sale screen |
+| **Cash Sales** | Quick counter sales |
+| **Purchases** | Purchase orders from suppliers; stock updated on receipt |
+| **Inventory** | Items with SKU, stock, minimum level, sizes (length × width × GSM), weight and rate per kg, with a price calculator |
+| **Customers / Suppliers** | Directories with ledgers, statements and payments |
+| **Finance, Accounts, Transfers, Expenditures, Daybook** | Income and expenses, cash and bank accounts, transfers and the day book |
+| **Partners** | Partner investments, profit shares and withdrawals |
+| **Reports** | Profit and loss, sales, inventory, purchases, customers and projects, as PDF and Excel |
+| **Notifications, Users, Settings** | Alerts; users and roles; profile and password |
+
+### Books (double-entry accounting) — `Books` in the menu
+
+- **Documents:** sale invoices, cash sales, purchase invoices, sale and purchase returns, stock issues, stock counts, vouchers (CRV/BRV/CPV/BPV/JV), transfers, opening balances.
+- **Printing press:** send material to the press, receive printed goods (material used and printing charge), return unused material, record press losses.
+- **Charges:** freight, loading, bilty and printing charges are recorded without posting; *Post as expense* posts them exactly once.
+- **Controls:**
+  - Stock issues, press losses and stock counts wait for an administrator's approval. The person who created one cannot approve it, unless an owner override is switched on with a reason (`scripts/approval-override.ts`); overrides are listed in a report.
+  - Every change is in an append-only audit log.
+- **Numbers:** official document numbers come only from the main server. Offline computers use provisional references until they sync; an office server can hold reserved number blocks.
+- **Reports:** trial balance, ledgers, stock, own-approval overrides; printable documents with amounts in words.
+
+### Offline, sync and backups
+
+- **Offline first:** a desktop keeps working with no internet. Entries are kept locally as *Pending Sync* and sent automatically, exactly once, when the connection returns. Conflicts become *Needs review* and are never overwritten.
+- **Office server (optional):** computers in one office keep sharing entries through a local server while the internet is down.
+- **Backups:** automatic, encrypted (AES-256-GCM, passphrase-protected), verified backups to a folder of your choice, including unsent entries. Google Drive upload is built but must be verified with a real Google account before relying on it.
+- **Restore:** a backup is checked on a separate copy first, a safety backup is taken, and nothing live changes without typed confirmation. `scripts/restore-drill.ts` proves a backup restores.
+- **Several businesses on one server (optional):** one database per business (`scripts/tenant-admin.ts`).
+
+### Windows desktop app (`desktop/`)
+
+- **Install and run:**
+  - Per-user installer; no administrator rights and no Windows service.
+  - It brings its own Node.js and runs the same program on `127.0.0.1` only, on a free port.
+  - Its data lives in `%APPDATA%\pk.pakistancrm.desktop`, separate from every other copy.
+- **One copy per Windows user:** opening it again brings the open window back.
+- **Crashes:** the local server always stops with the app, and a crash never leaves a stale lock.
+- **Uninstalling never deletes business data**, even if "Delete the application data" is ticked.
+- **Guides:**
+  - For testers: [Report 27](audit-reports/27_DESKTOP_TESTER_GUIDE.md).
+  - Building and upgrading: [Report 25 §2](audit-reports/25_OWNER_SETUP_GUIDE.md).
+
+---
+
+## Roles
+
+| Role | Typical access |
+|---|---|
+| **Admin** | Everything, including users, approvals, backups and settings |
+| **Accountant** | Sales, Finance, Accounts, Transfers, Expenditures, vouchers and ledgers, customer/supplier payments, Reports |
+| **Employee** | Sales, Cash Sales, Customers and their payments; sees Inventory |
+| **Inventory Manager** | Inventory, Purchases, Suppliers, stock issues and press documents |
+| **Partner** | Partners; reads Sales, Customers, Finance, Daybook, ledgers and Reports |
+
+The exact rules are in [`src/lib/permissions.ts`](src/lib/permissions.ts). Every page and API route checks them on the server.
+
+---
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `npm run dev` | Development server on port 3000 |
+| `npm run build` / `npm start` | Production build / production server |
+| `npm test` | Unit and integration tests (Vitest, throw-away databases) |
+| `npx tsc --noEmit` | Type check |
+| `npm run lint` | ESLint |
+| `npm run seed`, `npm run db:reset` | Sample data / reset. **Only** for a confirmed `*.scratch.db` or `*.sandbox.db` with `CRM_CONFIRM_RESET=<file name>`; refused in production |
+| `npx tsx scripts/reset-password.ts <email>` | Set a new password for a forgotten account (backup first, audited) |
+| `npx tsx scripts/restore-drill.ts` | Restore the latest backup into a separate copy and compare |
+| `npx tsx scripts/approval-override.ts status` | Show or change the own-approval override (admin decision, audited) |
+| `npx tsx scripts/tenant-admin.ts …` | Multi-business servers: create, back up, restore |
+| `cd desktop && npm run build` | Build the desktop bundle and installer (needs the Rust toolchain) |
+| `cd desktop && npm run smoke` | Desktop smoke test; also `node instance-test.mjs` and `node installer-test.mjs` |
+
+---
+
+## Project layout
+
+```
+prisma/              schema.prisma, migrations/ (applied in order), seed.ts (guarded)
+src/app/(auth)/      login, register
+src/app/dashboard/   screens (each: page.tsx on the server + *-client.tsx in the browser)
+  accounting/        Books: documents, ledger, charges, reports, backups, sync, settings
+  sales/             list, new, [id] (bill, print, PDF), [id]/edit
+src/app/api/         route handlers (auth, sales, accounting, sync, backups, drive, health, …)
+src/lib/
+  accounting/        posting, numbering, charges, queries, setup (+ tests)
+  sales/             bill.ts (create/edit a sale bill), bill-view.ts (shown/printed/PDF)
+  sync/ device/      offline queue, sync engine, office server
+  backup/            encrypted backups, verification, restore
+  tenancy/           single or multi-business databases, migrations
+  domain/            exact decimal money, amounts in words
+  permissions.ts     roles and access rules
+  pdf-generator.ts   PDF bills and reports (pdfkit)
+src/components/      layout (shell, sidebar, header), shared, ui
+scripts/             owner and maintenance scripts (see Commands)
+desktop/             Tauri shell (src-tauri/), app-entry.cjs, bundle and installer build, tests
+audit-reports/       audit, specifications, test results, owner guides (01–27)
+PROJECT_LOG.md       running log: state, open items, history
 ```
 
-### 4. Start Development Server
+---
 
-```bash
-npm run dev
-```
+## Configuration
 
-Open [http://localhost:3000](http://localhost:3000) and log in.
+| Variable | Needed | Purpose |
+|---|---|---|
+| `DATABASE_URL` | yes | `file:<path>/crm.db` (or the computer's own database) |
+| `JWT_SECRET` | yes | Signs sign-in cookies; different on every computer |
+| `CRM_AUTO_MIGRATE` | recommended | `1` applies pending migrations at start-up |
+| `CRM_NODE_ROLE` | for sync | `cloud` (main server), `hub` (office server) or `device` (desktop) |
+| `CRM_DB_ENCRYPTION_KEY` | office server, desktop | Encrypts the local database |
+| `CRM_UPSTREAM_URL`, `CRM_DEVICE_ID`, `CRM_DEVICE_CODE`, `CRM_DEVICE_SECRET`, `CRM_TENANT_ID` | office server, desktop | Where and how this computer syncs |
+| `CRM_BACKUP_PASSPHRASE`, `CRM_TOKEN_KEY`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `CRM_PUBLIC_URL` | servers | Backups and Google Drive |
+| `CRM_TENANCY`, `CONTROL_DATABASE_URL`, `TENANT_DB_DIR`, `TENANT_BACKUP_PASSPHRASE` | multi-business server only | One database per business |
+
+The full table by computer type is in [Report 25 §9](audit-reports/25_OWNER_SETUP_GUIDE.md). Secrets never go into documents or the repository. The desktop app keeps its own secrets protected by Windows (DPAPI).
 
 ---
 
-## 🔑 Default Login Credentials
+## Testing
 
-| Role                  | Email                   | Password   |
-| --------------------- | ----------------------- | ---------- |
-| **Admin**             | `admin@electronics.pk`  | `admin123` |
-| **Employee**          | `ali@electronics.pk`    | `admin123` |
-| **Inventory Manager** | `fatima@electronics.pk` | `admin123` |
-| **Accountant**        | `usman@electronics.pk`  | `admin123` |
-| **Partner**           | `ahmed@electronics.pk`  | `admin123` |
-
-> ⚠️ **Change all passwords immediately in production.**
+- `npm test`: about 160 tests on throw-away databases, covering accounting rules, sync, backups, restore, permissions and sale-bill editing.
+- End-to-end suites start real servers on throw-away databases: workflows, security, offline and sync, office server, backups, Google Drive (against an imitation), restore, and multi-business.
+- Desktop tests run on the installed app: single instance, crash recovery, ports, isolation, install, upgrade and uninstall.
+- Results and evidence: [Report 24](audit-reports/24_ACCEPTANCE_TEST_RESULTS.md). Defects: [Report 26](audit-reports/26_PHASE_COMPLETION_AND_DEFECT_REGISTER.md).
 
 ---
 
-## 📁 Project Structure
+## Deployment
 
-```
-crm/
-├── prisma/
-│   ├── schema.prisma          # Database schema (20 models, 7 enums)
-│   ├── seed.ts                # Development seed data
-│   └── migrations/            # Prisma migration files
-├── src/
-│   ├── app/
-│   │   ├── (auth)/login/      # Login page
-│   │   ├── (auth)/register/   # Registration page
-│   │   ├── (dashboard)/       # All dashboard pages
-│   │   │   ├── page.tsx           # Dashboard (server)
-│   │   │   ├── dashboard-client.tsx
-│   │   │   ├── projects/          # Project list, detail, new
-│   │   │   ├── inventory/         # Inventory list, detail
-│   │   │   ├── sales/             # Sales list, new sale
-│   │   │   ├── purchases/         # Purchase list, new PO
-│   │   │   ├── finance/           # Finance ledger
-│   │   │   ├── partners/          # Partner management
-│   │   │   ├── customers/         # Customer directory
-│   │   │   ├── suppliers/         # Supplier directory
-│   │   │   ├── reports/           # Reports page
-│   │   │   ├── notifications/     # Notification center
-│   │   │   ├── users/             # User management (admin)
-│   │   │   └── settings/          # Profile & password
-│   │   └── api/               # REST API routes
-│   │       ├── auth/          # login, logout, register, me
-│   │       ├── dashboard/     # Dashboard stats
-│   │       ├── projects/      # CRUD + team + components
-│   │       ├── inventory/     # CRUD + history
-│   │       ├── sales/         # CRUD + items
-│   │       ├── purchases/     # CRUD + items
-│   │       ├── finance/       # CRUD
-│   │       ├── partners/      # CRUD
-│   │       ├── customers/     # CRUD
-│   │       ├── suppliers/     # CRUD
-│   │       ├── users/         # User management
-│   │       ├── notifications/ # Notification CRUD
-│   │       └── reports/       # P&L, sales, inventory, purchases, projects, customers
-│   ├── components/
-│   │   ├── layout/            # Shell, Sidebar, Header
-│   │   ├── shared/            # PageHeader, DataTable, ConfirmDialog, EmptyState, SearchInput, StatsCards
-│   │   └── ui/                # Button, Input, Card, Dialog, Select, Table, Badge, etc.
-│   ├── lib/
-│   │   ├── auth.ts            # JWT auth utilities
-│   │   ├── prisma.ts          # Prisma singleton
-│   │   ├── utils.ts           # formatCurrency, formatDate, paginate, etc.
-│   │   ├── constants.ts       # Navigation, categories, payment methods
-│   │   ├── validations.ts     # Zod schemas
-│   │   ├── notifications.ts   # Notification helpers
-│   │   ├── pdf-generator.ts   # Invoice/Report PDF generation
-│   │   └── excel-generator.ts # Report Excel generation
-│   ├── types/index.ts         # TypeScript type definitions
-│   └── middleware.ts           # Auth middleware with RBAC
-├── public/                    # Static assets
-├── package.json
-├── tsconfig.json
-├── next.config.ts
-├── tailwind.config.ts
-└── .env
-```
+Not deployed yet. Hosting, domain and go-live are owner decisions (H-1, S-1 in [Report 25](audit-reports/25_OWNER_SETUP_GUIDE.md)). Release order, migrations, rollback and monitoring are in [Report 26, Phase 9](audit-reports/26_PHASE_COMPLETION_AND_DEFECT_REGISTER.md).
 
 ---
 
-## 🗄️ Database Schema
+## License
 
-The system uses **20 models** and **7 enums**:
-
-### Enums
-
-- `UserRole` — ADMIN, PARTNER, EMPLOYEE, INVENTORY_MANAGER, ACCOUNTANT
-- `ProjectStatus` — PLANNING, IN_PROGRESS, COMPLETED, ON_HOLD, CANCELLED
-- `PaymentStatus` — PAID, PARTIAL, PENDING, OVERDUE
-- `TransactionType` — INCOME, EXPENSE
-- `IncomeCategory` — PROJECT_PAYMENT, COMPONENT_SALE, INVESTMENT, OTHER_INCOME
-- `ExpenseCategory` — COMPONENT_PURCHASE, SALARY, UTILITY, RENT, TRAVEL, HARDWARE, SOFTWARE, MARKETING, SHIPPING, TAX, OTHER_EXPENSE
-- `NotificationType` — LOW_STOCK, PENDING_PAYMENT, PROJECT_DEADLINE, SUPPLIER_DUE, OVERDUE_INVOICE, SYSTEM
-
-### Models
-
-`User`, `Account`, `Session`, `Project`, `TeamMember`, `ProjectComponent`, `ComponentCategory`, `Component`, `InventoryHistory`, `Supplier`, `Customer`, `Sale`, `SaleItem`, `Purchase`, `PurchaseItem`, `Finance`, `Partner`, `Invoice`, `Attachment`, `Notification`, `Setting`
-
-See [`prisma/schema.prisma`](prisma/schema.prisma) for full details.
-
----
-
-## 💳 Payment Methods (Pakistan)
-
-The system supports Pakistani payment workflows:
-
-| Method            | Use Case                                |
-| ----------------- | --------------------------------------- |
-| **Cash**          | Walk-in retail sales                    |
-| **Bank Transfer** | Corporate/institutional payments        |
-| **JazzCash**      | Mobile wallet (widely used in Pakistan) |
-| **EasyPaisa**     | Mobile wallet (Telenor)                 |
-| **NayaPay**       | Digital wallet / Visa                   |
-| **SadaPay**       | Digital wallet / Mastercard             |
-
----
-
-## 🔐 Authentication & RBAC
-
-- **JWT-based** authentication with httpOnly cookies (`auth-token`)
-- Passwords hashed with **bcryptjs** (12 rounds)
-- **Middleware** protects all `/dashboard` and `/api` routes
-- **Role-based access** controls sidebar navigation and API endpoints:
-
-| Role                  | Access                                                                    |
-| --------------------- | ------------------------------------------------------------------------- |
-| **Admin**             | Full access — all modules, user management                                |
-| **Partner**           | Dashboard, Projects, Finance, Partners, Reports, Notifications, Settings  |
-| **Employee**          | Dashboard, Projects, Inventory, Sales, Customers, Notifications, Settings |
-| **Inventory Manager** | Dashboard, Inventory, Purchases, Suppliers, Notifications, Settings       |
-| **Accountant**        | Dashboard, Sales, Finance, Reports, Notifications, Settings               |
-
----
-
-## 📊 Reports & Exports
-
-The Reports module provides 6 report types with **JSON preview** and **Excel export** (`.xlsx`):
-
-| Report               | Data Source                                  | Export                                |
-| -------------------- | -------------------------------------------- | ------------------------------------- |
-| **Profit & Loss**    | All finance transactions (income - expenses) | Excel via `generateFinanceReport()`   |
-| **Sales Report**     | All sales with customer & item details       | Excel via `generateSalesReport()`     |
-| **Inventory Report** | All components with stock levels & value     | Excel via `generateInventoryReport()` |
-| **Purchases Report** | All POs with supplier details                | Excel (inline workbook)               |
-| **Projects Report**  | All projects with revenue/cost/profit        | Excel (inline workbook)               |
-| **Customers Report** | All customers with purchase totals           | Excel (inline workbook)               |
-
-Date range filtering is supported on all reports.
-
----
-
-## 📄 PDF Generation
-
-Available PDF generators in [`src/lib/pdf-generator.ts`](src/lib/pdf-generator.ts):
-
-- `generateInvoicePDF(invoice)` — Sales/project invoices
-- `generateProjectReport(project, components)` — Project summary
-- `generateFinancialReport(summary)` — Financial period summary
-
----
-
-## 📦 Scripts
-
-| Command            | Description                     |
-| ------------------ | ------------------------------- |
-| `npm run dev`      | Start development server        |
-| `npm run build`    | Production build                |
-| `npm start`        | Start production server         |
-| `npm run lint`     | Run ESLint                      |
-| `npm run seed`     | Seed database with sample data  |
-| `npm run db:reset` | Reset DB (migrate reset + seed) |
-
----
-
-## 🚢 Deployment
-
-### Option 1: Vercel (Recommended)
-
-1. Push your code to GitHub
-2. Import project in [Vercel](https://vercel.com)
-3. Set environment variables:
-   - `DATABASE_URL` — PostgreSQL connection string
-   - `JWT_SECRET` — Strong random string
-   - `NEXT_PUBLIC_APP_URL` — Your production URL
-4. Deploy
-
-### Option 2: Manual (Ubuntu/Debian VPS)
-
-```bash
-# Install Node.js 18+
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-sudo apt-get install -y nodejs
-
-# Clone & install
-git clone <your-repo> /opt/crm
-cd /opt/crm
-npm ci
-
-# Setup PostgreSQL
-sudo apt-get install -y postgresql
-sudo -u postgres createuser crm_user --pwprompt
-sudo -u postgres createdb crm_db -O crm_user
-
-# Update .env with PostgreSQL URL
-# DATABASE_URL="postgresql://crm_user:password@localhost:5432/crm_db"
-
-# Run migrations & build
-npx prisma migrate deploy
-npm run build
-
-# Run with PM2
-npm install -g pm2
-pm2 start npm --name "crm" -- start
-pm2 save
-pm2 startup
-```
-
-### Option 3: Docker
-
-```dockerfile
-# Dockerfile
-FROM node:18-alpine AS base
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci
-COPY . .
-RUN npx prisma generate
-RUN npm run build
-
-FROM node:18-alpine AS production
-WORKDIR /app
-COPY --from=base /app/.next ./.next
-COPY --from=base /app/node_modules ./node_modules
-COPY --from=base /app/package.json ./package.json
-COPY --from=base /app/prisma ./prisma
-COPY --from=base /app/public ./public
-EXPOSE 3000
-CMD ["npm", "start"]
-```
-
-```bash
-docker build -t crm-erp .
-docker run -p 3000:3000 \
-  -e DATABASE_URL="postgresql://user:pass@host:5432/crm_db" \
-  -e JWT_SECRET="your-production-secret" \
-  crm-erp
-```
-
-### Migrating from SQLite to PostgreSQL
-
-1. Update `prisma/schema.prisma` — change provider from `"sqlite"` to `"postgresql"`
-2. Remove `@prisma/adapter-libsql` references from [`src/lib/prisma.ts`](src/lib/prisma.ts) (use standard PrismaClient)
-3. Update `DATABASE_URL` in `.env`
-4. Run `npx prisma migrate deploy`
-5. Re-seed: `npm run seed`
-
----
-
-## 🔧 Environment Variables Reference
-
-| Variable               | Required | Default                   | Description                |
-| ---------------------- | -------- | ------------------------- | -------------------------- |
-| `DATABASE_URL`         | Yes      | `file:./dev.db`           | Database connection string |
-| `JWT_SECRET`           | Yes      | (dev default)             | Secret key for JWT signing |
-| `NEXT_PUBLIC_APP_NAME` | No       | `Electronics Startup ERP` | App name shown in UI       |
-| `NEXT_PUBLIC_APP_URL`  | No       | `http://localhost:3000`   | Public URL of the app      |
-
----
-
-## 📝 Architecture Notes
-
-- **Server/Client split**: Each page has a server component (`page.tsx`) that fetches data and a client component (`*-client.tsx`) that renders the interactive UI. Server serializes data via `JSON.parse(JSON.stringify())`.
-- **Mutations**: All client-side mutations use `fetch()` to API routes, then `window.location.reload()` to refresh data.
-- **Shared components**: `PageHeader` (with `actions` prop), `DataTable`, `ConfirmDialog`, `EmptyState`, `SearchInput`, `StatsCards` are reused across all modules.
-- **API pattern**: All API routes follow the Next.js App Router handler pattern with `NextRequest` and return JSON or Buffer (for Excel/PDF).
-- **Auth flow**: Login → JWT token set as httpOnly cookie → middleware validates cookie on each request → API routes use `getAuthUser()` to identify the current user.
-
----
-
-## 📄 License
-
-Proprietary — All rights reserved.
-
----
-
-Built with ❤️ for electronics startups in Pakistan.
+Proprietary — all rights reserved.

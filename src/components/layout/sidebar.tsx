@@ -114,7 +114,7 @@ export function Sidebar({ userRole, userName, userEmail }: SidebarProps) {
       {/* Mobile Toggle */}
       <button
         onClick={() => setMobileOpen(!mobileOpen)}
-        className="fixed top-4 left-4 z-50 rounded-lg border bg-background p-2 shadow-sm lg:hidden"
+        className="fixed top-4 left-4 z-50 rounded-lg border bg-background p-2 shadow-sm lg:hidden print:hidden"
       >
         {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
       </button>
@@ -122,7 +122,7 @@ export function Sidebar({ userRole, userName, userEmail }: SidebarProps) {
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-40 flex flex-col border-r bg-card transition-all duration-300",
+          "fixed inset-y-0 left-0 z-40 flex flex-col border-r bg-card transition-all duration-300 print:hidden",
           collapsed ? "w-[68px]" : "w-[260px]",
           mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         )}

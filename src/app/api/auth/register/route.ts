@@ -1,10 +1,23 @@
 // src/app/api/auth/register/route.ts
+// Public registration is only allowed to bootstrap the very first (ADMIN) account.
+// All other users are created by an ADMIN through /api/users (audit SEC-01).
 import { NextResponse } from "next/server";
 import { hashPassword, createToken } from "@/lib/auth";
+import { tenancyMode } from "@/lib/tenancy/config";
 import { registerSchema } from "@/lib/validations";
 import prisma from "@/lib/prisma";
 
+export async function GET() {
+  // Multi-tenant: businesses and their first administrator are created by the platform, not by sign-up
+  if (tenancyMode() === "multi") return NextResponse.json({ registrationOpen: false });
+  const userCount = await prisma.user.count();
+  return NextResponse.json({ registrationOpen: userCount === 0 });
+}
+
 export async function POST(request: Request) {
+  if (tenancyMode() === "multi") {
+    return NextResponse.json({ error: "Registration is closed. Your business account is created by the provider." }, { status: 403 });
+  }
   try {
     const body = await request.json();
 
@@ -17,9 +30,17 @@ export async function POST(request: Request) {
       );
     }
 
-    const { name, email, password, phone, role: requestedRole } = parsed.data;
+    const { name, email, password, phone } = parsed.data;
 
-    // Check if user already exists
+    // Registration is closed once any user exists; the client-supplied role is never used.
+    const userCount = await prisma.user.count();
+    if (userCount > 0) {
+      return NextResponse.json(
+        { error: "Registration is closed. Ask an administrator to create your account." },
+        { status: 403 }
+      );
+    }
+
     const existingUser = await prisma.user.findUnique({
       where: { email },
     });
@@ -31,21 +52,17 @@ export async function POST(request: Request) {
       );
     }
 
-    // Determine role: use requested role if provided, otherwise first user is ADMIN, rest default to EMPLOYEE
-    const userCount = await prisma.user.count();
-    const role = requestedRole || (userCount === 0 ? "ADMIN" : "EMPLOYEE");
-
     // Hash password
     const hashedPassword = await hashPassword(password);
 
-    // Create user
+    // Create the bootstrap administrator
     const user = await prisma.user.create({
       data: {
         name,
         email,
         password: hashedPassword,
         phone: phone || null,
-        role,
+        role: "ADMIN",
         isActive: true,
       },
       select: {

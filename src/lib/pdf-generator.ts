@@ -265,3 +265,102 @@ export async function generateTablePDF(title: string, headers: string[], rows: s
     doc.end();
   });
 }
+
+// ─── Sale bill PDF (Sales → bill → Download PDF) ────────────────────
+export interface SaleBillPdf {
+  businessName: string;
+  businessAddress?: string;
+  invoiceNumber: string;
+  date: string;
+  customerName: string;
+  customerPhone?: string | null;
+  paymentMethod: string;
+  paymentStatus: string;
+  lines: { name: string; sku: string; quantity: number; unitPrice: number; total: number }[];
+  subtotal: number;
+  discount: number;
+  tax: number;
+  total: number;
+  amountInWords: string;
+  notes?: string | null;
+  edited?: string | null;
+  printedBy: string;
+}
+
+/** One A4 bill. Every position is set explicitly, so long item names wrap inside their column and pages break
+ *  cleanly; the heading of the item table is repeated on each page. */
+export async function generateSaleBillPDF(bill: SaleBillPdf): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: 'A4', margin: 40, info: { Title: `Bill ${bill.invoiceNumber}` } });
+    const chunks: Buffer[] = [];
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    const left = 40, right = 555, width = right - left;
+    const col = { no: left, item: left + 28, qty: 330, rate: 395, amount: 475 };
+    const money = (n: number) => formatCurrency(n);
+
+    doc.font('Helvetica-Bold').fontSize(16).text(bill.businessName, left, 40, { width, align: 'center' });
+    if (bill.businessAddress) doc.font('Helvetica').fontSize(9).text(bill.businessAddress, { width, align: 'center' });
+    doc.moveDown(0.4).font('Helvetica-Bold').fontSize(12).text('SALE BILL', { width, align: 'center' });
+
+    let y = doc.y + 12;
+    doc.font('Helvetica').fontSize(10);
+    doc.text(`Bill No: ${bill.invoiceNumber}`, left, y);
+    doc.text(`Date: ${bill.date}`, left, y, { width, align: 'right' });
+    y += 15;
+    doc.text(`Customer: ${bill.customerName}${bill.customerPhone ? `  (${bill.customerPhone})` : ''}`, left, y, { width: 330 });
+    doc.text(`Payment: ${bill.paymentMethod} · ${bill.paymentStatus}`, left, y, { width, align: 'right' });
+    y = doc.y + 14;
+
+    const heading = () => {
+      doc.moveTo(left, y).lineTo(right, y).lineWidth(1).stroke('#000000');
+      doc.font('Helvetica-Bold').fontSize(9);
+      doc.text('S.No', col.no, y + 4, { width: 26 });
+      doc.text('Item', col.item, y + 4, { width: col.qty - col.item - 8 });
+      doc.text('Qty', col.qty, y + 4, { width: 55, align: 'right' });
+      doc.text('Rate', col.rate, y + 4, { width: 70, align: 'right' });
+      doc.text('Amount', col.amount, y + 4, { width: right - col.amount, align: 'right' });
+      y += 18;
+      doc.moveTo(left, y).lineTo(right, y).stroke('#000000');
+      y += 4;
+      doc.font('Helvetica').fontSize(9);
+    };
+    heading();
+    bill.lines.forEach((l, i) => {
+      const label = l.sku ? `${l.name}  (${l.sku})` : l.name;
+      const h = Math.max(doc.heightOfString(label, { width: col.qty - col.item - 8 }), 11) + 6;
+      if (y + h > 760) { doc.addPage(); y = 40; heading(); }
+      doc.text(String(i + 1), col.no, y, { width: 26 });
+      doc.text(label, col.item, y, { width: col.qty - col.item - 8 });
+      doc.text(String(l.quantity), col.qty, y, { width: 55, align: 'right' });
+      doc.text(money(l.unitPrice), col.rate, y, { width: 70, align: 'right' });
+      doc.text(money(l.total), col.amount, y, { width: right - col.amount, align: 'right' });
+      y += h;
+      doc.moveTo(left, y - 3).lineTo(right, y - 3).dash(1, { space: 2 }).stroke('#9CA3AF').undash();
+    });
+
+    if (y > 650) { doc.addPage(); y = 40; }
+    y += 8;
+    const total = (label: string, value: string, bold = false) => {
+      doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(bold ? 11 : 10);
+      doc.text(label, 360, y, { width: 100 });
+      doc.text(value, 460, y, { width: right - 460, align: 'right' });
+      y += bold ? 18 : 15;
+    };
+    total('Sub-total', money(bill.subtotal));
+    if (bill.discount > 0) total('Discount', `- ${money(bill.discount)}`);
+    if (bill.tax > 0) total('Tax', money(bill.tax));
+    doc.moveTo(360, y - 2).lineTo(right, y - 2).lineWidth(1).stroke('#000000');
+    y += 2;
+    total('Total', money(bill.total), true);
+
+    doc.font('Helvetica').fontSize(9);
+    doc.text(`Amount in words: ${bill.amountInWords}`, left, y + 4, { width });
+    if (bill.notes) doc.text(`Notes: ${bill.notes}`, { width });
+    if (bill.edited) doc.text(bill.edited, { width });
+    doc.moveDown(3).fontSize(8).fillColor('#6B7280').text(`Printed by ${bill.printedBy} on ${formatDate(new Date())}`, left, doc.y, { width, align: 'center' });
+    doc.end();
+  });
+}

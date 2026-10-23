@@ -1,11 +1,13 @@
 // src/app/api/cash-sales/[id]/route.ts - Individual cash sale CRUD
 import { NextRequest, NextResponse } from "next/server";
+import { authorize } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await authorize("cashSales", "read");
+  if (auth.response) return auth.response;
+  const user = auth.user;
 
   const { id } = await params;
   const sale = await prisma.cashSale.findUnique({ where: { id } });
@@ -14,8 +16,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await authorize("cashSales", "delete");
+  if (auth.response) return auth.response;
+  const user = auth.user;
 
   const { id } = await params;
   const sale = await prisma.cashSale.findUnique({ where: { id } });

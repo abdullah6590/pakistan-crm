@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import { Plus, Users, Search, Trash2, Edit, Phone, Mail, MapPin, AlertTriangle, Wallet, FileText, MoreHorizontal } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { SortableTableHead } from "@/components/shared/sortable-table-head";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -193,7 +194,7 @@ export default function CustomersClient({ customers: initialCustomers, paginatio
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Name</TableHead>
+                    <SortableTableHead field="name">Name</SortableTableHead>
                     <TableHead>Contact</TableHead>
                     <TableHead>City</TableHead>
                     <TableHead className="text-right">Total Purchased</TableHead>

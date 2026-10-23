@@ -1,12 +1,14 @@
 // src/app/api/accounts/route.ts - Financial Account management API
 import { NextRequest, NextResponse } from "next/server";
+import { authorize } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 import { financialAccountSchema } from "@/lib/validations";
 
 export async function GET(request: NextRequest) {
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await authorize("accounts", "read");
+  if (auth.response) return auth.response;
+  const user = auth.user;
 
   const accounts = await prisma.financialAccount.findMany({
     orderBy: { createdAt: "desc" },
@@ -25,8 +27,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await authorize("accounts", "write");
+  if (auth.response) return auth.response;
+  const user = auth.user;
 
   const body = await request.json();
   const validation = financialAccountSchema.safeParse(body);

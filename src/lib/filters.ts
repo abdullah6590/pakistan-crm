@@ -218,10 +218,11 @@ export function buildExpendituresWhere(params: URLSearchParams | { [key: string]
 
   return {
     AND: [
+      // Expenditure has no "reference" column; filtering on it crashed the page (audit BUG-11)
       search ? {
         OR: [
           { description: { contains: search } },
-          { reference: { contains: search } },
+          { category: { contains: search } },
         ],
       } : {},
       category && category !== "all" ? { category } : {},

@@ -4,8 +4,9 @@ import { getAuthUser } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import SuppliersClient from "./suppliers-client";
 import { buildSuppliersWhere } from "@/lib/filters";
+import { parseSortParams, buildOrderBy, SUPPLIERS_SORT_WHITELIST } from "@/lib/sort";
 
-export default async function SuppliersPage({ searchParams }: { searchParams: { [key: string]: string | undefined } }) {
+export default async function SuppliersPage({ searchParams }: { searchParams: Promise<{ [key: string]: string | undefined }> }) {
   const user = await getAuthUser();
   if (!user) redirect("/login");
 
@@ -14,14 +15,19 @@ export default async function SuppliersPage({ searchParams }: { searchParams: { 
   const limit = 50;
   const skip = (page - 1) * limit;
   const whereClause = buildSuppliersWhere(params as any);
+  
+  const sortConfig = parseSortParams(params as any);
+  const orderByClause = buildOrderBy(sortConfig, SUPPLIERS_SORT_WHITELIST, { name: "asc" });
 
   const [suppliers, totalSuppliers] = await Promise.all([
     prisma.supplier.findMany({
       where: whereClause,
       take: limit,
       skip,
-      include: { _count: { select: { purchases: true } } },
-      orderBy: { createdAt: "desc" },
+      include: {
+        _count: { select: { purchases: true, components: true } },
+      },
+      orderBy: orderByClause,
     }),
     prisma.supplier.count({ where: whereClause })
   ]);

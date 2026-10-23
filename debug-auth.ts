@@ -1,7 +1,8 @@
 import { spawn } from 'child_process';
 import { createToken } from './src/lib/auth';
 
-process.env.JWT_SECRET = "test-secret-for-tests";
+// The signing secret must come from the environment; never hard-code it (audit SEC-13)
+if (!process.env.JWT_SECRET) throw new Error("Set JWT_SECRET in the environment before running this script");
 process.env.DATABASE_URL = "file:./test.db";
 const prisma = require("./src/lib/prisma").prisma;
 

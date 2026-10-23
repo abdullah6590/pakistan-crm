@@ -7,6 +7,7 @@ import {
   BarChart3, Edit, Trash2, Filter, ChevronDown, ChevronLeft, ChevronRight, Box, Printer, Sparkles, TrendingUp, Weight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SortableTableHead } from "@/components/shared/sortable-table-head";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -385,14 +386,14 @@ export default function InventoryClient({ components, categories, suppliers, sta
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Product</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>SKU</TableHead>
+                    <SortableTableHead field="name">Product</SortableTableHead>
+                    <SortableTableHead field="category">Category</SortableTableHead>
+                    <SortableTableHead field="sku">SKU</SortableTableHead>
                     <TableHead className="text-right">Packaging</TableHead>
-                    <TableHead className="text-right">Total Qty</TableHead>
+                    <SortableTableHead field="quantity" className="text-right">Total Qty</SortableTableHead>
                     <TableHead className="text-right">Sup. Price</TableHead>
-                    <TableHead className="text-right">Cost</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
+                    <SortableTableHead field="cost" className="text-right">Cost</SortableTableHead>
+                    <SortableTableHead field="price" className="text-right">Amount</SortableTableHead>
                     <TableHead>Supplier</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="w-[80px]">Actions</TableHead>

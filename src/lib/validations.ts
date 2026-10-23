@@ -5,6 +5,8 @@ import { z } from 'zod';
 export const loginSchema = z.object({
   email: z.string().email('Invalid email address'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
+  // Business account identifier; required only when the server hosts several businesses
+  business: z.string().trim().max(41).optional(),
 });
 
 export const registerSchema = z.object({

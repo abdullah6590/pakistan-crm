@@ -21,6 +21,7 @@ import { PAYMENT_METHODS } from "@/lib/constants";
 import { formatCurrency } from "@/lib/utils";
 import { toast } from "sonner";
 import PriceCalculator, { type PriceCalcValues, defaultCalcValues } from "@/components/shared/price-calculator";
+import { NewCustomerDialog } from "@/components/shared/new-customer-dialog";
 
 // ─── Types ──────────────────────────────────────────────────────────
 interface ComponentOption {
@@ -46,11 +47,40 @@ interface CartItem {
   unitPrice: number;
   availableStock: number;
   compData: ComponentOption; // store for calc
+  // What is in the box while it is being typed (empty is allowed until the box is left)
+  qtyText?: string;
+  priceText?: string;
+}
+
+/** Digits only, without leading zeros ("027" -> "27"); empty stays empty while typing. */
+const cleanWhole = (text: string) => text.replace(/\D/g, "").replace(/^0+(?=\d)/, "");
+/** A money amount as typed: digits and one decimal point, without leading zeros ("027" -> "27", "0.5" stays). */
+const cleanDecimal = (text: string) => {
+  const [whole, ...rest] = text.replace(/[^\d.]/g, "").split(".");
+  const w = whole.replace(/^0+(?=\d)/, "");
+  return rest.length ? `${w || "0"}.${rest.join("").slice(0, 2)}` : w;
+};
+/** Clicking into a box selects what is there, so typing replaces the 0 or 1 instead of adding to it. */
+const selectAll = (e: React.FocusEvent<HTMLInputElement>) => e.target.select();
+
+/** A saved bill being corrected (edit mode). */
+interface EditSaleData {
+  id: string;
+  invoiceNumber: string;
+  customer: CustomerOption | null;
+  walkInName: string | null;
+  paymentMethod: string;
+  paymentStatus: string;
+  discount: number;
+  tax: number;
+  notes: string | null;
+  items: { quantity: number; unitPrice: number; unitCost: number; component: ComponentOption }[];
 }
 
 interface Props {
   initialComponents: ComponentOption[];
   initialCustomers: CustomerOption[];
+  editSale?: EditSaleData;
 }
 
 const PAYMENT_ICONS: Record<string, React.ElementType> = {
@@ -59,35 +89,65 @@ const PAYMENT_ICONS: Record<string, React.ElementType> = {
   NAYAPAY: Smartphone, SADAPAY: Smartphone,
 };
 
-export default function NewSaleClient({ initialComponents, initialCustomers }: Props) {
+export default function NewSaleClient({ initialComponents, initialCustomers, editSale }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const editing = !!editSale;
+
+  // Stock already on the bill being edited goes back to stock when it is saved, so it is available to this bill
+  const onBill = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const i of editSale?.items ?? []) m.set(i.component.id, (m.get(i.component.id) ?? 0) + i.quantity);
+    return m;
+  }, [editSale]);
+  const available = (comp: ComponentOption) => comp.quantity + (onBill.get(comp.id) ?? 0);
 
   // Form state
-  const [customerType, setCustomerType] = useState<"existing" | "walkin">("existing");
-  const [selectedCustomer, setSelectedCustomer] = useState<CustomerOption | null>(null);
-  
-  const [walkInName, setWalkInName] = useState("");
+  const [customerType, setCustomerType] = useState<"existing" | "walkin">(editSale && !editSale.customer ? "walkin" : "existing");
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerOption | null>(editSale?.customer ?? null);
+
+  const [walkInName, setWalkInName] = useState(editSale?.walkInName ?? "");
   const [walkInPhone, setWalkInPhone] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("CASH");
-  const [paymentStatus, setPaymentStatus] = useState("PAID");
-  const [discount, setDiscount] = useState("0");
-  const [tax, setTax] = useState("0");
-  const [notes, setNotes] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState(editSale?.paymentMethod ?? "CASH");
+  const [paymentStatus, setPaymentStatus] = useState(editSale?.paymentStatus ?? "PAID");
+  const [discount, setDiscount] = useState(String(editSale?.discount ?? 0));
+  const [tax, setTax] = useState(String(editSale?.tax ?? 0));
+  const [notes, setNotes] = useState(editSale?.notes ?? "");
+  const [reason, setReason] = useState("");
 
   // Cart
-  const [cart, setCart] = useState<CartItem[]>([]);
+  const [cart, setCart] = useState<CartItem[]>(() => (editSale?.items ?? []).map((i) => ({
+    componentId: i.component.id,
+    componentName: i.component.name,
+    sku: i.component.sku,
+    quantity: i.quantity,
+    unitCost: i.unitCost,
+    unitPrice: i.unitPrice,
+    availableStock: available(i.component),
+    compData: i.component,
+  })));
 
   // ─── Component Search State ───
   const [searchQuery, setSearchQuery] = useState("");
   const [filteredComponents, setFilteredComponents] = useState<ComponentOption[]>(initialComponents);
   const [isSearchingComponents, setIsSearchingComponents] = useState(false);
-  
+  // The product list is open only while searching; it closes when a product is picked, on Escape, or on leaving
+  // the box, so it never covers the quantity and price of the lines below
+  const [showProductDropdown, setShowProductDropdown] = useState(false);
+
   // ─── Customer Search State ───
   const [custSearchQuery, setCustSearchQuery] = useState("");
   const [filteredCustomers, setFilteredCustomers] = useState<CustomerOption[]>(initialCustomers);
   const [isSearchingCustomers, setIsSearchingCustomers] = useState(false);
   const [showCustDropdown, setShowCustDropdown] = useState(false);
+  // "Create new customer" from the search box; the key gives each opening a fresh form
+  const [newCustomerOpen, setNewCustomerOpen] = useState(false);
+  const [newCustomerKey, setNewCustomerKey] = useState(0);
+  const openNewCustomer = () => {
+    setShowCustDropdown(false);
+    setNewCustomerKey((k) => k + 1);
+    setNewCustomerOpen(true);
+  };
 
   const [expandedCalcIndex, setExpandedCalcIndex] = useState<number | null>(null);
   const [cartCalcValues, setCartCalcValues] = useState<Record<number, PriceCalcValues>>({});
@@ -95,7 +155,7 @@ export default function NewSaleClient({ initialComponents, initialCustomers }: P
   // ─── Async Component Search ───
   useEffect(() => {
     const controller = new AbortController();
-    
+
     if (searchQuery.trim().length === 0) {
       setFilteredComponents(initialComponents);
       setIsSearchingComponents(false);
@@ -131,7 +191,7 @@ export default function NewSaleClient({ initialComponents, initialCustomers }: P
   // ─── Async Customer Search ───
   useEffect(() => {
     const controller = new AbortController();
-    
+
     if (custSearchQuery.trim().length === 0) {
       setFilteredCustomers(initialCustomers);
       setIsSearchingCustomers(false);
@@ -165,17 +225,19 @@ export default function NewSaleClient({ initialComponents, initialCustomers }: P
   }, [custSearchQuery, initialCustomers]);
 
   const addToCart = (comp: ComponentOption) => {
+    setShowProductDropdown(false);
+    const stockForBill = available(comp);
     const existing = cart.find(c => c.componentId === comp.id);
     if (existing) {
-      if (existing.quantity >= comp.quantity) {
-        toast.error(`Only ${comp.quantity} units in stock`);
+      if (existing.quantity >= stockForBill) {
+        toast.error(`Only ${stockForBill} units in stock`);
         return;
       }
       setCart(cart.map(c =>
-        c.componentId === comp.id ? { ...c, quantity: c.quantity + 1 } : c
+        c.componentId === comp.id ? { ...c, quantity: c.quantity + 1, qtyText: undefined } : c
       ));
     } else {
-      if (comp.quantity <= 0) {
+      if (stockForBill <= 0) {
         toast.error(`${comp.name} is out of stock`);
         return;
       }
@@ -186,7 +248,7 @@ export default function NewSaleClient({ initialComponents, initialCustomers }: P
         quantity: 1,
         unitCost: comp.unitCost,
         unitPrice: comp.unitPrice,
-        availableStock: comp.quantity,
+        availableStock: stockForBill,
         compData: comp,
       }]);
     }
@@ -197,22 +259,29 @@ export default function NewSaleClient({ initialComponents, initialCustomers }: P
     setCart(cart.filter((_, i) => i !== index));
   };
 
+  // While typing, the box may be empty or above the stock; the line shows a warning and the bill cannot be
+  // saved until it is corrected. Leaving an empty quantity box puts 1 back.
   const updateCartQty = (index: number, qty: string) => {
-    const num = parseInt(qty) || 1;
-    const item = cart[index];
-    if (num > item.availableStock) {
-      toast.error(`Only ${item.availableStock} units in stock`);
-      return;
-    }
+    const text = cleanWhole(qty);
     const updated = [...cart];
-    updated[index] = { ...updated[index], quantity: Math.max(1, num) };
+    updated[index] = { ...updated[index], quantity: parseInt(text, 10) || 0, qtyText: text };
+    setCart(updated);
+  };
+  const finishCartQty = (index: number) => {
+    const updated = [...cart];
+    updated[index] = { ...updated[index], quantity: Math.max(1, updated[index].quantity), qtyText: undefined };
     setCart(updated);
   };
 
   const updateCartPrice = (index: number, price: string) => {
-    const num = parseFloat(price) || 0;
+    const text = cleanDecimal(price);
     const updated = [...cart];
-    updated[index] = { ...updated[index], unitPrice: Math.max(0, num) };
+    updated[index] = { ...updated[index], unitPrice: parseFloat(text) || 0, priceText: text };
+    setCart(updated);
+  };
+  const finishCartPrice = (index: number) => {
+    const updated = [...cart];
+    updated[index] = { ...updated[index], priceText: undefined };
     setCart(updated);
   };
 
@@ -226,13 +295,16 @@ export default function NewSaleClient({ initialComponents, initialCustomers }: P
   // ─── Submit ─────────────────────────────────────────────────────────
   const handleSubmit = async () => {
     if (cart.length === 0) { toast.error("Add at least one component to the sale"); return; }
+    const short = cart.find(item => item.quantity > item.availableStock);
+    if (short) { toast.error(`Only ${short.availableStock} units of ${short.componentName} in stock`); return; }
+    if (cart.some(item => item.quantity < 1)) { toast.error("Enter a quantity for every item"); return; }
     if (customerType === "existing" && !selectedCustomer) { toast.error("Select a customer"); return; }
     if (customerType === "walkin" && !walkInName.trim()) { toast.error("Enter customer name"); return; }
 
     setLoading(true);
     try {
-      const res = await fetch("/api/sales", {
-        method: "POST",
+      const res = await fetch(editing ? `/api/sales/${editSale!.id}` : "/api/sales", {
+        method: editing ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           customerId: customerType === "existing" && selectedCustomer ? selectedCustomer.id : null,
@@ -242,7 +314,8 @@ export default function NewSaleClient({ initialComponents, initialCustomers }: P
           paymentStatus,
           discount: discountAmount,
           tax: taxAmount,
-          notes: notes.trim() || undefined,
+          notes: notes.trim() || (editing ? null : undefined),
+          ...(editing ? { reason: reason.trim() || undefined } : {}),
           items: cart.map(item => ({
             componentId: item.componentId,
             quantity: item.quantity,
@@ -252,9 +325,14 @@ export default function NewSaleClient({ initialComponents, initialCustomers }: P
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to create sale");
-      toast.success("Sale recorded successfully!");
-      router.push("/dashboard/sales");
+      if (!res.ok) throw new Error(data.error || (editing ? "Failed to save the bill" : "Failed to create sale"));
+      if (editing) {
+        toast.success(`Bill ${editSale!.invoiceNumber} updated`);
+        router.push(`/dashboard/sales/${editSale!.id}`);
+      } else {
+        toast.success("Sale recorded successfully!");
+        router.push("/dashboard/sales");
+      }
       router.refresh();
     } catch (err: any) {
       toast.error(err.message || "Something went wrong");
@@ -265,6 +343,19 @@ export default function NewSaleClient({ initialComponents, initialCustomers }: P
 
   return (
     <div className="space-y-6 max-w-4xl">
+      <NewCustomerDialog
+        key={newCustomerKey}
+        open={newCustomerOpen}
+        initialText={custSearchQuery}
+        onClose={() => setNewCustomerOpen(false)}
+        onCreated={(c) => {
+          setSelectedCustomer(c);
+          setCustomerType("existing");
+          setCustSearchQuery("");
+          setNewCustomerOpen(false);
+        }}
+      />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -272,13 +363,15 @@ export default function NewSaleClient({ initialComponents, initialCustomers }: P
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">New Sale</h1>
-            <p className="text-sm text-muted-foreground">Record a component sale — walk-in or registered customer</p>
+            <h1 className="text-2xl font-bold tracking-tight">{editing ? `Edit Bill ${editSale!.invoiceNumber}` : "New Sale"}</h1>
+            <p className="text-sm text-muted-foreground">
+              {editing ? "Correct the bill; stock, the customer's balance and Finance are corrected with it" : "Record a component sale — walk-in or registered customer"}
+            </p>
           </div>
         </div>
         <Button onClick={handleSubmit} disabled={loading || cart.length === 0} className="gap-2">
           {loading ? <Calculator className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-          {loading ? "Saving..." : "Complete Sale"}
+          {loading ? "Saving..." : editing ? "Save Changes" : "Complete Sale"}
         </Button>
       </div>
 
@@ -325,14 +418,14 @@ export default function NewSaleClient({ initialComponents, initialCustomers }: P
                           onBlur={() => setTimeout(() => setShowCustDropdown(false), 200)}
                         />
                         {isSearchingCustomers && <div className="absolute right-3 top-9 text-xs text-muted-foreground">Searching...</div>}
-                        
-                        {showCustDropdown && filteredCustomers.length > 0 && (
+
+                        {showCustDropdown && (
                           <div className="absolute z-20 top-full mt-1 w-full border rounded-lg bg-background shadow-lg max-h-60 overflow-y-auto">
                             {filteredCustomers.map(c => (
                               <button
                                 key={c.id}
                                 type="button"
-                                className="w-full flex flex-col items-start px-3 py-2 text-left hover:bg-muted transition-colors border-b last:border-0"
+                                className="w-full flex flex-col items-start px-3 py-2 text-left hover:bg-muted transition-colors border-b"
                                 onMouseDown={(e) => {
                                   e.preventDefault(); // prevent blur
                                   setSelectedCustomer(c);
@@ -344,6 +437,17 @@ export default function NewSaleClient({ initialComponents, initialCustomers }: P
                                 {c.phone && <span className="text-xs text-muted-foreground">{c.phone}</span>}
                               </button>
                             ))}
+                            {custSearchQuery.trim() !== "" && filteredCustomers.length === 0 && !isSearchingCustomers && (
+                              <div className="px-3 py-2 text-sm text-muted-foreground border-b">No customer found.</div>
+                            )}
+                            <button
+                              type="button"
+                              className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-sm font-medium text-primary hover:bg-muted transition-colors"
+                              onMouseDown={(e) => { e.preventDefault(); openNewCustomer(); }}
+                            >
+                              <Plus className="h-4 w-4" />
+                              {custSearchQuery.trim() ? `Create new customer "${custSearchQuery.trim()}"` : "Create new customer"}
+                            </button>
                           </div>
                         )}
                       </>
@@ -388,29 +492,33 @@ export default function NewSaleClient({ initialComponents, initialCustomers }: P
                   placeholder="Search products by name or SKU..."
                   className="pl-9"
                   value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
+                  onChange={e => { setSearchQuery(e.target.value); setShowProductDropdown(true); }}
+                  onFocus={() => setShowProductDropdown(true)}
+                  onBlur={() => setTimeout(() => setShowProductDropdown(false), 150)}
+                  onKeyDown={e => { if (e.key === "Escape") setShowProductDropdown(false); }}
                 />
                 {isSearchingComponents && <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">Searching...</div>}
-                
-                {searchQuery.trim() !== "" && filteredComponents.length === 0 && !isSearchingComponents && (
+
+                {showProductDropdown && searchQuery.trim() !== "" && filteredComponents.length === 0 && !isSearchingComponents && (
                   <div className="absolute z-20 top-full mt-1 w-full border rounded-lg bg-background p-4 text-center text-sm text-muted-foreground shadow-lg">
                     No products found.
                   </div>
                 )}
-                
-                {filteredComponents.length > 0 && (
+
+                {showProductDropdown && filteredComponents.length > 0 && (
                   <div className="absolute z-20 top-full mt-1 w-full border rounded-lg bg-background shadow-lg max-h-60 overflow-y-auto">
                     {filteredComponents.map(comp => (
                       <button
                         key={comp.id}
                         type="button"
                         className="w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-muted transition-colors border-b last:border-0"
+                        onMouseDown={(e) => e.preventDefault()} // keep the box focused until the click lands
                         onClick={() => addToCart(comp)}
                       >
                         <div className="min-w-0">
                           <p className="text-sm font-medium truncate">{comp.name}</p>
                           <p className="text-xs text-muted-foreground">
-                            {comp.sku} · Stock: {comp.quantity} · {formatCurrency(comp.unitPrice)}
+                            {comp.sku} · Stock: {available(comp)} · {formatCurrency(comp.unitPrice)}
                           </p>
                         </div>
                         <Plus className="h-4 w-4 ml-2 text-muted-foreground shrink-0" />
@@ -440,20 +548,26 @@ export default function NewSaleClient({ initialComponents, initialCustomers }: P
                         <div className="flex items-center gap-2 shrink-0">
                           <div className="space-y-1">
                             <Input
-                              type="number"
-                              className="w-16 h-8 text-center text-xs"
-                              min={1}
-                              max={item.availableStock}
-                              value={item.quantity}
+                              type="text"
+                              inputMode="numeric"
+                              aria-label="Quantity"
+                              className={`w-16 h-8 text-center text-xs ${item.quantity > item.availableStock ? "border-destructive text-destructive" : ""}`}
+                              value={item.qtyText ?? String(item.quantity)}
+                              onFocus={selectAll}
                               onChange={e => updateCartQty(i, e.target.value)}
+                              onBlur={() => finishCartQty(i)}
                             />
                           </div>
                           <div className="space-y-1">
                             <Input
-                              type="number"
+                              type="text"
+                              inputMode="decimal"
+                              aria-label="Price"
                               className="w-24 h-8 text-xs"
-                              value={item.unitPrice}
+                              value={item.priceText ?? String(item.unitPrice)}
+                              onFocus={selectAll}
                               onChange={e => updateCartPrice(i, e.target.value)}
+                              onBlur={() => finishCartPrice(i)}
                             />
                           </div>
                           <p className="text-sm font-semibold w-20 text-right tabular-nums">
@@ -496,6 +610,9 @@ export default function NewSaleClient({ initialComponents, initialCustomers }: P
                           </Button>
                         </div>
                       </div>
+                      {item.quantity > item.availableStock && (
+                        <p className="px-3 pt-1 text-xs text-destructive">Only {item.availableStock} units in stock</p>
+                      )}
                       {expandedCalcIndex === i && (
                         <div className="mt-1 mb-2">
                           <PriceCalculator
@@ -570,15 +687,15 @@ export default function NewSaleClient({ initialComponents, initialCustomers }: P
                   <span className="text-muted-foreground">Subtotal</span>
                   <span className="font-medium">{formatCurrency(subtotal)}</span>
                 </div>
-                
+
                 <div className="flex items-center gap-2">
                   <div className="flex-1 space-y-1">
                     <Label className="text-xs text-muted-foreground">Discount (Rs)</Label>
-                    <Input type="number" min="0" value={discount} onChange={e => setDiscount(e.target.value)} className="h-8" />
+                    <Input type="text" inputMode="decimal" value={discount} onFocus={selectAll} onChange={e => setDiscount(cleanDecimal(e.target.value))} onBlur={() => setDiscount(d => d || "0")} className="h-8" />
                   </div>
                   <div className="flex-1 space-y-1">
                     <Label className="text-xs text-muted-foreground">Tax (Rs)</Label>
-                    <Input type="number" min="0" value={tax} onChange={e => setTax(e.target.value)} className="h-8" />
+                    <Input type="text" inputMode="decimal" value={tax} onFocus={selectAll} onChange={e => setTax(cleanDecimal(e.target.value))} onBlur={() => setTax(t => t || "0")} className="h-8" />
                   </div>
                 </div>
 
@@ -592,6 +709,14 @@ export default function NewSaleClient({ initialComponents, initialCustomers }: P
                   )}
                 </div>
               </div>
+
+              {editing && (
+                <div className="space-y-1 pt-2">
+                  <Label>Reason for change (Optional)</Label>
+                  <Input placeholder="e.g. customer took 3 instead of 1" value={reason} onChange={e => setReason(e.target.value)} />
+                  <p className="text-xs text-muted-foreground">Kept in the bill's history with the bill before and after.</p>
+                </div>
+              )}
 
               <div className="space-y-1 pt-2">
                 <Label>Notes (Optional)</Label>

@@ -1,14 +1,17 @@
 // src/app/api/sales/route.ts - Sales management API
 import { NextRequest, NextResponse } from "next/server";
+import { authorize } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 import { saleSchema } from "@/lib/validations";
 import { generateInvoiceNumber } from "@/lib/utils";
 import { handleApiError } from "@/lib/api-error";
+import { createSale, SaleError } from "@/lib/sales/bill";
 
 export async function GET(request: NextRequest) {
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await authorize("sales", "read");
+  if (auth.response) return auth.response;
+  const user = auth.user;
 
   const { searchParams } = new URL(request.url);
   const search = searchParams.get("search") || "";
@@ -84,165 +87,20 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await authorize("sales", "write");
+  if (auth.response) return auth.response;
+  const user = auth.user;
 
   const body = await request.json();
   const invoiceNumber = body.invoiceNumber || generateInvoiceNumber("INV", Date.now() % 10000);
 
-  // Calculate totals
-  let subtotal = 0;
-  let totalProfit = 0;
-
   try {
-    const result = await prisma.$transaction(async (tx) => {
-      // 1. Create base sale
-      const sale = await tx.sale.create({
-        data: {
-          invoiceNumber,
-          customerId: body.customerId || null,
-          walkInName: body.walkInName || null,
-          subtotal: 0,
-          discount: body.discount || 0,
-          tax: body.tax || 0,
-          total: 0,
-          profit: 0,
-          paymentMethod: body.paymentMethod,
-          paymentStatus: body.paymentStatus || "PENDING",
-          userId: user.id,
-        },
-      });
-
-      // 2. Process items
-      const items = body.items || [];
-      if (!Array.isArray(items) || items.length === 0) {
-        throw new Error("Sale must contain at least one item");
-      }
-
-      for (const item of items) {
-        const qty = parseInt(item.quantity, 10);
-        if (isNaN(qty) || qty <= 0) throw new Error("Item quantity must be a positive integer");
-        
-        const unitPrice = parseFloat(item.unitPrice);
-        if (isNaN(unitPrice) || !isFinite(unitPrice) || unitPrice < 0) throw new Error("Invalid unit price");
-        const component = await tx.component.findUnique({ where: { id: item.componentId } });
-        if (!component) throw new Error(`Product ${item.componentId} not found`);
-        if (!component.isActive) throw new Error(`Product ${component.name} is inactive`);
-        if (component.quantity < item.quantity) throw new Error(`Insufficient stock for ${component.name}`);
-
-        const unitCost = component.unitCost; // Authoritative from DB
-        const itemProfit = (unitPrice - unitCost) * qty;
-
-        await tx.saleItem.create({
-          data: {
-            saleId: sale.id,
-            componentId: item.componentId,
-            quantity: qty,
-            unitCost,
-            unitPrice,
-            totalCost: unitCost * qty,
-            totalPrice: unitPrice * qty,
-            profit: itemProfit,
-          },
-        });
-
-        // Atomic Deduct inventory: ensures race conditions cannot drive stock < 0
-        const { count } = await tx.component.updateMany({
-          where: { 
-            id: item.componentId,
-            quantity: { gte: qty }
-          },
-          data: { quantity: { decrement: qty }, totalSold: { increment: qty } },
-        });
-
-        if (count === 0) {
-          throw new Error(`Insufficient stock for ${component.name}`);
-        }
-        
-        // We still need the updated component to record the balance in history
-        const updatedComp = await tx.component.findUnique({ where: { id: item.componentId } });
-        if (!updatedComp) throw new Error("Component disappeared during transaction");
-
-        await tx.inventoryHistory.create({
-          data: {
-            componentId: item.componentId,
-            type: "REMOVE",
-            quantity: qty,
-            balanceAfter: updatedComp.quantity,
-            reference: `Sale ${invoiceNumber}`,
-            performedBy: user.id,
-          },
-        });
-
-        subtotal += unitPrice * qty;
-        totalProfit += itemProfit;
-      }
-
-      // 3. Final calculations
-      const discount = parseFloat(body.discount) || 0;
-      const tax = parseFloat(body.tax) || 0;
-      
-      if (isNaN(discount) || !isFinite(discount) || discount < 0) throw new Error("Invalid discount amount");
-      if (isNaN(tax) || !isFinite(tax) || tax < 0) throw new Error("Invalid tax amount");
-      const total = subtotal - discount + tax;
-
-      const finalSale = await tx.sale.update({
-        where: { id: sale.id },
-        data: {
-          subtotal,
-          total,
-          profit: totalProfit,
-        },
-      });
-
-      // 4. Ledger updates
-      if (body.customerId) {
-        if (finalSale.paymentStatus === "PENDING" || finalSale.paymentStatus === "PARTIAL") {
-          const balanceToAdd = total;
-          await tx.customer.update({
-            where: { id: body.customerId },
-            data: { 
-              balanceDue: { increment: balanceToAdd },
-              visitCount: { increment: 1 }
-            },
-          });
-          await tx.customerPayment.create({
-            data: {
-              customerId: body.customerId,
-              amount: balanceToAdd,
-              notes: `Charge for Sale ${invoiceNumber}`,
-              userId: user.id,
-            },
-          });
-        } else {
-          await tx.customer.update({
-            where: { id: body.customerId },
-            data: { visitCount: { increment: 1 } },
-          });
-        }
-      }
-
-      // 5. Finance
-      if (finalSale.paymentStatus === "PAID" || finalSale.paymentStatus === "PARTIAL") {
-        await tx.finance.create({
-          data: {
-            transactionRef: `TXN-SALE-${Date.now()}-${Math.floor(Math.random()*1000)}`,
-            type: "INCOME",
-            category: "SALES",
-            amount: total,
-            description: `Sale ${invoiceNumber}`,
-            referenceId: finalSale.id,
-            paymentMethod: finalSale.paymentMethod,
-            userId: user.id,
-          },
-        });
-      }
-
-      return finalSale;
-    });
+    // Stock, the customer's charge and Finance are applied with the bill (src/lib/sales/bill.ts)
+    const result = await prisma.$transaction((tx) => createSale(tx, user.id, body, invoiceNumber));
 
     return NextResponse.json({ sale: result }, { status: 201 });
   } catch (error: any) {
+    if (error instanceof SaleError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     return handleApiError(error);
   }
 }

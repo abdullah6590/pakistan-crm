@@ -1,20 +1,30 @@
 // src/app/api/reports/inventory/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { authorize } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 import { generateInventoryReport } from "@/lib/excel-generator";
 import { generateTablePDF } from "@/lib/pdf-generator";
+import { buildInventoryWhere } from "@/lib/filters";
+import { parseSortParams, buildOrderBy, INVENTORY_SORT_WHITELIST } from "@/lib/sort";
 
 export async function GET(request: NextRequest) {
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await authorize("reports", "read");
+  if (auth.response) return auth.response;
+  const user = auth.user;
 
   const { searchParams } = new URL(request.url);
   const format = searchParams.get("format") || "json";
 
+  const paramsObj = Object.fromEntries(searchParams.entries());
+  const whereClause = buildInventoryWhere(paramsObj);
+  const sortConfig = parseSortParams(paramsObj);
+  const orderByClause = buildOrderBy(sortConfig, INVENTORY_SORT_WHITELIST, { name: "asc" });
+
   const components = await prisma.component.findMany({
+    where: whereClause,
     include: { category: { select: { name: true } }, supplier: { select: { name: true } } },
-    orderBy: { quantity: "asc" },
+    orderBy: orderByClause,
   });
 
   const totalValue = components.reduce((s, c) => s + c.quantity * c.unitCost, 0);

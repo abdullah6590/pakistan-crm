@@ -9,6 +9,7 @@ import {
   User, Hash, ChevronLeft, ChevronRight
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SortableTableHead } from "@/components/shared/sortable-table-head";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -144,13 +145,13 @@ export default function SalesClient({ sales, customers, stats, pagination }: Pro
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Invoice</TableHead>
-                    <TableHead>Customer</TableHead>
+                    <SortableTableHead field="invoiceNumber">Invoice</SortableTableHead>
+                    <SortableTableHead field="customer">Customer</SortableTableHead>
                     <TableHead>Items</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
+                    <SortableTableHead field="total" className="text-right">Total</SortableTableHead>
                     <TableHead>Payment</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Date</TableHead>
+                    <SortableTableHead field="paymentStatus">Status</SortableTableHead>
+                    <SortableTableHead field="date">Date</SortableTableHead>
                     <TableHead className="w-[80px]">Actions</TableHead>
                   </TableRow>
                 </TableHeader>

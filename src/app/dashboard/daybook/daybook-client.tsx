@@ -59,16 +59,16 @@ export default function DaybookClient({ initialSection, initialAccounts }: Props
         </div>
       </div>
 
-      <Tabs value={section} onChange={(v: any) => setSection(v)} className="print:block">
+      <Tabs value={section} onValueChange={(v: any) => setSection(v)} className="print:block">
         <TabsList className="grid w-full max-w-md grid-cols-3 print:hidden">
           <TabsTrigger value="finance"><Wallet className="h-4 w-4 mr-2" /> Finance</TabsTrigger>
           <TabsTrigger value="supplier"><Truck className="h-4 w-4 mr-2" /> Suppliers</TabsTrigger>
           <TabsTrigger value="customer"><Users className="h-4 w-4 mr-2" /> Customers</TabsTrigger>
         </TabsList>
 
-        {loading && !data ? (
+        {(loading && !data) || (data && data.section !== section) ? (
           <div className="h-64 flex items-center justify-center text-muted-foreground">Loading daybook...</div>
-        ) : data && (
+        ) : data && data.section === section && (
           <div className="mt-6 space-y-6">
             {/* Summary Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

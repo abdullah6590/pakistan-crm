@@ -1,0 +1,7 @@
+node_modules/
+bundle/
+src-tauri/target/
+src-tauri/gen/
+smoke-results.json
+instance-results*.json
+installer-results.json
