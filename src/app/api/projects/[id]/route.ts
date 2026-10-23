@@ -1,12 +1,14 @@
 // src/app/api/projects/[id]/route.ts - Single project management
 import { NextRequest, NextResponse } from "next/server";
+import { authorize } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await authorize("projects", "read");
+  if (auth.response) return auth.response;
+  const user = auth.user;
 
   const project = await prisma.project.findUnique({
     where: { id },
@@ -22,8 +24,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await authorize("projects", "write");
+  if (auth.response) return auth.response;
+  const user = auth.user;
 
   const body = await request.json();
   const existing = await prisma.project.findUnique({ where: { id } });
@@ -148,8 +151,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await authorize("projects", "delete");
+  if (auth.response) return auth.response;
+  const user = auth.user;
 
   await prisma.projectComponent.deleteMany({ where: { projectId: id } });
   await prisma.teamMember.deleteMany({ where: { projectId: id } });

@@ -5,12 +5,17 @@ import prisma from "@/lib/prisma";
 import { formatCurrency } from "@/lib/utils";
 import { predictStockLevels, detectAnomalies } from "@/lib/ai-engine";
 import DashboardClient from "./dashboard-client";
+import { dashboardVisibility } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const user = await getAuthUser();
   if (!user) redirect("/login");
+
+  // Sections are only queried for roles that may read the underlying module (audit R-SEC-1)
+  const vis = dashboardVisibility(user.role);
+  const zeroAmount = { _sum: { amount: 0 as number | null } };
 
   // Fetch dashboard data server-side
   const now = new Date();
@@ -37,27 +42,28 @@ export default async function DashboardPage() {
     prisma.component.count({
       where: { quantity: { lte: 5 }, isActive: true },
     }),
-    prisma.project.count(),
-    prisma.project.count({
+    vis.projects ? prisma.project.count() : Promise.resolve(0),
+    vis.projects ? prisma.project.count({
       where: { status: { in: ["PLANNING", "IN_PROGRESS"] } },
-    }),
+    }) : Promise.resolve(0),
     prisma.customer.count({ where: { isActive: true } }),
     prisma.supplier.count({ where: { isActive: true } }),
-    prisma.partner.count({ where: { isActive: true } }),
-    prisma.finance.aggregate({
+    vis.partners ? prisma.partner.count({ where: { isActive: true } }) : Promise.resolve(0),
+    vis.finance ? prisma.finance.aggregate({
       _sum: { amount: true },
       where: { type: "INCOME", date: { gte: monthStart } },
-    }),
-    prisma.finance.aggregate({
+    }) : Promise.resolve(zeroAmount),
+    vis.finance ? prisma.finance.aggregate({
       _sum: { amount: true },
       where: { type: "EXPENSE", date: { gte: monthStart } },
-    }),
-    prisma.sale.aggregate({
+    }) : Promise.resolve(zeroAmount),
+    vis.sales ? prisma.sale.aggregate({
       _sum: { total: true, profit: true },
       where: { createdAt: { gte: monthStart } },
-    }),
+    }) : Promise.resolve({ _sum: { total: 0 as number | null, profit: 0 as number | null } }),
     // Monthly breakdown for chart
     (async () => {
+      if (!vis.finance) return [];
       const data: { month: string; income: number; expense: number }[] = [];
       for (let i = 5; i >= 0; i--) {
         const mStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
@@ -80,7 +86,7 @@ export default async function DashboardPage() {
       }
       return data;
     })(),
-    prisma.sale.findMany({
+    !vis.sales ? Promise.resolve([]) : prisma.sale.findMany({
       take: 5,
       orderBy: { createdAt: "desc" },
       select: {
@@ -94,7 +100,7 @@ export default async function DashboardPage() {
         walkInName: true,
       },
     }),
-    prisma.project.findMany({
+    !vis.projects ? Promise.resolve([]) : prisma.project.findMany({
       take: 5,
       orderBy: { createdAt: "desc" },
       select: {
@@ -157,5 +163,5 @@ export default async function DashboardPage() {
     }))).slice(0, 3),
   };
 
-  return <DashboardClient data={dashboardData} user={user} />;
+  return <DashboardClient data={{ ...dashboardData, visibility: vis }} user={user} />;
 }

@@ -4,8 +4,9 @@ import { getAuthUser } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import CustomersClient from "./customers-client";
 import { buildCustomersWhere } from "@/lib/filters";
+import { parseSortParams, buildOrderBy, CUSTOMERS_SORT_WHITELIST } from "@/lib/sort";
 
-export default async function CustomersPage({ searchParams }: { searchParams: { [key: string]: string | undefined } }) {
+export default async function CustomersPage({ searchParams }: { searchParams: Promise<{ [key: string]: string | undefined }> }) {
   const user = await getAuthUser();
   if (!user) redirect("/login");
 
@@ -14,6 +15,9 @@ export default async function CustomersPage({ searchParams }: { searchParams: { 
   const limit = 50;
   const skip = (page - 1) * limit;
   const whereClause = buildCustomersWhere(params as any);
+  
+  const sortConfig = parseSortParams(params as any);
+  const orderByClause = buildOrderBy(sortConfig, CUSTOMERS_SORT_WHITELIST, { name: "asc" });
 
   const [customers, totalCustomers] = await Promise.all([
     prisma.customer.findMany({
@@ -21,7 +25,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: { 
       take: limit,
       skip,
       include: { _count: { select: { sales: true } } },
-      orderBy: { createdAt: "desc" },
+      orderBy: orderByClause,
     }),
     prisma.customer.count({ where: whereClause })
   ]);

@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import { Plus, Building2, Search, Trash2, Edit, Phone, Mail, MapPin, Truck, AlertTriangle, Printer, Eye, Filter, FileText, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SortableTableHead } from "@/components/shared/sortable-table-head";
 import { useRouter } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -230,8 +231,8 @@ export default function SuppliersClient({ suppliers: initialSuppliers, paginatio
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Company</TableHead>
+                    <SortableTableHead field="name">Name</SortableTableHead>
+                    <SortableTableHead field="company">Company</SortableTableHead>
                     <TableHead>Contact</TableHead>
                     <TableHead>City</TableHead>
                     <TableHead className="text-right">Total Purchased</TableHead>

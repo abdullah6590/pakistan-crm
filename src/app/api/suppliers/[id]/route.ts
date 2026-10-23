@@ -1,12 +1,14 @@
 // src/app/api/suppliers/[id]/route.ts - Single supplier management
 import { NextRequest, NextResponse } from "next/server";
+import { authorize } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await authorize("suppliers", "read");
+  if (auth.response) return auth.response;
+  const user = auth.user;
 
   const supplier = await prisma.supplier.findUnique({
     where: { id },
@@ -22,8 +24,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await authorize("suppliers", "write");
+  if (auth.response) return auth.response;
+  const user = auth.user;
   if (user.role !== "ADMIN") return NextResponse.json({ error: "Forbidden: Only ADMIN can modify suppliers" }, { status: 403 });
 
   const body = await request.json();
@@ -33,8 +36,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await authorize("suppliers", "delete");
+  if (auth.response) return auth.response;
+  const user = auth.user;
   if (user.role !== "ADMIN") return NextResponse.json({ error: "Forbidden: Only ADMIN can delete suppliers" }, { status: 403 });
 
   await prisma.supplier.delete({ where: { id } });

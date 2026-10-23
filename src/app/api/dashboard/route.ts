@@ -1,12 +1,14 @@
 // src/app/api/dashboard/route.ts - Dashboard stats API
 import { NextResponse } from "next/server";
+import { authorize, dashboardVisibility } from "@/lib/permissions";
 import { getAuthUser } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { startOfMonth, subMonths, startOfYear } from "date-fns";
 
 export async function GET() {
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await authorize("dashboard", "read");
+  if (auth.response) return auth.response;
+  const user = auth.user;
 
   try {
     const now = new Date();
@@ -134,7 +136,7 @@ export async function GET() {
     const prevMonthSales = lastMonthSales._sum.total || 0;
     const salesGrowth = prevMonthSales > 0 ? ((currentMonthSales - prevMonthSales) / prevMonthSales) * 100 : 0;
 
-    return NextResponse.json({
+    const full = {
       counts: {
         components: totalComponents,
         lowStock: lowStockCount,
@@ -171,6 +173,26 @@ export async function GET() {
       recentSales,
       recentProjects,
       topComponents,
+    };
+
+    // Each section is returned only to roles that may read its module (audit R-SEC-1)
+    const vis = dashboardVisibility(user.role);
+    return NextResponse.json({
+      visibility: vis,
+      counts: {
+        ...full.counts,
+        projects: vis.projects ? full.counts.projects : 0,
+        activeProjects: vis.projects ? full.counts.activeProjects : 0,
+        partners: vis.partners ? full.counts.partners : 0,
+      },
+      finance: vis.finance ? full.finance : null,
+      sales: vis.sales ? full.sales : null,
+      purchases: vis.purchases ? full.purchases : null,
+      inventory: full.inventory,
+      monthlyData: vis.finance ? full.monthlyData : [],
+      recentSales: vis.sales ? full.recentSales : [],
+      recentProjects: vis.projects ? full.recentProjects : [],
+      topComponents: full.topComponents,
     });
   } catch (error) {
     console.error("Dashboard error:", error);

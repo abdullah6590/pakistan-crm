@@ -1,29 +1,31 @@
 // src/app/api/reports/purchases/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { authorize } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 import ExcelJS from "exceljs";
 import { generateTablePDF } from "@/lib/pdf-generator";
+import { buildPurchasesWhere } from "@/lib/filters";
+import { parseSortParams, buildOrderBy, PURCHASES_SORT_WHITELIST } from "@/lib/sort";
 
 export async function GET(request: NextRequest) {
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await authorize("reports", "read");
+  if (auth.response) return auth.response;
+  const user = auth.user;
 
   const { searchParams } = new URL(request.url);
   const from = searchParams.get("from");
   const to = searchParams.get("to");
   const format = searchParams.get("format") || "json";
 
-  const where: any = {};
-  if (from || to) {
-    where.createdAt = {};
-    if (from) where.createdAt.gte = new Date(from);
-    if (to) where.createdAt.lte = new Date(to + "T23:59:59.999Z");
-  }
+  const paramsObj = Object.fromEntries(searchParams.entries());
+  const whereClause = buildPurchasesWhere(paramsObj);
+  const sortConfig = parseSortParams(paramsObj);
+  const orderByClause = buildOrderBy(sortConfig, PURCHASES_SORT_WHITELIST, { createdAt: "desc" });
 
   const purchases = await prisma.purchase.findMany({
-    where,
-    orderBy: { createdAt: "desc" },
+    where: whereClause,
+    orderBy: orderByClause,
     include: { supplier: { select: { name: true } }, items: true },
   });
 

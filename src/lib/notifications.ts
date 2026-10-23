@@ -116,9 +116,10 @@ export async function getUnreadCount(userId: string): Promise<number> {
 }
 
 // ─── Mark As Read ──────────────────────────────────────────────────
-export async function markAsRead(notificationId: string) {
-  return prisma.notification.update({
-    where: { id: notificationId },
+export async function markAsRead(notificationId: string, userId: string) {
+  // Scoped to the owner so one user cannot change another user's notifications (audit SEC-18)
+  return prisma.notification.updateMany({
+    where: { id: notificationId, userId },
     data: { isRead: true },
   });
 }

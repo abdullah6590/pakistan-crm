@@ -4,8 +4,9 @@ import { getAuthUser } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import FinanceClient from "./finance-client";
 import { buildFinanceWhere } from "@/lib/filters";
+import { parseSortParams, buildOrderBy, FINANCE_SORT_WHITELIST } from "@/lib/sort";
 
-export default async function FinancePage({ searchParams }: { searchParams: { [key: string]: string | undefined } }) {
+export default async function FinancePage({ searchParams }: { searchParams: Promise<{ [key: string]: string | undefined }> }) {
   const user = await getAuthUser();
   if (!user) redirect("/login");
 
@@ -14,12 +15,15 @@ export default async function FinancePage({ searchParams }: { searchParams: { [k
   const limit = 50;
   const skip = (page - 1) * limit;
   const whereClause = buildFinanceWhere(params as any);
+  
+  const sortConfig = parseSortParams(params as any);
+  const orderByClause = buildOrderBy(sortConfig, FINANCE_SORT_WHITELIST, { date: "desc" });
 
   const [records, totalRecordsCount, incomeAgg, expenseAgg] = await Promise.all([
     prisma.finance.findMany({
       where: whereClause,
       include: { user: { select: { name: true } } },
-      orderBy: { date: "desc" },
+      orderBy: orderByClause,
       skip,
       take: limit,
     }),

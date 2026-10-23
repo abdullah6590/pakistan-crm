@@ -9,6 +9,7 @@ import {
   TrendingDown, Wallet, ChevronLeft, ChevronRight
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SortableTableHead } from "@/components/shared/sortable-table-head";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -164,13 +165,14 @@ export default function PurchasesClient({ purchases, suppliers, stats, paginatio
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>PO Number</TableHead>
-                    <TableHead>Supplier</TableHead>
+                    <SortableTableHead field="poNumber">PO Number</SortableTableHead>
+                    <SortableTableHead field="supplier">Supplier</SortableTableHead>
                     <TableHead>Items</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
-                    <TableHead>Payment</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead className="w-[80px]">Actions</TableHead>
+                    <SortableTableHead field="total" className="text-right">Total</SortableTableHead>
+                    <TableHead className="text-left">Paid</TableHead>
+                    <SortableTableHead field="paymentStatus">Status</SortableTableHead>
+                    <SortableTableHead field="date">Date</SortableTableHead>
+                    <TableHead className="w-[80px] text-center">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -199,7 +201,7 @@ export default function PurchasesClient({ purchases, suppliers, stats, paginatio
                           </Badge>
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{timeAgo(p.createdAt)}</TableCell>
-                        <TableCell>
+                        <TableCell className="text-center">
                           <Link href={`/dashboard/purchases/${p.id}`} onClick={e => e.stopPropagation()}>
                             <Button variant="ghost" size="icon" className="h-8 w-8">
                               <Eye className="h-4 w-4" />

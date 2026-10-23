@@ -1,5 +1,6 @@
 // src/app/api/users/route.ts - User management API
 import { NextRequest, NextResponse } from "next/server";
+import { isAuthority, OFFLINE_ONLY_MESSAGE } from "@/lib/sync/local";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser, isAdmin } from "@/lib/auth";
 import { hash } from "bcryptjs";
@@ -37,6 +38,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  // Users are replicated to devices for offline sign-in; only the cloud may change them
+  if (!isAuthority()) return NextResponse.json({ error: OFFLINE_ONLY_MESSAGE }, { status: 503 });
   const authUser = await getAuthUser();
   if (!authUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!isAdmin(authUser.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -57,7 +60,7 @@ export async function POST(request: NextRequest) {
       email: parsed.data.email,
       password: hashedPassword,
       phone: parsed.data.phone || null,
-      role: body.role || "EMPLOYEE",
+      role: parsed.data.role || "EMPLOYEE",
     },
     select: { id: true, name: true, email: true, role: true, phone: true, createdAt: true },
   });

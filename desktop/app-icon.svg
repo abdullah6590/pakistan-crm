@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" rx="200" fill="#0f5132"/>
+  <text x="512" y="600" font-family="Segoe UI, Arial, sans-serif" font-size="380" font-weight="700" fill="#ffffff" text-anchor="middle">PC</text>
+  <rect x="262" y="700" width="500" height="40" rx="20" fill="#ffffff" opacity="0.85"/>
+</svg>

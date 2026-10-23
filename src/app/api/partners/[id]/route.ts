@@ -1,12 +1,14 @@
 // src/app/api/partners/[id]/route.ts - Single partner management
 import { NextRequest, NextResponse } from "next/server";
+import { authorize } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser, isAdmin } from "@/lib/auth";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await authorize("partners", "read");
+  if (auth.response) return auth.response;
+  const user = auth.user;
 
   const partner = await prisma.partner.findUnique({ where: { id } });
   if (!partner) return NextResponse.json({ error: "Partner not found" }, { status: 404 });
@@ -15,8 +17,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await authorize("partners", "write");
+  if (auth.response) return auth.response;
+  const user = auth.user;
   if (!isAdmin(user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = await request.json();
@@ -36,8 +39,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await authorize("partners", "delete");
+  if (auth.response) return auth.response;
+  const user = auth.user;
   if (!isAdmin(user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   await prisma.partner.delete({ where: { id } });

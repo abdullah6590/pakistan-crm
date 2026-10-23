@@ -3,6 +3,7 @@ import { hash, compare } from 'bcryptjs';
 import { SignJWT, jwtVerify } from 'jose';
 import { cookies } from 'next/headers';
 import prisma from './prisma';
+import { DEFAULT_TENANT_ID } from './tenancy/config';
 
 if (!process.env.JWT_SECRET) {
   throw new Error("CRITICAL ERROR: JWT_SECRET environment variable is not set. Refusing to start.");
@@ -22,8 +23,9 @@ export async function verifyPassword(password: string, hashed: string): Promise<
 }
 
 // ─── JWT Helpers ────────────────────────────────────────────────────
-export async function createToken(payload: { userId: string; email: string; role: string }): Promise<string> {
-  return new SignJWT({ ...payload })
+export async function createToken(payload: { userId: string; email: string; role: string; tenantId?: string }): Promise<string> {
+  // tenantId selects the business database in multi-tenant mode (Report 20 §2.2); "default" otherwise
+  return new SignJWT({ ...payload, tenantId: payload.tenantId ?? DEFAULT_TENANT_ID })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime('7d')
@@ -33,7 +35,7 @@ export async function createToken(payload: { userId: string; email: string; role
 export async function verifyToken(token: string) {
   try {
     const { payload } = await jwtVerify(token, JWT_SECRET);
-    return payload as { userId: string; email: string; role: string };
+    return payload as { userId: string; email: string; role: string; tenantId?: string };
   } catch {
     return null;
   }

@@ -1,13 +1,15 @@
 // src/app/api/finance/route.ts - Finance management API
 import { NextRequest, NextResponse } from "next/server";
+import { authorize } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 import { handleApiError } from "@/lib/api-error";
 import { generateTransactionRef } from "@/lib/utils";
 
 export async function GET(request: NextRequest) {
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await authorize("finance", "read");
+  if (auth.response) return auth.response;
+  const user = auth.user;
 
   const { searchParams } = new URL(request.url);
   const type = searchParams.get("type");
@@ -85,8 +87,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await getAuthUser();
-    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const auth = await authorize("finance", "write");
+    if (auth.response) return auth.response;
+    const user = auth.user;
 
     const body = await request.json();
     
@@ -117,7 +120,7 @@ export async function POST(request: NextRequest) {
         category: body.category,
         amount: amount,
         description: body.description || "",
-        paymentMethod: body.paymentMethod || null,
+        paymentMethod: body.paymentMethod || "CASH",
         reference: body.reference || null,
         referenceId: body.referenceId || null,
         date: transactionDate,

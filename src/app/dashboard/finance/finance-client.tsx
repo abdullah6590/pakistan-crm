@@ -8,6 +8,7 @@ import {
   ChevronLeft, ChevronRight
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SortableTableHead } from "@/components/shared/sortable-table-head";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -193,12 +194,12 @@ export default function FinanceClient({ records, summary, pagination }: Props) {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Ref</TableHead>
-                    <TableHead>Date</TableHead>
+                    <SortableTableHead field="reference">Ref</SortableTableHead>
+                    <SortableTableHead field="date">Date</SortableTableHead>
                     <TableHead>Description</TableHead>
                     <TableHead>Category</TableHead>
                     <TableHead>Payment</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
+                    <SortableTableHead field="amount" className="text-right">Amount</SortableTableHead>
                     <TableHead className="w-[80px]">Actions</TableHead>
                   </TableRow>
                 </TableHeader>

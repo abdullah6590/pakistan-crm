@@ -31,7 +31,7 @@ export async function PUT(request: NextRequest) {
   }
 
   if (body.id) {
-    await markAsRead(body.id);
+    await markAsRead(body.id, user.id);
     return NextResponse.json({ success: true });
   }
 

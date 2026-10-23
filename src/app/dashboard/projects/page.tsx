@@ -1,5 +1,6 @@
 // src/app/(dashboard)/projects/page.tsx
 import { getAuthUser } from "@/lib/auth";
+import { can } from "@/lib/permissions";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { ProjectsClient } from "./projects-client";
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
 export default async function ProjectsPage() {
   const user = await getAuthUser();
   if (!user) redirect("/login");
+  if (!can(user.role, "projects", "read")) redirect("/dashboard");
 
   const [projects, users] = await Promise.all([
     prisma.project.findMany({

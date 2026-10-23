@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 import { redirect } from "next/navigation";
+import { can, MODULE_RESOURCE } from "@/lib/permissions";
 import { 
   buildSalesWhere, buildPurchasesWhere, buildInventoryWhere,
   buildCustomersWhere, buildSuppliersWhere, buildFinanceWhere,
@@ -8,13 +9,17 @@ import {
 } from "@/lib/filters";
 import AnalysisClient from "./analysis-client";
 
-export default async function AnalysisPage({ searchParams }: { searchParams: { [key: string]: string | undefined } }) {
+export default async function AnalysisPage({ searchParams }: { searchParams: Promise<{ [key: string]: string | undefined }> }) {
   const user = await getAuthUser();
   if (!user) redirect("/login");
 
   const params = await searchParams;
   const moduleName = params.module;
   
+  // Each module requires the same read permission as its own page (audit SEC-06)
+  const resource = moduleName ? MODULE_RESOURCE[moduleName] : undefined;
+  if (moduleName && (!resource || !can(user.role, resource, "read"))) redirect("/dashboard");
+
   if (!moduleName) {
     return <div className="p-10 text-center">Module parameter is missing. Cannot analyze.</div>;
   }

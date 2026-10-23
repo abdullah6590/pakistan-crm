@@ -27,6 +27,13 @@ export const SIDEBAR_NAV: NavItem[] = [
     roles: ['ADMIN', 'PARTNER', 'EMPLOYEE', 'INVENTORY_MANAGER', 'ACCOUNTANT'],
   },
   {
+    // New accounting core (documents, ledgers, stock and press reports); pages filter by permission
+    title: 'Books',
+    href: '/dashboard/accounting',
+    icon: BookOpen,
+    roles: ['ADMIN', 'PARTNER', 'EMPLOYEE', 'INVENTORY_MANAGER', 'ACCOUNTANT'],
+  },
+  {
     title: 'Inventory',
     href: '/dashboard/inventory',
     icon: Package,

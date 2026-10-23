@@ -4,8 +4,9 @@ import { getAuthUser } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import InventoryClient from "./inventory-client";
 import { buildInventoryWhere } from "@/lib/filters";
+import { parseSortParams, buildOrderBy, INVENTORY_SORT_WHITELIST } from "@/lib/sort";
 
-export default async function InventoryPage({ searchParams }: { searchParams: { page?: string, search?: string, categoryId?: string, supplierId?: string, lowStock?: string } }) {
+export default async function InventoryPage({ searchParams }: { searchParams: Promise<{ page?: string, search?: string, categoryId?: string, supplierId?: string, lowStock?: string }> }) {
   const user = await getAuthUser();
   if (!user) redirect("/login");
 
@@ -14,6 +15,9 @@ export default async function InventoryPage({ searchParams }: { searchParams: { 
   const limit = 50;
   const skip = (page - 1) * limit;
   const whereClause = buildInventoryWhere(params as any);
+  
+  const sortConfig = parseSortParams(params as any);
+  const orderByClause = buildOrderBy(sortConfig, INVENTORY_SORT_WHITELIST, { name: "asc" });
 
   const [components, totalComponentsCount, allStats, lowStockCount, categories, suppliers] = await Promise.all([
     prisma.component.findMany({

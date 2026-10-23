@@ -1,19 +1,29 @@
 // src/app/api/reports/customers/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { authorize } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 import ExcelJS from "exceljs";
 import { generateTablePDF } from "@/lib/pdf-generator";
+import { buildCustomersWhere } from "@/lib/filters";
+import { parseSortParams, buildOrderBy, CUSTOMERS_SORT_WHITELIST } from "@/lib/sort";
 
 export async function GET(request: NextRequest) {
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await authorize("reports", "read");
+  if (auth.response) return auth.response;
+  const user = auth.user;
 
   const { searchParams } = new URL(request.url);
   const format = searchParams.get("format") || "json";
 
+  const paramsObj = Object.fromEntries(searchParams.entries());
+  const whereClause = buildCustomersWhere(paramsObj);
+  const sortConfig = parseSortParams(paramsObj);
+  const orderByClause = buildOrderBy(sortConfig, CUSTOMERS_SORT_WHITELIST, { totalPurchased: "desc" });
+
   const customers = await prisma.customer.findMany({
-    orderBy: { totalPurchased: "desc" },
+    where: whereClause,
+    orderBy: orderByClause,
     include: { _count: { select: { sales: true } } },
   });
 

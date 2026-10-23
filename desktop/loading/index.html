@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Pakistan CRM</title></head>
+<body style="font-family: system-ui, sans-serif; display: grid; place-items: center; height: 100vh; margin: 0; background: #f8fafc; color: #0f172a">
+  <div style="max-width: 560px; padding: 24px; text-align: center">
+    <p id="status">Starting Pakistan CRM…</p>
+    <p id="problem" style="display: none; color: #991b1b; white-space: pre-wrap"></p>
+  </div>
+  <script>
+    // Called by the desktop shell when the local server cannot start. Saved and unsent entries are not affected.
+    window.showProblem = function (message) {
+      document.getElementById("status").textContent = "Pakistan CRM could not start.";
+      var p = document.getElementById("problem");
+      p.textContent = message + "\n\nYour saved and unsent entries are kept. Close this window and open Pakistan CRM again; if it happens again, send the file named above to your administrator.";
+      p.style.display = "block";
+    };
+  </script>
+</body>
+</html>

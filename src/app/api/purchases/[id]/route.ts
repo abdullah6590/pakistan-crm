@@ -1,5 +1,6 @@
 // src/app/api/purchases/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { authorize } from "@/lib/permissions";
 import prisma from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 
@@ -7,8 +8,9 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await authorize("purchases", "read");
+  if (auth.response) return auth.response;
+  const user = auth.user;
 
   const { id } = await params;
   const purchase = await prisma.purchase.findUnique({
@@ -28,8 +30,9 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await authorize("purchases", "write");
+  if (auth.response) return auth.response;
+  const user = auth.user;
 
   const { id } = await params;
   const existing = await prisma.purchase.findUnique({ where: { id } });
@@ -57,8 +60,9 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await getAuthUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await authorize("purchases", "delete");
+  if (auth.response) return auth.response;
+  const user = auth.user;
 
   const { id } = await params;
   const existing = await prisma.purchase.findUnique({ where: { id } });

@@ -1,5 +1,6 @@
 // src/app/(dashboard)/projects/[id]/page.tsx
 import { getAuthUser } from "@/lib/auth";
+import { can } from "@/lib/permissions";
 import { redirect, notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { ProjectDetailClient } from "./project-detail-client";
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
 export default async function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await getAuthUser();
   if (!user) redirect("/login");
+  if (!can(user.role, "projects", "read")) redirect("/dashboard");
 
   const { id } = await params;
   const project = await prisma.project.findUnique({
