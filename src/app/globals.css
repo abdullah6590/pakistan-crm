@@ -44,7 +44,6 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
 }
-
 @layer base {
   :root {
     --background: 210 20% 99%; /* Very subtle cool white */
@@ -84,8 +83,7 @@
     --sidebar-accent-foreground: 230 40% 15%;
     --sidebar-border: 220 13% 88%;
     --sidebar-ring: 230 85% 58%;
-  }
-
+}
   .dark {
     --background: 230 25% 8%; /* Deep sleek tech black */
     --foreground: 210 40% 98%;
@@ -123,7 +121,6 @@
     --sidebar-ring: 225 85% 65%;
   }
 }
-
 @layer base {
   * {
     border-color: hsl(var(--border));
@@ -135,8 +132,22 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+  /* Tailwind 4 no longer gives buttons a pointer cursor; clickable things should show one */
+  button:not(:disabled), [role="button"], [role="option"], select:not(:disabled), summary,
+  input[type="checkbox"]:not(:disabled), input[type="radio"]:not(:disabled), label[for] {
+    cursor: pointer;
+  }
+  button:disabled, select:disabled, input:disabled {
+    cursor: not-allowed;
+  }
+  /* Smooth colour changes when the theme switches. Inside the base layer, so an element's own transition-transform
+     or transition-opacity classes (theme icon, sidebar arrow) still apply instead of being overridden by this */
+  @media (prefers-reduced-motion: no-preference) {
+    * {
+      transition: background-color 0.2s ease, border-color 0.2s ease, color 0.1s ease;
+    }
+  }
 }
-
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
@@ -152,18 +163,11 @@
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground) / 0.5);
 }
-
-/* Smooth transitions for theme switching */
-* {
-  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.1s ease;
-}
-
 /* Print styles */
 @media print {
   .sidebar, header, footer { display: none !important; }
   body { background: white !important; }
 }
-
 /* Animation utilities */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(8px); }
@@ -172,11 +176,30 @@
 .animate-fade-in {
   animation: fadeIn 0.4s ease-out;
 }
-
 @keyframes slideInRight {
   from { opacity: 0; transform: translateX(20px); }
   to { opacity: 1; transform: translateX(0); }
 }
 .animate-slide-in {
   animation: slideInRight 0.3s ease-out;
+}
+/* Pop-ups (dialogs, menus, lists) appear with a short fade and scale instead of snapping in. The modifier classes
+   used with it (fade-in-0, zoom-in-95, ...) come from a plugin this project does not use; this one rule covers them. */
+@keyframes uiEnter {
+  from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+@layer utilities {
+  .animate-in {
+    animation: uiEnter 0.16s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+}
+/* People who ask their system for less motion get none */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

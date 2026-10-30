@@ -22,25 +22,31 @@ interface Props {
 export default function DaybookClient({ initialSection, initialAccounts }: Props) {
   const [section, setSection] = useState(initialSection);
   const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  // Loading until the answer for the filters now shown has arrived
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState({ start: "", end: "" });
 
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({ section });
-      if (dateRange.start) params.append("startDate", dateRange.start);
-      if (dateRange.end) params.append("endDate", dateRange.end);
-      const res = await fetch(`/api/daybook?${params.toString()}`);
-      const json = await res.json();
-      setData(json);
-    } catch {
-      toast.error("Failed to load daybook data");
-    }
-    setLoading(false);
-  };
+  const loadKey = `${section}|${dateRange.start}|${dateRange.end}`;
+  const loading = loadedFor !== loadKey;
 
-  useEffect(() => { fetchData(); }, [section, dateRange]);
+  useEffect(() => {
+    let current = true;
+    (async () => {
+      try {
+        const params = new URLSearchParams({ section });
+        if (dateRange.start) params.append("startDate", dateRange.start);
+        if (dateRange.end) params.append("endDate", dateRange.end);
+        const res = await fetch(`/api/daybook?${params.toString()}`);
+        const json = await res.json();
+        if (!current) return;
+        setData(json);
+      } catch {
+        if (current) toast.error("Failed to load daybook data");
+      }
+      if (current) setLoadedFor(loadKey);
+    })();
+    return () => { current = false; };
+  }, [section, dateRange, loadKey]);
 
   const handlePrint = () => {
     window.print();

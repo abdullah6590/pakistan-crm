@@ -225,21 +225,15 @@ const HISTORY_KEY = "crm_backup_history";
 
 export function saveGDriveState(state: GoogleDriveState): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    // Phase 0: browser OAuth credentials are retired. Never persist the token.
+    void state;
+    localStorage.removeItem(STORAGE_KEY);
   } catch {}
 }
 
 export function loadGDriveState(): GoogleDriveState {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const state = JSON.parse(stored) as GoogleDriveState;
-      // Check if token is expired
-      if (state.expiresAt && Date.now() > state.expiresAt) {
-        return { isConnected: false, accessToken: null, userEmail: null, userName: null, expiresAt: null };
-      }
-      return state;
-    }
+    localStorage.removeItem(STORAGE_KEY);
   } catch {}
   return { isConnected: false, accessToken: null, userEmail: null, userName: null, expiresAt: null };
 }

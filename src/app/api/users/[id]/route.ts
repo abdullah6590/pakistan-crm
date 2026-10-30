@@ -4,6 +4,7 @@ import { isAuthority, OFFLINE_ONLY_MESSAGE } from "@/lib/sync/local";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser, isAdmin } from "@/lib/auth";
 import { hash } from "bcryptjs";
+import { userRateLimitGuard } from "@/lib/rate-limit";
 
 const USER_ROLES = ["ADMIN", "PARTNER", "EMPLOYEE", "INVENTORY_MANAGER", "ACCOUNTANT"];
 
@@ -30,6 +31,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   const authUser = await getAuthUser();
   if (!authUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!isAdmin(authUser.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const limited = await userRateLimitGuard(prisma, request, "sensitive", authUser.id);
+  if (limited) return limited;
 
   const body = await request.json();
   const data: any = {};
@@ -45,10 +48,20 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   if (body.address !== undefined) data.address = body.address;
   if (body.password) data.password = await hash(body.password, 12);
 
-  const user = await prisma.user.update({
-    where: { id },
-    data,
-    select: { id: true, name: true, email: true, role: true, phone: true, isActive: true },
+  const securityChanged = Boolean(body.role || body.isActive !== undefined || body.password || body.email);
+  const user = await prisma.$transaction(async (tx) => {
+    const user = await tx.user.update({
+      where: { id },
+      data,
+      select: { id: true, name: true, email: true, role: true, phone: true, isActive: true },
+    });
+    if (securityChanged) {
+      await tx.session.updateMany({
+        where: { userId: id, revokedAt: null },
+        data: { revokedAt: new Date(), revokeReason: "ACCOUNT_CHANGED" },
+      });
+    }
+    return user;
   });
 
   return NextResponse.json({ success: true, user });
@@ -61,6 +74,8 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
   const authUser = await getAuthUser();
   if (!authUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!isAdmin(authUser.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const limited = await userRateLimitGuard(prisma, request, "sensitive", authUser.id);
+  if (limited) return limited;
 
   await prisma.user.delete({ where: { id } });
   return NextResponse.json({ success: true });

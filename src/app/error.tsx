@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { AlertTriangle } from "lucide-react";
 import Link from "next/link";
 
@@ -39,9 +39,9 @@ export default function GlobalError({
           <Button onClick={() => reset()} size="lg" className="w-full sm:w-auto">
             Try again
           </Button>
-          <Button variant="outline" size="lg" className="w-full sm:w-auto" onClick={() => window.location.href = '/dashboard'}>
+          <Link href="/dashboard" className={buttonVariants({ variant: "outline", size: "lg", className: "w-full sm:w-auto" })}>
             Return to Dashboard
-          </Button>
+          </Link>
         </div>
       </div>
     </div>

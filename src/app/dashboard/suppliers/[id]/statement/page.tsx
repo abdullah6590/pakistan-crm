@@ -1,29 +1,22 @@
+// src/app/dashboard/suppliers/[id]/statement/page.tsx - A supplier's statement from Books (Report 30 §7): opening balance,
+// bills, payments, returns, refunds and adjustments with a running balance, and the closing balance.
+import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
-import { redirect } from "next/navigation";
-import StatementClient from "./statement-client";
+import { can } from "@/lib/permissions";
+import { serialize } from "@/lib/accounting/server";
+import { supplierStatement } from "@/lib/purchases/queries";
+import StatementClient, { type SupplierStatement } from "./statement-client";
 
-export default async function SupplierStatementPage({ params }: { params: { id: string } }) {
+export const dynamic = "force-dynamic";
+
+export default async function SupplierStatementPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ from?: string; to?: string }> }) {
   const user = await getAuthUser();
   if (!user) redirect("/login");
-
+  if (!can(user.role, "suppliers", "read")) redirect("/dashboard");
   const { id } = await params;
-  
-  const supplier = await prisma.supplier.findUnique({
-    where: { id },
-    include: {
-      purchases: {
-        orderBy: { createdAt: "asc" },
-      },
-      supplierPayments: {
-        orderBy: { date: "asc" },
-      },
-    }
-  });
-
-  if (!supplier) {
-    return <div className="p-10 text-center">Supplier not found</div>;
-  }
-
-  return <StatementClient supplier={JSON.parse(JSON.stringify(supplier))} />;
+  const p = await searchParams;
+  const st = await supplierStatement(prisma, id, { from: p.from, to: p.to });
+  if (!st) notFound();
+  return <StatementClient statement={serialize(st) as SupplierStatement} />;
 }

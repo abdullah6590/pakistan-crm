@@ -1,57 +1,36 @@
-// src/app/(dashboard)/purchases/page.tsx - Purchases List (Server)
+// src/app/dashboard/purchases/page.tsx - Purchases on Books (Report 30): every current purchase bill with what was paid
+// and is still payable. Purchases entered before the move are under Purchases → Older purchases.
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
-import { redirect } from "next/navigation";
-import PurchasesClient from "./purchases-client";
-import { buildPurchasesWhere } from "@/lib/filters";
-import { parseSortParams, buildOrderBy, PURCHASES_SORT_WHITELIST } from "@/lib/sort";
+import { can } from "@/lib/permissions";
+import { accountingReady } from "@/lib/accounting/server";
+import { listPurchaseBills } from "@/lib/purchases/queries";
+import PurchaseBillsClient from "./purchase-bills-client";
 
-export default async function PurchasesPage({ searchParams }: { searchParams: Promise<{ page?: string, search?: string, supplierId?: string, paymentStatus?: string }> }) {
+export const dynamic = "force-dynamic";
+
+export default async function PurchasesPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const user = await getAuthUser();
   if (!user) redirect("/login");
-
-  const params = await searchParams;
-  const page = parseInt((params as any).page || "1", 10);
-  const limit = 50;
-  const skip = (page - 1) * limit;
-  const whereClause = buildPurchasesWhere(params as any);
-  
-  const sortConfig = parseSortParams(params as any);
-  const orderByClause = buildOrderBy(sortConfig, PURCHASES_SORT_WHITELIST, { createdAt: "desc" });
-
-  const [purchases, totalPurchasesCount, allStats, suppliers] = await Promise.all([
-    prisma.purchase.findMany({
-      where: whereClause,
-      include: {
-        supplier: { select: { id: true, name: true, phone: true } },
-        items: { include: { component: { select: { id: true, name: true, sku: true } } } },
-      },
-      orderBy: orderByClause,
-      skip,
-      take: limit,
-    }),
-    prisma.purchase.count({ where: whereClause }),
-    prisma.purchase.aggregate({
-      _sum: { total: true, paidAmount: true },
-      _count: true,
-    }),
-    prisma.supplier.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" }, take: 100 }),
+  if (!can(user.role, "purchases", "read")) redirect("/dashboard");
+  await accountingReady();
+  const p = await searchParams;
+  const [result, suppliers, olderCount] = await Promise.all([
+    listPurchaseBills(prisma, { search: p.search, supplierId: p.supplierId, status: p.status, from: p.from, to: p.to, page: Number(p.page) || 1 }),
+    prisma.supplier.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    prisma.purchase.count(),
   ]);
-
-  const totalPages = Math.ceil(totalPurchasesCount / limit);
-  const totalPending = (allStats._sum.total || 0) - (allStats._sum.paidAmount || 0);
-
   return (
-    <PurchasesClient
-      purchases={JSON.parse(JSON.stringify(purchases))}
-      suppliers={JSON.parse(JSON.stringify(suppliers))}
-      stats={{ 
-        totalSpent: allStats._sum.total || 0, 
-        totalPaid: allStats._sum.paidAmount || 0, 
-        totalPending, 
-        totalPurchases: allStats._count 
-      }}
-      pagination={{ page, totalPages, totalRecords: totalPurchasesCount }}
+    <PurchaseBillsClient
+      rows={result.rows}
+      stats={result.stats}
+      pagination={result.pagination}
+      suppliers={suppliers}
+      olderCount={olderCount}
+      canCreate={can(user.role, "purchases", "write")}
+      canPay={can(user.role, "supplierPayments", "write")}
+      canSeePayments={can(user.role, "supplierPayments", "read")}
     />
   );
 }

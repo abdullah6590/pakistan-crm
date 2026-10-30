@@ -1,6 +1,6 @@
 [package]
 name = "pakistan-crm-desktop"
-version = "0.1.3"
+version = "0.1.5"
 description = "Pakistan CRM desktop: runs the local server and shows it in a window"
 edition = "2021"
 

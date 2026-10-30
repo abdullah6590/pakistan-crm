@@ -3,14 +3,18 @@
 import crypto from "node:crypto";
 import { z } from "zod";
 import { DOCUMENT_SCHEMAS, standaloneChargeSchema } from "@/lib/accounting/schemas";
+import { screenPurchaseSchema, paySupplierSchema } from "@/lib/purchases/schemas";
+import { screenSaleSchema, receivePaymentSchema } from "@/lib/sales/schemas";
 
 /**
  * Sync protocol version (Report 26 Phase 9 §R). Raise SYNC_PROTOCOL when the command format changes; the server keeps
  * accepting every version from MIN_SYNC_PROTOCOL up. A computer outside that range is refused before any command is
  * read, so its entries stay queued on it (never rejected for good) until the older side is updated.
  */
-export const SYNC_PROTOCOL = 1;
-export const MIN_SYNC_PROTOCOL = 1;
+// 2 (Report 30): bills and payments from the Sales and Purchases screens, customers and suppliers copied to computers,
+// and new document columns. A version 1 computer must be updated first; its entries wait on it until then.
+export const SYNC_PROTOCOL = 2;
+export const MIN_SYNC_PROTOCOL = 2;
 
 /** Compatibility of a computer's protocol header with this server; a missing header is version 1 (Phase 3 clients). */
 export function checkProtocol(header: string | null): { status: number; code: string; error: string } | null {
@@ -29,6 +33,8 @@ const expectState = z.object({ status: z.string().optional(), revision: z.number
 
 const base = { id: z.string().uuid(), actorUserId: z.string().min(1), createdAt: z.string().min(1) };
 
+const amount = z.union([z.number(), z.string().trim().min(1)]);
+
 export const commandSchema = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("CREATE_DOCUMENT"), docType: z.enum(Object.keys(DOCUMENT_SCHEMAS) as [keyof typeof DOCUMENT_SCHEMAS, ...(keyof typeof DOCUMENT_SCHEMAS)[]]), input: z.record(z.string(), z.unknown()) }),
   z.object({
@@ -36,6 +42,17 @@ export const commandSchema = z.discriminatedUnion("type", [
     action: z.enum(["approve", "reject", "cancel"]), reason: z.string().max(500).optional(), overrideReason: z.string().max(500).optional(),
   }),
   z.object({ ...base, type: z.literal("RECORD_CHARGE"), input: standaloneChargeSchema.omit({ documentId: true }), documentRef: ref.optional() }),
+  // Sales and Purchases screens (protocol 2): the command id is the bill's or payment's one-time id on the server
+  z.object({ ...base, type: z.literal("SCREEN_PURCHASE"), input: screenPurchaseSchema.omit({ requestId: true }) }),
+  z.object({
+    ...base, type: z.literal("PAY_SUPPLIER"),
+    input: paySupplierSchema.omit({ requestId: true, allocations: true }).extend({ allocations: z.array(z.object({ bill: ref, amount })).max(100).default([]) }),
+  }),
+  z.object({ ...base, type: z.literal("SCREEN_SALE"), input: screenSaleSchema.omit({ requestId: true }) }),
+  z.object({
+    ...base, type: z.literal("RECEIVE_PAYMENT"),
+    input: receivePaymentSchema.omit({ requestId: true, allocations: true }).extend({ allocations: z.array(z.object({ invoice: ref, amount })).max(100).default([]) }),
+  }),
   z.object({
     ...base, type: z.literal("CHARGE_ACTION"), target: ref, expect: expectState,
     action: z.enum(["post", "reverse", "cancel"]), reason: z.string().max(500).optional(),
@@ -49,6 +66,9 @@ export type SyncCommand = z.infer<typeof commandSchema>;
 export function dependencyOf(cmd: SyncCommand): string | null {
   if (cmd.type === "DOCUMENT_ACTION" || cmd.type === "CHARGE_ACTION") return cmd.target.commandRef ?? null;
   if (cmd.type === "RECORD_CHARGE") return cmd.documentRef?.commandRef ?? null;
+  // A payment for a bill made on this computer waits for that bill
+  if (cmd.type === "PAY_SUPPLIER") return cmd.input.allocations.find((a) => a.bill.commandRef)?.bill.commandRef ?? null;
+  if (cmd.type === "RECEIVE_PAYMENT") return cmd.input.allocations.find((a) => a.invoice.commandRef)?.invoice.commandRef ?? null;
   return null;
 }
 

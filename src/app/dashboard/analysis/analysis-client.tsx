@@ -21,9 +21,9 @@ export default function AnalysisClient({ moduleName, data, params }: Props) {
   const router = useRouter();
   
   const { summary, chartData, pieData } = useMemo(() => {
-    let summary: any = { totalRecords: data.length };
-    let chartMap: Record<string, any> = {};
-    let pieMap: Record<string, number> = {};
+    const summary: any = { totalRecords: data.length };
+    const chartMap: Record<string, any> = {};
+    const pieMap: Record<string, number> = {};
 
     switch (moduleName) {
       case "sales": {

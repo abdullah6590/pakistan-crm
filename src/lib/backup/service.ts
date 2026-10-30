@@ -72,6 +72,25 @@ async function countRows(url: string, key?: string): Promise<{ integrity: string
   });
 }
 
+/**
+ * A plain copy of the live database taken just before a one-time change (opening stock), kept next to it in `backups/`.
+ * It counts only once it opens, passes the integrity check and holds the same records as the live database.
+ */
+export async function safetySnapshot(target: Pick<BackupTarget, "db" | "dbFile" | "dbKey">, label: string): Promise<string> {
+  // Decided at run time (next to the live database): the build must not try to find and pack this folder
+  const dir = path.join(/* turbopackIgnore: true */ path.dirname(target.dbFile), "backups");
+  fs.mkdirSync(dir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const file = path.join(/* turbopackIgnore: true */ dir, `${path.basename(target.dbFile, ".db")}.backup-${stamp}-${label}.db`);
+  await target.db.$executeRawUnsafe(`VACUUM INTO '${file.replace(/\\/g, "/").replace(/'/g, "''")}'`);
+  const copy = await countRows(`file:${file.replace(/\\/g, "/")}`, target.dbKey);
+  if (copy.integrity !== "ok") throw new BackupError(`The safety copy failed its integrity check: ${copy.integrity}`);
+  const live = await countRows(`file:${target.dbFile.replace(/\\/g, "/")}`, target.dbKey);
+  const differs = COUNTED_TABLES.filter((t) => copy.counts[t] !== live.counts[t]);
+  if (differs.length) throw new BackupError(`The safety copy does not match the database (${differs.join(", ")}); try again`);
+  return file;
+}
+
 /** Scratch space for snapshots; it briefly holds decrypted data, so it is always wiped (Report 22 §3.4). */
 const WORK_ROOT = () => {
   const root = path.join(os.tmpdir(), "pakistan-crm-backup-work");

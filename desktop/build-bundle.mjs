@@ -15,7 +15,14 @@ const dist = path.join(root, ".next-desktop");
 // Start clean: an old bundle or build must not be picked up by the build's file tracing
 fs.rmSync(out, { recursive: true, force: true });
 fs.rmSync(dist, { recursive: true, force: true });
-for (const copy of ["app", "node"]) fs.rmSync(path.join(here, "src-tauri", "target", "release", copy), { recursive: true, force: true });
+// Cargo checks and earlier packages can leave generated app/node staging copies in either profile. If a debug copy
+// remains, Next's runtime migration-directory trace can mistake its duplicated prisma/migrations tree for an input
+// and reproduce the whole top-level desktop directory in the standalone output.
+for (const profile of ["debug", "release"]) {
+  for (const copy of ["app", "node"]) {
+    fs.rmSync(path.join(here, "src-tauri", "target", profile, copy), { recursive: true, force: true });
+  }
+}
 console.log("1/4 Building the server (standalone, separate build folder .next-desktop)");
 execFileSync(process.execPath, [path.join(root, "node_modules", "next", "dist", "bin", "next"), "build"], {
   cwd: root, stdio: "inherit", env: { ...process.env, CRM_DESKTOP_BUILD: "1", NEXT_TELEMETRY_DISABLED: "1" },

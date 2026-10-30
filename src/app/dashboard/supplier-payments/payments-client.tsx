@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { Plus, Banknote, Search, Trash2, ArrowUpRight } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -69,8 +69,13 @@ export default function SupplierPaymentsClient({ payments: initialData, supplier
   const handleDelete = async () => {
     if (!deleteId) return;
     setDeleting(true);
-    try { await fetch(`/api/supplier-payments/${deleteId}`, { method: "DELETE" }); toast.success("Deleted"); setDeleteId(null); window.location.reload(); }
-    catch { toast.error("Failed"); }
+    try {
+      const res = await fetch(`/api/supplier-payments/${deleteId}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not delete");
+      toast.success("Deleted"); setDeleteId(null); window.location.reload();
+    }
+    catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); setDeleteId(null); }
     setDeleting(false);
   };
 
@@ -79,8 +84,9 @@ export default function SupplierPaymentsClient({ payments: initialData, supplier
 
   return (
     <div className="space-y-6 p-6">
-      <PageHeader title="Supplier Payments" description="Record payments made to suppliers" icon={ArrowUpRight}
-        actions={<Button onClick={() => setShowAdd(true)} className="gap-2"><Plus className="h-4 w-4" /> Record Payment</Button>} />
+      {/* Older payments, read-only: suppliers are paid in Books now, linked to their bills (Report 30) */}
+      <PageHeader title="Older supplier payments" description="Recorded before Purchases moved to Books; kept as records" icon={ArrowUpRight}
+        actions={<Link href="/dashboard/purchases/pay" className={buttonVariants({ className: "gap-2" })}><Plus className="h-4 w-4" /> Pay supplier (Books)</Link>} />
 
       <div className="flex gap-3 flex-wrap">
         <div className="flex-1 min-w-64">

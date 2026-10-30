@@ -122,7 +122,15 @@ describe("crash safety", () => {
     const c = createClient({ url: `file:${crashFile}` });
     await c.execute("PRAGMA journal_mode=WAL");
     c.close();
-    const child = spawn(process.execPath, [path.resolve("node_modules/tsx/dist/cli.mjs"), "src/lib/sync/crash-child.ts", crashFile, id.clerk, id.customer, id.paper], { stdio: ["ignore", "pipe", "pipe"] });
+    const bootstrap = path.resolve("scripts/tsx-windows-child-bootstrap.cjs");
+    const child = spawn(process.execPath, [
+      path.resolve("node_modules/tsx/dist/cli.mjs"),
+      "src/lib/sync/crash-child.ts", crashFile, id.clerk, id.customer, id.paper,
+    ], {
+      stdio: ["ignore", "pipe", "pipe"],
+      // tsx starts another Node process; NODE_OPTIONS carries the bootstrap into that process too.
+      env: { ...process.env, NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --require=${JSON.stringify(bootstrap)}`.trim() },
+    });
     const committed: number[] = [];
     let err = "";
     child.stderr.on("data", (d) => (err += d));

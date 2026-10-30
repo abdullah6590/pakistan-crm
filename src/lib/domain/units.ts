@@ -134,3 +134,10 @@ export function pricePerBaseUnit(cfg: ItemUnitConfig, unitPrice: Dec, unit?: str
 export function legacyBaseQuantity(qty: number, box: number, loose: number): Dec {
   return add(mul(dec(qty), dec(box)), dec(loose));
 }
+
+/** A document line's quantity as it was entered, e.g. "2 packet + 30 loose" or "150 sheet". */
+export function quantityLabel(quantity: number | string, unit?: string | null, loose?: number | string | null): string {
+  const q = Number(quantity);
+  const l = Number(loose ?? 0);
+  return `${q}${unit ? ` ${unit}` : ""}${l > 0 ? ` + ${l} loose` : ""}`;
+}

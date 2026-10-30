@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { registerDevice } from "@/lib/sync/server";
 import { currentTenantId } from "@/lib/tenancy/context";
 import { isAuthority, OFFLINE_ONLY_MESSAGE } from "@/lib/sync/local";
+import { userRateLimitGuard } from "@/lib/rate-limit";
 
 export async function GET() {
   const auth = await authorize("sync", "delete");
@@ -23,6 +24,8 @@ export async function POST(request: NextRequest) {
   // Registration happens online at the main server; the secret is shown once, for the desktop installer to protect
   const auth = await authorize("sync", "write");
   if (auth.response) return auth.response;
+  const limited = await userRateLimitGuard(prisma, request, "sensitive", auth.user.id);
+  if (limited) return limited;
   if (!isAuthority()) return NextResponse.json({ error: OFFLINE_ONLY_MESSAGE }, { status: 503 });
   const parsed = schema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) return NextResponse.json({ error: "Name the computer and choose DEVICE or HUB" }, { status: 400 });

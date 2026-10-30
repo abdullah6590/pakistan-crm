@@ -18,6 +18,8 @@ const [oldSetup, newSetup, variantSetup] = process.argv.slice(2).map((p) => path
 if (!oldSetup || !newSetup || !variantSetup) throw new Error("usage: node installer-test.mjs <old-setup> <new-setup> <test-edition-setup>");
 // The version being tested is the one in tauri.conf.json
 const NEW_VERSION = JSON.parse(fs.readFileSync(path.join(here, "src-tauri", "tauri.conf.json"), "utf8")).version;
+// The version being upgraded from, from the old installer's name ("Pakistan CRM_0.1.3_x64-setup.exe")
+const OLD_VERSION = /_(\d+\.\d+\.\d+)_/.exec(path.basename(oldSetup))?.[1] ?? "unknown";
 const work = fs.mkdtempSync(path.join(os.tmpdir(), "crm-installer-test-"));
 const results = [];
 const check = (id, title, pass, evidence) => { results.push({ id, title, pass: !!pass, evidence }); console.log(`${pass ? "PASS" : "FAIL"} ${id} ${title}\n     ${evidence}`); };
@@ -42,11 +44,13 @@ const regValue = (key, name) => { try { return ps(`(Get-ItemProperty -Path 'Regi
 const shortcuts = [path.join(process.env.APPDATA, "Microsoft", "Windows", "Start Menu", "Programs", "Pakistan CRM.lnk"), path.join(os.homedir(), "Desktop", "Pakistan CRM.lnk")];
 
 // ---- Put aside this user's existing registration (an owner's install), to restore it afterwards ---------------
-const saved = { uninst: path.join(work, "uninstall-key.reg"), manu: path.join(work, "manufacturer-key.reg") };
+// Kept outside the throw-away folder: deleted only after the owner's registration is back and checked (U-06)
+const keep = fs.mkdtempSync(path.join(os.tmpdir(), "crm-owner-registration-"));
+const saved = { uninst: path.join(keep, "uninstall-key.reg"), manu: path.join(keep, "manufacturer-key.reg") };
 const had = { uninst: regValue(UNINST, "DisplayName") !== null, manu: (() => { try { ps(`Get-Item 'Registry::${MANU}' -ErrorAction Stop | Out-Null`); return true; } catch { return false; } })() };
 if (had.uninst) execFileSync("reg", ["export", UNINST, saved.uninst, "/y"], { stdio: "ignore" });
 if (had.manu) execFileSync("reg", ["export", MANU, saved.manu, "/y"], { stdio: "ignore" });
-const savedLinks = shortcuts.filter((l) => fs.existsSync(l)).map((l) => { const copy = path.join(work, `${crypto.randomUUID()}.lnk`); fs.copyFileSync(l, copy); return { l, copy, hash: sha(l) }; });
+const savedLinks = shortcuts.filter((l) => fs.existsSync(l)).map((l) => { const copy = path.join(keep, `${crypto.randomUUID()}.lnk`); fs.copyFileSync(l, copy); return { l, copy, hash: sha(l) }; });
 const ownerInstall = had.uninst ? regValue(UNINST, "InstallLocation")?.replace(/"/g, "") : null;
 ownerInstallGuard = ownerInstall;
 const ownerExeHash = ownerInstall ? sha(path.join(ownerInstall, "pakistan-crm-desktop.exe")) : null;
@@ -94,8 +98,8 @@ try {
   await close(app);
   const dbFile = path.join(data, "data", "crm.db");
   const dbAfterOld = sha(dbFile);
-  check("U-01", "The previous version (0.1.0) installs for this user and is used (an account is created)",
-    fs.existsSync(exe) && regValue(UNINST, "DisplayVersion") === "0.1.0" && [200, 201].includes(reg.status) && !!dbAfterOld,
+  check("U-01", `The previous version (${OLD_VERSION}) installs for this user and is used (an account is created)`,
+    fs.existsSync(exe) && regValue(UNINST, "DisplayVersion") === OLD_VERSION && [200, 201].includes(reg.status) && !!dbAfterOld,
     `installed ${fs.existsSync(exe)}; version ${regValue(UNINST, "DisplayVersion")}; register ${reg.status}`);
 
   // U-02: upgrade in place to the new version; the data is kept and the single-instance protection is active
@@ -163,13 +167,22 @@ try {
   check("U-XX", "Scenario completed without an unexpected error", false, String(e?.stack ?? e));
 } finally {
   // Remove what this test installed, then put back the user's own registration and shortcuts
-  for (const d of [dir, path.join(work, "PakistanCRMUninstallTest")]) if (fs.existsSync(path.join(d, "uninstall.exe"))) try { run(path.join(d, "uninstall.exe"), ["/S"]); } catch {}
+  // Each uninstaller finishes from a temporary copy after returning: wait, so it cannot remove the owner's
+  // registration again after it has been put back
+  for (const d of [dir, path.join(work, "PakistanCRMUninstallTest")]) {
+    if (!fs.existsSync(path.join(d, "uninstall.exe"))) continue;
+    try { run(path.join(d, "uninstall.exe"), ["/S"]); } catch {}
+    await until(() => !fs.existsSync(path.join(d, "pakistan-crm-desktop.exe")), 120_000, 1000);
+    await sleep(10_000);
+  }
   try { execFileSync("reg", ["delete", "HKCU\\Software\\pakistancrm\\Pakistan CRM Uninstall Test", "/f"], { stdio: "ignore" }); } catch {}
   try { execFileSync("reg", ["delete", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Pakistan CRM Uninstall Test", "/f"], { stdio: "ignore" }); } catch {}
   fs.rmSync(variantData, { recursive: true, force: true }); // the TEST edition's own throw-away data
   if (had.uninst) execFileSync("reg", ["import", saved.uninst], { stdio: "ignore" });
   if (had.manu) execFileSync("reg", ["import", saved.manu], { stdio: "ignore" });
   for (const s of savedLinks) fs.copyFileSync(s.copy, s.l);
+  await sleep(5000);
+  if (had.uninst && regValue(UNINST, "InstallLocation")?.replace(/"/g, "") !== ownerInstall) execFileSync("reg", ["import", saved.uninst], { stdio: "ignore" });
 }
 
 // U-06: the owner's own installation and data are exactly as before
@@ -178,6 +191,8 @@ check("U-06", "The owner's own installation, registration, shortcuts and data ar
   restoredLocation === ownerInstall && (ownerInstall ? sha(path.join(ownerInstall, "pakistan-crm-desktop.exe")) === ownerExeHash : true) && sha(ownerData) === ownerDataHash && savedLinks.every((s) => sha(s.l) === s.hash),
   `registration points to the same folder ${restoredLocation === ownerInstall}; installed program unchanged ${ownerInstall ? sha(path.join(ownerInstall, "pakistan-crm-desktop.exe")) === ownerExeHash : "n/a"}; data unchanged ${sha(ownerData) === ownerDataHash}; shortcuts restored ${savedLinks.length}`);
 
+if (results.find((r) => r.id === "U-06")?.pass) fs.rmSync(keep, { recursive: true, force: true });
+else console.log(`The owner's registration export is kept in ${keep}; restore it with: reg import "${saved.uninst}"`);
 const passed = results.filter((r) => r.pass).length;
 console.log(`\n${passed}/${results.length} passed`);
 fs.writeFileSync(path.join(here, "installer-results.json"), JSON.stringify({ at: new Date().toISOString(), passed, total: results.length, results }, null, 2));

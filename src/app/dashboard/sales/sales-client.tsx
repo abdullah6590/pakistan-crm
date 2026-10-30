@@ -40,6 +40,8 @@ interface Props {
   customers: CustomerOption[];
   stats: { totalRevenue: number; totalProfit: number; totalSales: number };
   pagination: { page: number; totalPages: number; totalRecords: number };
+  /** Bills made before Sales moved to Books (Report 28): shown read-only under Sales → Older bills */
+  older?: boolean;
 }
 
 const statusConfig: Record<string, { icon: React.ElementType; variant: "success"|"warning"|"destructive"|"secondary"; label: string }> = {
@@ -49,8 +51,9 @@ const statusConfig: Record<string, { icon: React.ElementType; variant: "success"
   OVERDUE: { icon: Ban, variant: "destructive", label: "Overdue" },
 };
 
-export default function SalesClient({ sales, customers, stats, pagination }: Props) {
+export default function SalesClient({ sales, customers, stats, pagination, older }: Props) {
   const router = useRouter();
+  const listPath = older ? "/dashboard/sales/older" : "/dashboard/sales";
   
   // Use debounced search to update URL
   const handleSearch = (term: string) => {
@@ -58,7 +61,7 @@ export default function SalesClient({ sales, customers, stats, pagination }: Pro
     if (term) params.set("search", term);
     else params.delete("search");
     params.set("page", "1"); // reset page
-    router.push(`/dashboard/sales?${params.toString()}`);
+    router.push(`${listPath}?${params.toString()}`);
   };
 
   const updateFilter = (key: string, value: string) => {
@@ -66,13 +69,13 @@ export default function SalesClient({ sales, customers, stats, pagination }: Pro
     if (value && value !== "all") params.set(key, value);
     else params.delete(key);
     params.set("page", "1"); // reset page
-    router.push(`/dashboard/sales?${params.toString()}`);
+    router.push(`${listPath}?${params.toString()}`);
   };
 
   const handlePageChange = (newPage: number) => {
     const params = new URLSearchParams(window.location.search);
     params.set("page", newPage.toString());
-    router.push(`/dashboard/sales?${params.toString()}`);
+    router.push(`${listPath}?${params.toString()}`);
   };
 
 
@@ -85,13 +88,17 @@ export default function SalesClient({ sales, customers, stats, pagination }: Pro
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Sales"
-        description="View all component sales, invoices, and payment records"
+        title={older ? "Older bills" : "Sales"}
+        description={older ? "Bills made before Sales moved to Books. They can be viewed and printed but not changed." : "View all component sales, invoices, and payment records"}
         icon={ShoppingCart}
         actions={
-          <Button onClick={() => router.push("/dashboard/sales/new")}>
-            <Plus className="h-4 w-4 mr-1" /> New Sale
-          </Button>
+          older ? (
+            <Button variant="outline" onClick={() => router.push("/dashboard/sales")}>Back to Sales</Button>
+          ) : (
+            <Button onClick={() => router.push("/dashboard/sales/new")}>
+              <Plus className="h-4 w-4 mr-1" /> New Sale
+            </Button>
+          )
         }
       />
 

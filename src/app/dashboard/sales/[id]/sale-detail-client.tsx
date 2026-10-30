@@ -43,7 +43,7 @@ export function SaleDetailClient({ sale, business, words, edits, canEdit, printe
       <div className="space-y-6 print:hidden">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={() => router.push("/dashboard/sales")}>
+            <Button variant="ghost" size="icon" aria-label="Back to Sales" onClick={() => router.push("/dashboard/sales")}>
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <div>

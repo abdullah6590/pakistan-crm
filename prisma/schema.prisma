@@ -151,9 +151,26 @@ model Session {
   sessionToken String   @unique
   userId       String
   expires      DateTime
+  createdAt    DateTime? // set by the app (an older session row has none)
+  lastSeenAt   DateTime?
+  revokedAt    DateTime?
+  revokeReason String?
+  userAgent    String?
+  ipHash       String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, revokedAt, expires])
   @@map("sessions")
+}
+
+model RateLimitBucket {
+  key         String   @id
+  count       Int
+  windowStart DateTime
+  expiresAt   DateTime
+
+  @@index([expiresAt])
+  @@map("rate_limit_buckets")
 }
 
 // ─── PROJECT MANAGEMENT ───────────────────────────────────────────
@@ -342,6 +359,8 @@ model Supplier {
   country         String       @default("Pakistan")
   taxNumber       String?
   notes           String?
+  contactPerson   String?
+  customFields    String?      // JSON list of {label, value}: the owner's own supplier details
   totalPurchased  Float        @default(0)
   balanceDue      Float        @default(0)
   isActive        Boolean      @default(true)
@@ -813,6 +832,7 @@ model AccountingDocument {
   remarks          String?
   vendorBillNo     String?
   vendorBillDate   DateTime?      // null when blank (F-07)
+  dueDate          DateTime?      // purchase bill: optional payment due date (Report 30)
   biltyNo          String?
   biltyDate        DateTime?
   roundingMode     String?        // RUPEE_HALF_EVEN | PAISA_HALF_EVEN
@@ -854,9 +874,12 @@ model AccountingDocument {
   updatedAt        DateTime       @updatedAt
 
   lines            AccountingDocumentLine[]
+  attachments      DocumentAttachment[]
   journalEntries   JournalEntry[]
   stockMovements   StockMovement[]
   relatedCharges   ChargeRecord[] @relation("ChargeSource")
+  allocationsGiven    PaymentAllocation[] @relation("AllocationCredit") // receipts: where their money went
+  allocationsReceived PaymentAllocation[] @relation("AllocationDebit")  // invoices and refunds: the money applied to them
 
   @@unique([series, number, revision])
   @@index([chargeId])
@@ -894,6 +917,30 @@ model AccountingDocumentLine {
   @@unique([documentId, lineNo])
   @@index([componentId])
   @@map("accounting_document_lines")
+}
+
+// Report 28: which receipt paid which invoice (or refund), and how much. The money itself moves only in the
+// receipt's journal; an allocation only says what it was for, so applying or releasing one never posts anything.
+// Rows are never deleted: a released allocation keeps who released it, when and why (amendment, cancellation).
+model PaymentAllocation {
+  id            String             @id @default(cuid())
+  creditDocId   String             // the receipt (CRV/BRV) the money came from
+  creditDoc     AccountingDocument @relation("AllocationCredit", fields: [creditDocId], references: [id])
+  debitDocId    String             // the sale invoice / cash sale it pays, or the refund voucher (CPV/BPV) that paid it back
+  debitDoc      AccountingDocument @relation("AllocationDebit", fields: [debitDocId], references: [id])
+  amount        String             // exact decimal
+  source        String             // RECEIPT | APPLY_CREDIT | AMENDMENT | REFUND
+  movedFromId   String?            // AMENDMENT: the allocation on the previous revision this one replaces
+  requestId     String?            @unique // one-time id of the screen action that made it (no duplicates on double submit)
+  createdById   String
+  createdAt     DateTime           @default(now())
+  releasedAt    DateTime?
+  releasedById  String?
+  releaseReason String?
+
+  @@index([creditDocId])
+  @@index([debitDocId])
+  @@map("payment_allocations")
 }
 
 model JournalEntry {
@@ -1202,4 +1249,25 @@ model DriveConnection {
   updatedAt             DateTime  @updatedAt
 
   @@map("drive_connections")
+}
+
+// Supplier documents (scanned bill, delivery note) kept with a Books document (Report 30). Never deleted.
+model DocumentAttachment {
+  id           String             @id @default(cuid())
+  documentId   String
+  document     AccountingDocument @relation(fields: [documentId], references: [id])
+  fileName     String
+  mimeType     String
+  size         Int
+  sha256       String
+  data         Bytes
+  note         String?
+  uploadedById String
+  createdAt    DateTime           @default(now())
+  removedAt    DateTime?
+  removedById  String?
+  removeReason String?
+
+  @@index([documentId])
+  @@map("document_attachments")
 }

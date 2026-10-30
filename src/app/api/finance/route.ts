@@ -112,6 +112,10 @@ export async function POST(request: NextRequest) {
     if (!body.type || !body.category) {
       throw new Error("Missing required financial fields (type, category).");
     }
+    // Purchases and supplier payments are posted in Books (Report 30); recording one here as well would count it twice
+    if (body.category === "COMPONENT_PURCHASE") {
+      return NextResponse.json({ error: "Enter purchases in Purchases and pay suppliers from Pay supplier; they are posted in Books once" }, { status: 409 });
+    }
 
     const record = await prisma.finance.create({
       data: {

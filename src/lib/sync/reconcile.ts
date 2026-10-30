@@ -3,6 +3,7 @@
 // server's totals. Every check reports what it found; none of them changes data.
 import type { PrismaClient } from "@prisma/client";
 import { dec, ZERO, add, sub, mul, cmp, isZero, toPlain, fromPaisa, Dec } from "@/lib/domain/decimal";
+import { CREATES_DOCUMENT } from "./command-types";
 
 export interface Finding {
   check: string;
@@ -122,7 +123,7 @@ export async function reconcileCentral(db: PrismaClient): Promise<{ findings: Fi
 /** Device / hub checks: its outbox against its copy, and its copy against the server's totals. */
 export async function reconcileLocal(db: PrismaClient, central?: { atSeq: number; totals: Awaited<ReturnType<typeof documentTotals>> }) {
   const f: Finding[] = [];
-  const synced = await db.outboxCommand.findMany({ where: { status: "SYNCED", type: "CREATE_DOCUMENT" } });
+  const synced = await db.outboxCommand.findMany({ where: { status: "SYNCED", type: { in: [...CREATES_DOCUMENT] } } });
   for (const s of synced) {
     const doc = await db.accountingDocument.findUnique({ where: { commandId: s.id } });
     const result = s.result ? JSON.parse(s.result) : {};

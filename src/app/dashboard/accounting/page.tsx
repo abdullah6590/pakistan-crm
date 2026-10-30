@@ -1,7 +1,7 @@
 // src/app/dashboard/accounting/page.tsx - Accounting core hub: document entry, lists, ledgers and reports by permission.
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { BookOpen, ClipboardCheck, FileText, HardDrive, Plus, Receipt, RefreshCw, Scale, Settings, Warehouse, Printer } from "lucide-react";
+import { BookOpen, ClipboardCheck, FileText, HardDrive, Plus, Receipt, RefreshCw, Scale, Settings, Warehouse, Printer, Wallet, HandCoins } from "lucide-react";
 import { nodeRole } from "@/lib/tenancy/config";
 import { getAuthUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -18,6 +18,11 @@ export default async function AccountingHubPage() {
 
   const types = Object.entries(DOCUMENT_TYPES).filter(([type]) => can(user.role, DOCUMENT_RESOURCE[type], "read"));
   const reports = [
+    // Payments: suppliers paid against their bills (Report 30), customers' money against theirs (Report 28)
+    { href: "/dashboard/purchases/pay", title: "Payments: Pay supplier", icon: Wallet, ok: can(user.role, "supplierPayments", "write") },
+    { href: "/dashboard/sales/payments", title: "Payments: Receive from customer", icon: HandCoins, ok: can(user.role, "customerPayments", "write") },
+    { href: "/dashboard/purchases/payables", title: "Payables (owed to suppliers)", icon: Scale, ok: can(user.role, "supplierPayments", "read") },
+    { href: "/dashboard/sales/receivables", title: "Receivables (owed by customers)", icon: Scale, ok: can(user.role, "customerPayments", "read") },
     { href: "/dashboard/accounting/ledger", title: "Account statement", icon: BookOpen, ok: can(user.role, "ledgers", "read") },
     { href: "/dashboard/accounting/reports?report=trial-balance", title: "Trial balance", icon: Scale, ok: can(user.role, "ledgers", "read") },
     { href: "/dashboard/accounting/reports?report=stock", title: "Stock position", icon: Warehouse, ok: can(user.role, "inventory", "read") },
@@ -39,8 +44,8 @@ export default async function AccountingHubPage() {
       <PageHeader title="Books" description="Double-entry documents, stock movements, ledgers and reports" icon={BookOpen} />
 
       <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
-        This is the new accounting core. It runs separately from the older Sales, Purchases and Cash Sales screens and
-        holds no imported U2024 history yet. Use it with test data until acceptance is signed off.
+        Sales and Purchases post here (bills, payments, returns, stock and cost). Bills and purchases from before the
+        move are kept read-only under Older bills and Older purchases. No U2024 history has been imported.
       </div>
 
       {reports.length > 0 && (

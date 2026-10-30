@@ -17,6 +17,18 @@ export function formatCurrency(amount: number): string {
   }).format(amount);
 }
 
+/** Money that may carry paisa (purchase bills keep them, Report 13): whole rupees as "Rs 1,500", otherwise 2 decimals. */
+export function formatPaisa(amount: number | string): string {
+  const n = Number(amount);
+  const whole = Math.abs(n - Math.round(n)) < 0.005;
+  return new Intl.NumberFormat('ur-PK', {
+    style: 'currency',
+    currency: 'PKR',
+    minimumFractionDigits: whole ? 0 : 2,
+    maximumFractionDigits: whole ? 0 : 2,
+  }).format(n);
+}
+
 export function formatNumber(num: number): string {
   return new Intl.NumberFormat('ur-PK').format(num);
 }

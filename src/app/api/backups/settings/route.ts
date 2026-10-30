@@ -5,6 +5,7 @@ import { authorize } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { backupSettings, checkFolder, protectPassphrase } from "@/lib/backup/runtime";
 import { BackupError } from "@/lib/backup/service";
+import { userRateLimitGuard } from "@/lib/rate-limit";
 
 const schema = z.object({
   enabled: z.boolean().optional(),
@@ -20,6 +21,8 @@ const schema = z.object({
 export async function PUT(request: NextRequest) {
   const auth = await authorize("backupLocal", "write", { offlineCapable: true });
   if (auth.response) return auth.response;
+  const limited = await userRateLimitGuard(prisma, request, "backupSettings", auth.user.id);
+  if (limited) return limited;
   const parsed = schema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid settings" }, { status: 400 });
   const { passphrase, passphraseConfirm, ...rest } = parsed.data;

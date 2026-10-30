@@ -4,6 +4,7 @@ import { SignJWT, jwtVerify } from 'jose';
 import { cookies } from 'next/headers';
 import prisma from './prisma';
 import { DEFAULT_TENANT_ID } from './tenancy/config';
+import { resolveSession } from './auth-sessions';
 
 if (!process.env.JWT_SECRET) {
   throw new Error("CRITICAL ERROR: JWT_SECRET environment variable is not set. Refusing to start.");
@@ -23,7 +24,7 @@ export async function verifyPassword(password: string, hashed: string): Promise<
 }
 
 // ─── JWT Helpers ────────────────────────────────────────────────────
-export async function createToken(payload: { userId: string; email: string; role: string; tenantId?: string }): Promise<string> {
+export async function createToken(payload: { userId: string; email: string; role: string; sessionId: string; tenantId?: string }): Promise<string> {
   // tenantId selects the business database in multi-tenant mode (Report 20 §2.2); "default" otherwise
   return new SignJWT({ ...payload, tenantId: payload.tenantId ?? DEFAULT_TENANT_ID })
     .setProtectedHeader({ alg: 'HS256' })
@@ -35,14 +36,15 @@ export async function createToken(payload: { userId: string; email: string; role
 export async function verifyToken(token: string) {
   try {
     const { payload } = await jwtVerify(token, JWT_SECRET);
-    return payload as { userId: string; email: string; role: string; tenantId?: string };
+    if (typeof payload.sessionId !== 'string') return null;
+    return payload as { userId: string; email: string; role: string; sessionId: string; tenantId?: string };
   } catch {
     return null;
   }
 }
 
 // ─── Server-Side Auth ───────────────────────────────────────────────
-export async function getAuthUser() {
+export async function getAuthSession() {
   try {
     const cookieStore = await cookies();
     const token = cookieStore.get('auth-token')?.value;
@@ -51,25 +53,30 @@ export async function getAuthUser() {
     const payload = await verifyToken(token);
     if (!payload) return null;
 
-    const user = await prisma.user.findUnique({
-      where: { id: payload.userId },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        image: true,
-        phone: true,
-        address: true,
-        isActive: true,
-        createdAt: true,
+    const session = await resolveSession(prisma, payload.sessionId);
+    if (!session || session.userId !== payload.userId) return null;
+    const { user } = session;
+    return {
+      sessionId: session.id,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        image: user.image,
+        phone: user.phone,
+        address: user.address,
+        isActive: user.isActive,
+        createdAt: user.createdAt,
       },
-    });
-
-    return user?.isActive ? user : null;
+    };
   } catch {
     return null;
   }
+}
+
+export async function getAuthUser() {
+  return (await getAuthSession())?.user ?? null;
 }
 
 // ─── Role Checks ────────────────────────────────────────────────────

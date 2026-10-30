@@ -34,6 +34,9 @@ interface ComponentOption {
   gsm?: number | null; divisor?: number | null;
   weightKg?: number | null; rimInSheet?: number | null;
   ratePerKg?: number | null;
+  /** Units the item is sold in (Books item units): the stock unit and pack units with their size in stock units */
+  baseUnit?: string; saleUnit?: string;
+  units?: { code: string; factor: number }[];
 }
 
 interface CustomerOption { id: string; name: string; phone: string; }
@@ -42,7 +45,11 @@ interface CartItem {
   componentId: string;
   componentName: string;
   sku: string;
+  /** Quantity in `unit`; `loose` adds stock units to a pack unit (2 packets + 30 sheets) */
   quantity: number;
+  unit: string;
+  loose: number;
+  looseText?: string;
   unitCost: number;
   unitPrice: number;
   availableStock: number;
@@ -63,18 +70,28 @@ const cleanDecimal = (text: string) => {
 /** Clicking into a box selects what is there, so typing replaces the 0 or 1 instead of adding to it. */
 const selectAll = (e: React.FocusEvent<HTMLInputElement>) => e.target.select();
 
+const stockUnit = (comp: ComponentOption) => comp.baseUnit ?? "units";
+/** True when the line is entered in a pack unit (packet, carton, ...) rather than the stock unit. */
+const isPack = (item: Pick<CartItem, "unit" | "compData">) => !!item.compData.baseUnit && item.unit !== item.compData.baseUnit;
+/** Stock units in one of the line's unit. */
+const factorOf = (item: Pick<CartItem, "unit" | "compData">) => item.compData.units?.find((u) => u.code === item.unit)?.factor ?? 1;
+/** The line's quantity in stock units: whole units times their size, plus loose stock units. */
+const baseOf = (item: CartItem) => item.quantity * factorOf(item) + (isPack(item) ? item.loose : 0);
+/** As Books prices it: whole units at their price, loose stock units at the price divided by the pack size. */
+const lineAmount = (item: CartItem) => item.unitPrice * item.quantity + (isPack(item) && item.loose ? (item.unitPrice / factorOf(item)) * item.loose : 0);
+
 /** A saved bill being corrected (edit mode). */
 interface EditSaleData {
   id: string;
   invoiceNumber: string;
+  /** SALE_INVOICE (a customer's bill) or CASH_SALE (walk-in); an edit keeps the kind of bill */
+  type: string;
   customer: CustomerOption | null;
   walkInName: string | null;
-  paymentMethod: string;
-  paymentStatus: string;
-  discount: number;
-  tax: number;
+  /** Cash sale: amount received with it */
+  amountReceived: string | null;
   notes: string | null;
-  items: { quantity: number; unitPrice: number; unitCost: number; component: ComponentOption }[];
+  items: { quantity: number; unit?: string; loose?: number; baseQuantity?: number; unitPrice: number; unitCost: number; component: ComponentOption }[];
 }
 
 interface Props {
@@ -97,7 +114,7 @@ export default function NewSaleClient({ initialComponents, initialCustomers, edi
   // Stock already on the bill being edited goes back to stock when it is saved, so it is available to this bill
   const onBill = useMemo(() => {
     const m = new Map<string, number>();
-    for (const i of editSale?.items ?? []) m.set(i.component.id, (m.get(i.component.id) ?? 0) + i.quantity);
+    for (const i of editSale?.items ?? []) m.set(i.component.id, (m.get(i.component.id) ?? 0) + (i.baseQuantity ?? i.quantity));
     return m;
   }, [editSale]);
   const available = (comp: ComponentOption) => comp.quantity + (onBill.get(comp.id) ?? 0);
@@ -108,12 +125,14 @@ export default function NewSaleClient({ initialComponents, initialCustomers, edi
 
   const [walkInName, setWalkInName] = useState(editSale?.walkInName ?? "");
   const [walkInPhone, setWalkInPhone] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState(editSale?.paymentMethod ?? "CASH");
-  const [paymentStatus, setPaymentStatus] = useState(editSale?.paymentStatus ?? "PAID");
-  const [discount, setDiscount] = useState(String(editSale?.discount ?? 0));
-  const [tax, setTax] = useState(String(editSale?.tax ?? 0));
+  const [paymentMethod, setPaymentMethod] = useState("CASH");
+  // Money received now: "" means the full total (the default); a customer's bill may be paid in part or later
+  const [paidNow, setPaidNow] = useState(editSale?.amountReceived ?? "");
   const [notes, setNotes] = useState(editSale?.notes ?? "");
   const [reason, setReason] = useState("");
+  // One id per form: a double click or a retry after a lost answer cannot make a second bill
+  const [requestId] = useState(() => crypto.randomUUID());
+  const isInvoiceEdit = editing && editSale!.type === "SALE_INVOICE";
 
   // Cart
   const [cart, setCart] = useState<CartItem[]>(() => (editSale?.items ?? []).map((i) => ({
@@ -121,6 +140,8 @@ export default function NewSaleClient({ initialComponents, initialCustomers, edi
     componentName: i.component.name,
     sku: i.component.sku,
     quantity: i.quantity,
+    unit: i.unit ?? i.component.baseUnit ?? "",
+    loose: i.loose ?? 0,
     unitCost: i.unitCost,
     unitPrice: i.unitPrice,
     availableStock: available(i.component),
@@ -129,16 +150,22 @@ export default function NewSaleClient({ initialComponents, initialCustomers, edi
 
   // ─── Component Search State ───
   const [searchQuery, setSearchQuery] = useState("");
-  const [filteredComponents, setFilteredComponents] = useState<ComponentOption[]>(initialComponents);
-  const [isSearchingComponents, setIsSearchingComponents] = useState(false);
+  // Results of the last search, kept with the query they belong to; the list shown is worked out from them
+  const [componentsResults, setComponentsResults] = useState<{ q: string; items: ComponentOption[] } | null>(null);
+  const searchQueryLength = searchQuery.trim().length;
+  const filteredComponents = searchQueryLength === 0 ? initialComponents : searchQueryLength < 2 ? [] : componentsResults?.q === searchQuery ? componentsResults.items : [];
+  const isSearchingComponents = searchQueryLength >= 2 && componentsResults?.q !== searchQuery;
   // The product list is open only while searching; it closes when a product is picked, on Escape, or on leaving
   // the box, so it never covers the quantity and price of the lines below
   const [showProductDropdown, setShowProductDropdown] = useState(false);
 
   // ─── Customer Search State ───
   const [custSearchQuery, setCustSearchQuery] = useState("");
-  const [filteredCustomers, setFilteredCustomers] = useState<CustomerOption[]>(initialCustomers);
-  const [isSearchingCustomers, setIsSearchingCustomers] = useState(false);
+  // Results of the last search, kept with the query they belong to; the list shown is worked out from them
+  const [customersResults, setCustomersResults] = useState<{ q: string; items: CustomerOption[] } | null>(null);
+  const custSearchQueryLength = custSearchQuery.trim().length;
+  const filteredCustomers = custSearchQueryLength === 0 ? initialCustomers : custSearchQueryLength < 2 ? [] : customersResults?.q === custSearchQuery ? customersResults.items : [];
+  const isSearchingCustomers = custSearchQueryLength >= 2 && customersResults?.q !== custSearchQuery;
   const [showCustDropdown, setShowCustDropdown] = useState(false);
   // "Create new customer" from the search box; the key gives each opening a fresh form
   const [newCustomerOpen, setNewCustomerOpen] = useState(false);
@@ -154,83 +181,57 @@ export default function NewSaleClient({ initialComponents, initialCustomers, edi
 
   // ─── Async Component Search ───
   useEffect(() => {
+    if (searchQuery.trim().length < 2) return;
     const controller = new AbortController();
 
-    if (searchQuery.trim().length === 0) {
-      setFilteredComponents(initialComponents);
-      setIsSearchingComponents(false);
-      return;
-    }
-
-    if (searchQuery.trim().length < 2) {
-      setFilteredComponents([]);
-      return;
-    }
-
     const fetchComponents = async () => {
-      setIsSearchingComponents(true);
       try {
         const res = await fetch(`/api/search/components?q=${encodeURIComponent(searchQuery)}&limit=10`, {
           signal: controller.signal
         });
         const data = await res.json();
-        if (data.data) {
-          setFilteredComponents(data.data);
-        }
-      } catch (err: any) {
-        if (err.name !== 'AbortError') console.error(err);
-      } finally {
-        setIsSearchingComponents(false);
+        setComponentsResults({ q: searchQuery, items: data.data ?? [] });
+      } catch (err) {
+        if ((err as Error).name === 'AbortError') return;
+        console.error(err);
+        setComponentsResults({ q: searchQuery, items: [] });
       }
     };
 
     const timer = setTimeout(fetchComponents, 300);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [searchQuery, initialComponents]);
+  }, [searchQuery]);
 
   // ─── Async Customer Search ───
   useEffect(() => {
+    if (custSearchQuery.trim().length < 2) return;
     const controller = new AbortController();
 
-    if (custSearchQuery.trim().length === 0) {
-      setFilteredCustomers(initialCustomers);
-      setIsSearchingCustomers(false);
-      return;
-    }
-
-    if (custSearchQuery.trim().length < 2) {
-      setFilteredCustomers([]);
-      return;
-    }
-
     const fetchCustomers = async () => {
-      setIsSearchingCustomers(true);
       try {
         const res = await fetch(`/api/search/customers?q=${encodeURIComponent(custSearchQuery)}&limit=10`, {
           signal: controller.signal
         });
         const data = await res.json();
-        if (data.data) {
-          setFilteredCustomers(data.data);
-        }
-      } catch (err: any) {
-        if (err.name !== 'AbortError') console.error(err);
-      } finally {
-        setIsSearchingCustomers(false);
+        setCustomersResults({ q: custSearchQuery, items: data.data ?? [] });
+      } catch (err) {
+        if ((err as Error).name === 'AbortError') return;
+        console.error(err);
+        setCustomersResults({ q: custSearchQuery, items: [] });
       }
     };
 
     const timer = setTimeout(fetchCustomers, 300);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [custSearchQuery, initialCustomers]);
+  }, [custSearchQuery]);
 
   const addToCart = (comp: ComponentOption) => {
     setShowProductDropdown(false);
     const stockForBill = available(comp);
     const existing = cart.find(c => c.componentId === comp.id);
     if (existing) {
-      if (existing.quantity >= stockForBill) {
-        toast.error(`Only ${stockForBill} units in stock`);
+      if (baseOf(existing) + factorOf(existing) > stockForBill) {
+        toast.error(`Only ${stockForBill} ${stockUnit(comp)} in stock`);
         return;
       }
       setCart(cart.map(c =>
@@ -246,6 +247,8 @@ export default function NewSaleClient({ initialComponents, initialCustomers, edi
         componentName: comp.name,
         sku: comp.sku,
         quantity: 1,
+        unit: comp.saleUnit ?? comp.baseUnit ?? "",
+        loose: 0,
         unitCost: comp.unitCost,
         unitPrice: comp.unitPrice,
         availableStock: stockForBill,
@@ -273,6 +276,19 @@ export default function NewSaleClient({ initialComponents, initialCustomers, edi
     setCart(updated);
   };
 
+  // A different unit changes what the quantity and price mean; the price is not converted, so check it
+  const updateCartUnit = (index: number, unit: string) => {
+    const updated = [...cart];
+    updated[index] = { ...updated[index], unit, loose: 0, looseText: undefined };
+    setCart(updated);
+  };
+  const updateCartLoose = (index: number, loose: string) => {
+    const text = cleanWhole(loose);
+    const updated = [...cart];
+    updated[index] = { ...updated[index], loose: parseInt(text, 10) || 0, looseText: text };
+    setCart(updated);
+  };
+
   const updateCartPrice = (index: number, price: string) => {
     const text = cleanDecimal(price);
     const updated = [...cart];
@@ -286,20 +302,23 @@ export default function NewSaleClient({ initialComponents, initialCustomers, edi
   };
 
   // ─── Totals ─────────────────────────────────────────────────────────
-  const subtotal = cart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
-  const discountAmount = (parseFloat(discount) || 0);
-  const taxAmount = (parseFloat(tax) || 0);
-  const total = subtotal - discountAmount + taxAmount;
-  const totalProfit = cart.reduce((sum, item) => sum + (item.unitPrice - item.unitCost) * item.quantity, 0);
+  const subtotal = cart.reduce((sum, item) => sum + lineAmount(item), 0);
+  const total = subtotal;
+  const paidAmount = paidNow === "" ? total : Math.min(parseFloat(paidNow) || 0, total);
+  const totalProfit = cart.reduce((sum, item) => sum + item.unitPrice * item.quantity - item.unitCost * baseOf(item), 0);
 
   // ─── Submit ─────────────────────────────────────────────────────────
   const handleSubmit = async () => {
     if (cart.length === 0) { toast.error("Add at least one component to the sale"); return; }
-    const short = cart.find(item => item.quantity > item.availableStock);
-    if (short) { toast.error(`Only ${short.availableStock} units of ${short.componentName} in stock`); return; }
+    const short = cart.find(item => baseOf(item) > item.availableStock);
+    if (short) { toast.error(`Only ${short.availableStock} ${stockUnit(short.compData)} of ${short.componentName} in stock`); return; }
+    const tooLoose = cart.find(item => isPack(item) && item.loose >= factorOf(item));
+    if (tooLoose) { toast.error(`${tooLoose.componentName}: loose ${stockUnit(tooLoose.compData)} must be fewer than one ${tooLoose.unit}`); return; }
     if (cart.some(item => item.quantity < 1)) { toast.error("Enter a quantity for every item"); return; }
     if (customerType === "existing" && !selectedCustomer) { toast.error("Select a customer"); return; }
     if (customerType === "walkin" && !walkInName.trim()) { toast.error("Enter customer name"); return; }
+    if (editing && reason.trim().length < 3) { toast.error("Give a reason for the change"); return; }
+    if (paidNow !== "" && (parseFloat(paidNow) || 0) > total) { toast.error("Paid now is more than the bill total"); return; }
 
     setLoading(true);
     try {
@@ -309,30 +328,31 @@ export default function NewSaleClient({ initialComponents, initialCustomers, edi
         body: JSON.stringify({
           customerId: customerType === "existing" && selectedCustomer ? selectedCustomer.id : null,
           walkInName: customerType === "walkin" ? walkInName.trim() : null,
-          walkInPhone: customerType === "walkin" ? walkInPhone.trim() || null : null,
-          paymentMethod,
-          paymentStatus,
-          discount: discountAmount,
-          tax: taxAmount,
-          notes: notes.trim() || (editing ? null : undefined),
-          ...(editing ? { reason: reason.trim() || undefined } : {}),
+          notes: notes.trim() || null,
+          // A customer's bill being edited keeps its payments; they are managed on the bill page
+          ...(isInvoiceEdit ? {} : { paidNow: { amount: String(paidAmount), method: paymentMethod } }),
+          ...(editing ? { reason: reason.trim() } : { requestId }),
           items: cart.map(item => ({
             componentId: item.componentId,
             quantity: item.quantity,
-            unitCost: item.unitCost,
+            unit: item.unit || undefined,
+            loose: isPack(item) && item.loose > 0 ? item.loose : undefined,
             unitPrice: item.unitPrice,
           })),
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || (editing ? "Failed to save the bill" : "Failed to create sale"));
+      // Working from this computer's copy: queued for the main server
+      if (data.pending) { toast.success(`Saved on this computer as ${data.entry.provisionalRef ?? "a pending entry"}; it gets its number when it syncs with the main server`, { duration: 10000 }); router.push("/dashboard/sales"); return; }
       if (editing) {
-        toast.success(`Bill ${editSale!.invoiceNumber} updated`);
-        router.push(`/dashboard/sales/${editSale!.id}`);
+        toast.success(`Bill saved as ${data.sale.docNo}`);
+        const freed = (data.releasedCredit ?? []).reduce((t: number, c: { amount: string }) => t + Number(c.amount), 0);
+        if (freed > 0) toast.info(`${formatCurrency(freed)} already paid no longer fits this bill. It is now the customer's credit: apply it to another bill or refund it from Receive payment.`, { duration: 12000 });
       } else {
-        toast.success("Sale recorded successfully!");
-        router.push("/dashboard/sales");
+        toast.success(`Bill ${data.sale.docNo} saved`);
       }
+      router.push(`/dashboard/sales/${data.sale.id}`);
       router.refresh();
     } catch (err: any) {
       toast.error(err.message || "Something went wrong");
@@ -359,7 +379,7 @@ export default function NewSaleClient({ initialComponents, initialCustomers, edi
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => router.back()}>
+          <Button variant="ghost" size="icon" aria-label="Back" onClick={() => router.back()}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>
@@ -389,6 +409,7 @@ export default function NewSaleClient({ initialComponents, initialCustomers, edi
                   variant={customerType === "existing" ? "default" : "outline"}
                   size="sm"
                   onClick={() => setCustomerType("existing")}
+                  disabled={editing && customerType !== "existing"}
                 >
                   Registered
                 </Button>
@@ -396,6 +417,7 @@ export default function NewSaleClient({ initialComponents, initialCustomers, edi
                   variant={customerType === "walkin" ? "default" : "outline"}
                   size="sm"
                   onClick={() => setCustomerType("walkin")}
+                  disabled={editing && customerType !== "walkin"}
                 >
                   Walk-in
                 </Button>
@@ -518,7 +540,7 @@ export default function NewSaleClient({ initialComponents, initialCustomers, edi
                         <div className="min-w-0">
                           <p className="text-sm font-medium truncate">{comp.name}</p>
                           <p className="text-xs text-muted-foreground">
-                            {comp.sku} · Stock: {available(comp)} · {formatCurrency(comp.unitPrice)}
+                            {comp.sku} · Stock: {available(comp)} {comp.baseUnit ?? ""} · {formatCurrency(comp.unitPrice)}
                           </p>
                         </div>
                         <Plus className="h-4 w-4 ml-2 text-muted-foreground shrink-0" />
@@ -538,31 +560,56 @@ export default function NewSaleClient({ initialComponents, initialCustomers, edi
                 <div className="space-y-2">
                   {cart.map((item, i) => (
                     <div key={`${item.componentId}-${i}`} className="space-y-0">
-                      <div className="flex items-center gap-2 p-3 rounded-lg border bg-muted/30">
-                        <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 p-3 rounded-lg border bg-muted/30">
+                        <div className="flex-1 min-w-[10rem]">
                           <p className="text-sm font-medium truncate">{item.componentName}</p>
                           <p className="text-xs text-muted-foreground">
-                            {item.sku} · Stock: {item.availableStock} · Cost: {formatCurrency(item.unitCost)}
+                            {item.sku} · Stock: {item.availableStock} {item.compData.baseUnit ?? ""} · Cost: {formatCurrency(item.unitCost)}
+                            {isPack(item) && ` · 1 ${item.unit} = ${factorOf(item)} ${item.compData.baseUnit}`}
                           </p>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
+                        <div className="flex flex-wrap items-center justify-end gap-2 ml-auto">
                           <div className="space-y-1">
                             <Input
                               type="text"
                               inputMode="numeric"
                               aria-label="Quantity"
-                              className={`w-16 h-8 text-center text-xs ${item.quantity > item.availableStock ? "border-destructive text-destructive" : ""}`}
+                              className={`w-16 h-8 text-center text-xs ${baseOf(item) > item.availableStock ? "border-destructive text-destructive" : ""}`}
                               value={item.qtyText ?? String(item.quantity)}
                               onFocus={selectAll}
                               onChange={e => updateCartQty(i, e.target.value)}
                               onBlur={() => finishCartQty(i)}
                             />
                           </div>
+                          {(item.compData.units?.length ?? 0) > 1 ? (
+                            <select
+                              aria-label="Unit"
+                              className="h-8 rounded-md border border-input bg-background px-1 text-xs"
+                              value={item.unit}
+                              onChange={e => updateCartUnit(i, e.target.value)}
+                            >
+                              {item.compData.units!.map(u => <option key={u.code} value={u.code}>{u.code}</option>)}
+                            </select>
+                          ) : item.unit ? <span className="text-xs text-muted-foreground">{item.unit}</span> : null}
+                          {isPack(item) && (
+                            <Input
+                              type="text"
+                              inputMode="numeric"
+                              aria-label={`Loose ${item.compData.baseUnit}`}
+                              title={`Loose ${item.compData.baseUnit} on top of whole ${item.unit}s`}
+                              placeholder={`+ ${item.compData.baseUnit}`}
+                              className="w-16 h-8 text-center text-xs"
+                              value={item.looseText ?? (item.loose ? String(item.loose) : "")}
+                              onFocus={selectAll}
+                              onChange={e => updateCartLoose(i, e.target.value)}
+                            />
+                          )}
                           <div className="space-y-1">
                             <Input
                               type="text"
                               inputMode="decimal"
-                              aria-label="Price"
+                              aria-label={item.unit ? `Price per ${item.unit}` : "Price"}
+                              title={item.unit ? `Price per ${item.unit}` : undefined}
                               className="w-24 h-8 text-xs"
                               value={item.priceText ?? String(item.unitPrice)}
                               onFocus={selectAll}
@@ -571,12 +618,12 @@ export default function NewSaleClient({ initialComponents, initialCustomers, edi
                             />
                           </div>
                           <p className="text-sm font-semibold w-20 text-right tabular-nums">
-                            {formatCurrency(item.unitPrice * item.quantity)}
+                            {formatCurrency(lineAmount(item))}
                           </p>
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className={`h-7 w-7 ${expandedCalcIndex === i ? 'text-indigo-600 bg-indigo-50' : 'text-muted-foreground'}`} 
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className={`h-7 w-7 ${expandedCalcIndex === i ? 'text-indigo-600 bg-indigo-50 dark:text-indigo-300 dark:bg-indigo-950/50' : 'text-muted-foreground'}`}
                             onClick={() => {
                               if (expandedCalcIndex === i) {
                                 setExpandedCalcIndex(null);
@@ -602,16 +649,18 @@ export default function NewSaleClient({ initialComponents, initialCustomers, edi
                               }
                             }}
                             title="Price Calculator"
+                            aria-label={`Price calculator for ${item.componentName}`}
+                            aria-expanded={expandedCalcIndex === i}
                           >
                             <Calculator className="h-3.5 w-3.5" />
                           </Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removeFromCart(i)}>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" aria-label={`Remove ${item.componentName}`} title="Remove" onClick={() => removeFromCart(i)}>
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </div>
                       </div>
-                      {item.quantity > item.availableStock && (
-                        <p className="px-3 pt-1 text-xs text-destructive">Only {item.availableStock} units in stock</p>
+                      {baseOf(item) > item.availableStock && (
+                        <p className="px-3 pt-1 text-xs text-destructive">Only {item.availableStock} {stockUnit(item.compData)} in stock</p>
                       )}
                       {expandedCalcIndex === i && (
                         <div className="mt-1 mb-2">
@@ -646,6 +695,22 @@ export default function NewSaleClient({ initialComponents, initialCustomers, edi
               <CardTitle className="flex items-center gap-2 text-base"><Banknote className="h-4 w-4" /> Payment</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              {isInvoiceEdit ? (
+                <p className="text-sm text-muted-foreground">Payments already received stay with this bill. Receive more, or deal with any credit, from the bill page.</p>
+              ) : (<>
+              <div className="space-y-1">
+                <Label>Paid now (Rs)</Label>
+                <div className="flex gap-2">
+                  <Input type="text" inputMode="decimal" value={paidNow === "" ? String(total) : paidNow} onFocus={selectAll} onChange={e => setPaidNow(cleanDecimal(e.target.value))} className="h-9" />
+                  <Button type="button" variant="outline" size="sm" onClick={() => setPaidNow("")}>Full</Button>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setPaidNow("0")}>Nothing</Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {customerType === "walkin"
+                    ? "A walk-in customer normally pays in full."
+                    : paidAmount >= total ? "Paid in full." : `${formatCurrency(total - paidAmount)} stays owed on this bill.`}
+                </p>
+              </div>
               <div className="space-y-1">
                 <Label>Method</Label>
                 <Select value={paymentMethod} onChange={(val: string) => setPaymentMethod(val)}>
@@ -662,17 +727,7 @@ export default function NewSaleClient({ initialComponents, initialCustomers, edi
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1">
-                <Label>Status</Label>
-                <Select value={paymentStatus} onChange={(val: string) => setPaymentStatus(val)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="PAID">Paid</SelectItem>
-                    <SelectItem value="PARTIAL">Partial</SelectItem>
-                    <SelectItem value="PENDING">Pending</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              </>)}
             </CardContent>
           </Card>
 
@@ -688,17 +743,6 @@ export default function NewSaleClient({ initialComponents, initialCustomers, edi
                   <span className="font-medium">{formatCurrency(subtotal)}</span>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 space-y-1">
-                    <Label className="text-xs text-muted-foreground">Discount (Rs)</Label>
-                    <Input type="text" inputMode="decimal" value={discount} onFocus={selectAll} onChange={e => setDiscount(cleanDecimal(e.target.value))} onBlur={() => setDiscount(d => d || "0")} className="h-8" />
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <Label className="text-xs text-muted-foreground">Tax (Rs)</Label>
-                    <Input type="text" inputMode="decimal" value={tax} onFocus={selectAll} onChange={e => setTax(cleanDecimal(e.target.value))} onBlur={() => setTax(t => t || "0")} className="h-8" />
-                  </div>
-                </div>
-
                 <div className="pt-3 border-t">
                   <div className="flex items-center justify-between">
                     <span className="font-semibold text-base">Total</span>
@@ -712,9 +756,9 @@ export default function NewSaleClient({ initialComponents, initialCustomers, edi
 
               {editing && (
                 <div className="space-y-1 pt-2">
-                  <Label>Reason for change (Optional)</Label>
+                  <Label>Reason for change *</Label>
                   <Input placeholder="e.g. customer took 3 instead of 1" value={reason} onChange={e => setReason(e.target.value)} />
-                  <p className="text-xs text-muted-foreground">Kept in the bill's history with the bill before and after.</p>
+                  <p className="text-xs text-muted-foreground">The bill gets a new revision with the same number; the earlier version and this reason stay in its history.</p>
                 </div>
               )}
 

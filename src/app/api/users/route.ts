@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { getAuthUser, isAdmin } from "@/lib/auth";
 import { hash } from "bcryptjs";
 import { registerSchema } from "@/lib/validations";
+import { userRateLimitGuard } from "@/lib/rate-limit";
 
 export async function GET(request: NextRequest) {
   const user = await getAuthUser();
@@ -43,6 +44,8 @@ export async function POST(request: NextRequest) {
   const authUser = await getAuthUser();
   if (!authUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!isAdmin(authUser.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const limited = await userRateLimitGuard(prisma, request, "sensitive", authUser.id);
+  if (limited) return limited;
 
   const body = await request.json();
   const parsed = registerSchema.safeParse(body);

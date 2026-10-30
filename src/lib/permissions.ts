@@ -63,6 +63,7 @@ export const DOCUMENT_RESOURCE: Record<string, string> = {
   VOUCHER: "vouchers",
   TRANSFER: "transfers",
   OPENING_BALANCE: "ledgers",
+  OPENING_STOCK: "stockIssues",
   CHARGE_EXPENSE: "chargePosting",
   SALE_RETURN: "sales",
   PURCHASE_RETURN: "purchases",

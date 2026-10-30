@@ -52,21 +52,16 @@ export default function BackupClient({ stats }: Props) {
   // Backup history
   const [history, setHistory] = useState<BackupHistoryEntry[]>([]);
 
-  // Load saved state on mount
+  // Load saved state on mount. It lives in browser storage, which the server cannot read, so it is read
+  // after the page has loaded (reading it while rendering would differ between server and browser)
   useEffect(() => {
     const saved = loadGDriveState();
     if (saved.isConnected && saved.accessToken) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- see above
       setGDrive(saved);
     }
     setHistory(getBackupHistory());
   }, []);
-
-  // Load Drive files when connected
-  useEffect(() => {
-    if (gdrive.isConnected && gdrive.accessToken) {
-      refreshDriveFiles();
-    }
-  }, [gdrive.isConnected]);
 
   // ─── Local Backup ──────────────────────────────────────────────────
   const handleDownload = async () => {
@@ -194,6 +189,14 @@ export default function BackupClient({ stats }: Props) {
     }
     setLoadingFiles(false);
   };
+
+  // Load Drive files when connected
+  useEffect(() => {
+    if (gdrive.isConnected && gdrive.accessToken) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- fetches the list from Google Drive; it shows a loading state meanwhile
+      refreshDriveFiles();
+    }
+  }, [gdrive.isConnected]);
 
   const handleUploadToDrive = async () => {
     if (!gdrive.accessToken) return;

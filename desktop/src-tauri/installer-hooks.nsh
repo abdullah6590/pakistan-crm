@@ -5,14 +5,26 @@
 ; computer's keys and any backups kept there. Here that choice is overridden before the uninstaller acts on it, and
 ; the user is told where the data is. Deleting it stays a deliberate, manual step.
 
-; The local server's page cache in the program folder belongs to the version that made it (D-036): removed before
-; installing over an older version, and on uninstall so nothing is left behind (D-030). Only this cache folder
-; is removed recursively; its parents are removed only if empty.
+; Program files of an older version (D-037). The bundled server's file names change with every version, so
+; installing over an older one would leave its files behind, and the uninstaller (which removes only the files of
+; its own version) would leave them too. They are removed first, but only when this folder really holds a Pakistan
+; CRM program (app\app-entry.cjs is there), and only its "app" and "node" program folders. Business data lives in
+; %APPDATA%, never in the program folder, and is not touched. This also clears the old page cache (D-036, D-030).
+Var /GLOBAL CrmProgramFiles
+
 !macro NSIS_HOOK_PREINSTALL
-  RMDir /r "$INSTDIR\app\.next-desktop\server\route-cache"
+  ${If} ${FileExists} "$INSTDIR\app\app-entry.cjs"
+    RMDir /r "$INSTDIR\app"
+    RMDir /r "$INSTDIR\node"
+  ${EndIf}
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
+  ; Remember, before the uninstaller removes app-entry.cjs, that this is a Pakistan CRM program folder
+  StrCpy $CrmProgramFiles 0
+  ${If} ${FileExists} "$INSTDIR\app\app-entry.cjs"
+    StrCpy $CrmProgramFiles 1
+  ${EndIf}
   ${If} $DeleteAppDataCheckboxState = 1
     StrCpy $DeleteAppDataCheckboxState 0
     IfSilent +2
@@ -26,9 +38,10 @@
   ${If} $UpdateMode <> 1
     DeleteRegValue HKCU "${MANUPRODUCTKEY}" ""
   ${EndIf}
-  RMDir /r "$INSTDIR\app\.next-desktop\server\route-cache"
-  RMDir "$INSTDIR\app\.next-desktop\server"
-  RMDir "$INSTDIR\app\.next-desktop"
-  RMDir "$INSTDIR\app"
+  ; Files of older versions left in the program folder (D-037): only in a Pakistan CRM program folder
+  ${If} $CrmProgramFiles = 1
+    RMDir /r "$INSTDIR\app"
+    RMDir /r "$INSTDIR\node"
+  ${EndIf}
   RMDir "$INSTDIR"
 !macroend

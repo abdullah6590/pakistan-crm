@@ -123,18 +123,31 @@ describe("validating a backup before anything is restored", () => {
   });
 
   it("an older backup is upgraded in the isolated copy only, and reconciled there", async () => {
-    // A database built by the previous release: every migration except the newest
-    const oldDir = path.join(dir, "old-migrations");
+    // A database of the previous release: every migration except the newest. Its business data is written with today's
+    // code first, then the newest migration is undone, which works because migrations only ever add tables, columns,
+    // indexes and triggers (today's code cannot write to the older layout once a migration adds a column).
     const names = fs.readdirSync(MIGRATIONS_DIR).filter((f) => fs.statSync(path.join(MIGRATIONS_DIR, f)).isDirectory()).sort();
-    for (const n of names.slice(0, -1)) fs.cpSync(path.join(MIGRATIONS_DIR, n), path.join(oldDir, n), { recursive: true });
     const oldFile = path.join(dir, "old-release.db");
-    const old = await migratedDb(oldFile, "", { dir: oldDir });
+    const old = await migratedDb(oldFile);
     await ensureAccountingSetup(old);
     const u = await old.user.create({ data: { name: "A", email: "a@old", password: "x", role: "ADMIN" } });
     const cat = await old.componentCategory.create({ data: { name: "Lids" } });
     const lid = await old.component.create({ data: { sku: "L1", name: "Lid", categoryId: cat.id } });
     const sup = await old.ledgerAccount.create({ data: { code: "S", name: "S", kind: "PARTY", subType: "SUPPLIER" } });
     await createPurchaseInvoice(old, { id: u.id, role: "ADMIN" }, { date: "2026-10-01", partyAccountId: sup.id, lines: [{ componentId: lid.id, quantity: 10, unitPrice: 2 }] });
+    const newest = names[names.length - 1];
+    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, newest, "migration.sql"), "utf8");
+    const undo = [
+      ...[...sql.matchAll(/CREATE TRIGGER "([^"]+)"/g)].map((m) => `DROP TRIGGER IF EXISTS "${m[1]}"`),
+      ...[...sql.matchAll(/CREATE (?:UNIQUE )?INDEX "([^"]+)"/g)].map((m) => `DROP INDEX IF EXISTS "${m[1]}"`),
+      ...[...sql.matchAll(/CREATE TABLE "([^"]+)"/g)].map((m) => `DROP TABLE "${m[1]}"`),
+      ...[...sql.matchAll(/ALTER TABLE "([^"]+)" ADD COLUMN "([^"]+)"/g)].map((m) => `ALTER TABLE "${m[1]}" DROP COLUMN "${m[2]}"`),
+    ];
+    // Additive, so the undo above is complete: no statement removes, rewrites or renames anything
+    // (rows it adds to the sync log only tell computers what to fetch; they stay harmlessly in the older copy)
+    expect(sql.replace(/--.*$/gm, "").replace(/^\s*INSERT INTO "change_log".*$/gm, "")).not.toMatch(/^\s*(DROP|UPDATE|DELETE|INSERT|ALTER TABLE \S+ (RENAME|DROP))\b/im);
+    for (const stmt of undo) await old.$executeRawUnsafe(stmt);
+    await old.$executeRawUnsafe(`DELETE FROM "_prisma_migrations" WHERE "migration_name" = '${newest}'`);
     const b = await backupOf(old, oldFile);
 
     const live = path.join(dir, "live-b", "app.db");

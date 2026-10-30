@@ -1,4 +1,5 @@
 process.env.DATABASE_URL = "file:./test.db";
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- loaded after DATABASE_URL is set; an import would run first
 const prisma = require("../src/lib/prisma").prisma;
 
 async function runConcurrencyTest() {

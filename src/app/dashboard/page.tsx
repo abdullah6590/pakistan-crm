@@ -6,6 +6,7 @@ import { formatCurrency } from "@/lib/utils";
 import { predictStockLevels, detectAnomalies } from "@/lib/ai-engine";
 import DashboardClient from "./dashboard-client";
 import { dashboardVisibility } from "@/lib/permissions";
+import { booksSalesSince, recentBooksBills } from "@/lib/sales/books-queries";
 
 export const dynamic = "force-dynamic";
 
@@ -31,9 +32,9 @@ export default async function DashboardPage() {
     totalPartners,
     monthIncome,
     monthExpense,
-    monthSales,
+    olderMonthSales,
     monthlyFinances,
-    recentSales,
+    olderRecentSales,
     recentProjects,
     topComponents,
     allComponents, // for AI predictions
@@ -87,7 +88,7 @@ export default async function DashboardPage() {
       return data;
     })(),
     !vis.sales ? Promise.resolve([]) : prisma.sale.findMany({
-      take: 5,
+      take: 5, // bills from before Sales moved to Books (Report 28)
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
@@ -128,6 +129,15 @@ export default async function DashboardPage() {
       select: { id: true, name: true, quantity: true, minQuantity: true, totalSold: true, createdAt: true },
     }),
   ]);
+  // Sales are Books bills since Report 28; bills made before the move are still counted
+  const [booksMonth, booksRecent] = vis.sales
+    ? await Promise.all([booksSalesSince(prisma, monthStart), recentBooksBills(prisma, 5)])
+    : [{ total: 0, profit: 0, count: 0 }, []];
+  const monthSales = { _sum: { total: (olderMonthSales._sum.total || 0) + booksMonth.total, profit: (olderMonthSales._sum.profit || 0) + booksMonth.profit } };
+  const recentSales = [...booksRecent, ...olderRecentSales]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 5)
+    .map(({ id, invoiceNumber, total, paymentMethod, paymentStatus, createdAt, customer, walkInName }) => ({ id, invoiceNumber, total, paymentMethod, paymentStatus, createdAt, customer, walkInName }));
 
   const dashboardData = {
     counts: {

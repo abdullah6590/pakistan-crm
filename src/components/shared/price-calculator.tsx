@@ -39,15 +39,15 @@ export default function PriceCalculator({
   className = "",
 }: PriceCalculatorProps) {
   const [autoCalcPrice, setAutoCalcPrice] = useState(true);
+  const { dimensionX, dimensionY, gsm, divisor } = values;
 
   // Calculate Kg from dimensions
   const calculatedKg = useMemo(() => {
-    const { dimensionX, dimensionY, gsm, divisor } = values;
     if (dimensionX > 0 && dimensionY > 0 && gsm > 0 && divisor > 0) {
       return (dimensionX * dimensionY * gsm) / divisor;
     }
     return 0;
-  }, [values.dimensionX, values.dimensionY, values.gsm, values.divisor]);
+  }, [dimensionX, dimensionY, gsm, divisor]);
 
   // Auto-update Kg and P-Price when dimensions change
   useEffect(() => {
@@ -70,7 +70,7 @@ export default function PriceCalculator({
     if (needsUpdate) {
       onChange({ ...values, ...updates });
     }
-  }, [calculatedKg, values.ratePerKg, autoCalcPrice]);
+  }, [calculatedKg, values, autoCalcPrice, onChange]);
 
   const updateField = useCallback(
     (field: keyof PriceCalcValues, val: string) => {
@@ -150,7 +150,7 @@ export default function PriceCalculator({
         </div>
         <div className="grid grid-cols-4 gap-2">
           <div className="space-y-1">
-            <Label className="text-[10px] text-muted-foreground font-medium">X (Length)</Label>
+            <Label className="text-xs text-muted-foreground font-medium">X (Length)</Label>
             <Input
               type="number"
               step="any"
@@ -162,7 +162,7 @@ export default function PriceCalculator({
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-[10px] text-muted-foreground font-medium">Y (Width)</Label>
+            <Label className="text-xs text-muted-foreground font-medium">Y (Width)</Label>
             <Input
               type="number"
               step="any"
@@ -174,7 +174,7 @@ export default function PriceCalculator({
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-[10px] text-muted-foreground font-medium">Gm (GSM)</Label>
+            <Label className="text-xs text-muted-foreground font-medium">Gm (GSM)</Label>
             <Input
               type="number"
               step="any"
@@ -186,7 +186,7 @@ export default function PriceCalculator({
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-[10px] text-muted-foreground font-medium">D (Divisor)</Label>
+            <Label className="text-xs text-muted-foreground font-medium">D (Divisor)</Label>
             <Input
               type="number"
               step="any"
@@ -226,7 +226,7 @@ export default function PriceCalculator({
         </div>
         <div className="grid grid-cols-2 gap-2">
           <div className="space-y-1">
-            <Label className="text-[10px] text-muted-foreground font-medium">Rim in Sheet</Label>
+            <Label className="text-xs text-muted-foreground font-medium">Rim in Sheet</Label>
             <Input
               type="number"
               step="1"
@@ -238,7 +238,7 @@ export default function PriceCalculator({
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-[10px] text-muted-foreground font-medium">Rate / Kg (Rs.)</Label>
+            <Label className="text-xs text-muted-foreground font-medium">Rate / Kg (Rs.)</Label>
             <Input
               type="number"
               step="any"
@@ -261,7 +261,7 @@ export default function PriceCalculator({
         <div className={`grid ${showSalePrice ? "grid-cols-2" : "grid-cols-1"} gap-2`}>
           <div className="space-y-1">
             <div className="flex items-center justify-between">
-              <Label className="text-[10px] text-muted-foreground font-medium">
+              <Label className="text-xs text-muted-foreground font-medium">
                 P-Price (Rs.)
               </Label>
               {autoCalcPrice && values.ratePerKg > 0 && (
@@ -297,7 +297,7 @@ export default function PriceCalculator({
           </div>
           {showSalePrice && (
             <div className="space-y-1">
-              <Label className="text-[10px] text-muted-foreground font-medium">
+              <Label className="text-xs text-muted-foreground font-medium">
                 Sale Price (Rs.)
               </Label>
               <Input

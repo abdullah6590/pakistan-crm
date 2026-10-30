@@ -312,7 +312,7 @@ export default function CustomersClient({ customers: initialCustomers, paginatio
                   </li>
                 ))}
               </ul>
-              <p className="text-xs text-amber-600/80 ml-6">Are you sure you want to add this customer?</p>
+              <p className="text-xs text-amber-700 dark:text-amber-400 ml-6">Are you sure you want to add this customer?</p>
             </div>
           )}
         </div>

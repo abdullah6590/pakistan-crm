@@ -2,8 +2,10 @@
 if (!process.env.JWT_SECRET) throw new Error("Set JWT_SECRET in the environment before running this script");
 import { spawn } from 'child_process';
 import { createToken } from '../src/lib/auth';
+import { createSession } from '../src/lib/auth-sessions';
 
 process.env.DATABASE_URL = "file:./test.db";
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- loaded after DATABASE_URL is set; an import would run first
 const prisma = require("../src/lib/prisma").prisma;
 
 function sleep(ms: number) { return new Promise(resolve => setTimeout(resolve, ms)); }
@@ -60,7 +62,8 @@ async function runReliabilityTests() {
 
   console.log("Assuming Next.js server is running on port 3005...");
 
-  const token = await createToken({ userId: user.id, email: user.email, role: "ADMIN" });
+  const session = await createSession(prisma, user.id, { userAgent: "reliability-tests" });
+  const token = await createToken({ userId: user.id, email: user.email, role: "ADMIN", sessionId: session.id });
   
   async function apiPurchase(reqId: number) {
     try {

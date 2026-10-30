@@ -6,6 +6,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { authorize } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
+import { userRateLimitGuard } from "@/lib/rate-limit";
 
 const BACKUP_VERSION = "3.0";
 const ACCEPTED_VERSIONS = ["2.0", "3.0"];
@@ -67,6 +68,8 @@ export async function GET(request: NextRequest) {
   const auth = await authorize("backup", "read");
   if (auth.response) return auth.response;
   const user = auth.user;
+  const limited = await userRateLimitGuard(prisma, request, "backupRun", user.id);
+  if (limited) return limited;
 
   const backup = await buildExport(user.id);
   console.info(`[audit] backup exported by ${user.id} at ${backup.exportedAt}`);
@@ -103,6 +106,8 @@ function validateBackup(body: any): string | null {
 export async function POST(request: NextRequest) {
   const auth = await authorize("backup", "write");
   if (auth.response) return auth.response;
+  const limited = await userRateLimitGuard(prisma, request, "restore", auth.user.id);
+  if (limited) return limited;
   const user = auth.user;
 
   let body: any;
@@ -114,6 +119,13 @@ export async function POST(request: NextRequest) {
 
   const invalid = validateBackup(body);
   if (invalid) return NextResponse.json({ error: invalid }, { status: 400 });
+
+  // This old-style restore replaces items, customers and suppliers wholesale. Once Books holds entries that refer to
+  // them (bills, receipts, stock), that would break the books, so it is refused (Report 28); restore a Books backup
+  // from Books -> Backups instead, which brings back everything together.
+  if ((await prisma.accountingDocument.count()) > 0) {
+    return NextResponse.json({ error: "This database already has Books entries (bills, payments or stock). An old-style backup file cannot replace them; restore a backup from Books → Backups instead." }, { status: 409 });
+  }
 
   const d = body.data;
 
