@@ -79,6 +79,10 @@ async function main() {
     const tx = await db.transaction("write");
     await tx.execute({ sql: "UPDATE users SET password = ?, updatedAt = ? WHERE id = ?", args: [hashed, new Date().toISOString(), user.id] });
     await tx.execute({
+      sql: "UPDATE sessions SET revokedAt = ?, revokeReason = 'PASSWORD_RESET' WHERE userId = ? AND revokedAt IS NULL",
+      args: [new Date().toISOString(), user.id],
+    });
+    await tx.execute({
       sql: `INSERT INTO audit_logs (id, entity, entityId, action, userId, reason, createdAt) VALUES (?, 'User', ?, 'RESET_PASSWORD', ?, ?, CURRENT_TIMESTAMP)`,
       args: [crypto.randomUUID(), user.id, `operator:${os.userInfo().username}`, "Forgotten password reset at this computer"],
     });

@@ -81,12 +81,14 @@ export function sweepDiscardedRecoveries(dbFile: string) {
 
 /**
  * Restoring business data never undoes a security or machine setting made since the backup: user accounts (roles,
- * deactivations, password changes), registered computers (including revocations) and this computer's backup and
+ * deactivations, password changes), active/revoked sessions, abuse counters, registered computers (including revocations) and this computer's backup and
  * Google Drive settings are carried over from the previous database when it can still be read. A new sync epoch
  * tells the computers that sync from this one to resend and resynchronise (Report 23 §5).
  */
 const CARRIED = [
   { table: "users", key: "id" },
+  { table: "sessions", key: "id" },
+  { table: "rate_limit_buckets", key: "key" },
   { table: "devices", key: "id" },
   { table: "backup_settings", key: "id" },
   { table: "backup_runs", key: "id" },

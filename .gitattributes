@@ -1,0 +1,2 @@
+# Migration files are checksummed when applied: keep them byte-identical on every checkout (Unix line endings)
+prisma/migrations/**/*.sql text eol=lf

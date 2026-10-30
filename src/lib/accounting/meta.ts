@@ -28,6 +28,7 @@ export const DOCUMENT_TYPES: Record<string, DocumentTypeMeta> = {
   VOUCHER: { title: "Voucher", plural: "Vouchers", form: "money", description: "Cash/bank receipts (CRV/BRV), payments (CPV/BPV) and journal vouchers (JV)." },
   TRANSFER: { title: "Transfer", plural: "Transfers", form: "money", description: "Move money between cash and bank accounts." },
   CHARGE_EXPENSE: { title: "Charge posted as expense", plural: "Charges posted as expenses", form: "money", description: "Created only by \"Post as expense\" on a recorded charge; reversed from the charge." },
+  OPENING_STOCK: { title: "Opening stock", plural: "Opening stock", form: "items", description: "Stock already on hand when Books started, at cost (Report 28). Posts no income." },
   OPENING_BALANCE: { title: "Opening balance", plural: "Opening balances", form: "money", description: "Balance brought forward for an account." },
 };
 

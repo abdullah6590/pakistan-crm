@@ -14,33 +14,39 @@ import { toast } from "sonner";
 
 export default function CustomerLedgerClient({ customerId }: { customerId: string }) {
   const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  // Loading until the answer for the filters now shown has arrived
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState({ start: "", end: "" });
 
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({ customerId });
-      if (dateRange.start) params.append("startDate", dateRange.start);
-      if (dateRange.end) params.append("endDate", dateRange.end);
-      const res = await fetch(`/api/customer-ledger?${params.toString()}`);
-      const json = await res.json();
-      if (res.ok) setData(json);
-      else toast.error(json.error);
-    } catch {
-      toast.error("Failed to load ledger");
-    }
-    setLoading(false);
-  };
+  const loadKey = `${customerId}|${dateRange.start}|${dateRange.end}`;
+  const loading = loadedFor !== loadKey;
 
-  useEffect(() => { fetchData(); }, [customerId, dateRange]);
+  useEffect(() => {
+    let current = true;
+    (async () => {
+      try {
+        const params = new URLSearchParams({ customerId });
+        if (dateRange.start) params.append("startDate", dateRange.start);
+        if (dateRange.end) params.append("endDate", dateRange.end);
+        const res = await fetch(`/api/customer-ledger?${params.toString()}`);
+        const json = await res.json();
+        if (!current) return;
+        if (res.ok) setData(json);
+        else toast.error(json.error);
+      } catch {
+        if (current) toast.error("Failed to load ledger");
+      }
+      if (current) setLoadedFor(loadKey);
+    })();
+    return () => { current = false; };
+  }, [customerId, dateRange, loadKey]);
 
   const handlePrint = () => window.print();
 
   return (
     <div className="space-y-6 p-6 print:p-0">
       <div className="flex items-center gap-4 mb-4 print:hidden">
-        <Link href="/dashboard/customers"><Button variant="outline" size="icon"><ArrowLeft className="h-4 w-4" /></Button></Link>
+        <Link href="/dashboard/customers" aria-label="Back to Customers" className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-input bg-background hover:bg-accent"><ArrowLeft className="h-4 w-4" aria-hidden /></Link>
         <span className="text-sm text-muted-foreground">Back to Customers</span>
       </div>
 

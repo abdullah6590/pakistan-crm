@@ -43,6 +43,23 @@ describe("versioned migrations", () => {
     await expect(applyMigrations(url("m2.db"), { dir: copy })).rejects.toThrow(/changed after it was applied/);
   });
 
+  it("a migration file checked out with Windows line endings is not a change (git core.autocrlf)", async () => {
+    const copy = path.join(dir, "migrations-crlf");
+    fs.cpSync(MIGRATIONS_DIR, copy, { recursive: true });
+    const rewrite = (fn: (text: string) => string) => {
+      for (const m of listMigrations(copy)) {
+        const f = path.join(copy, m.name, "migration.sql");
+        fs.writeFileSync(f, fn(fs.readFileSync(f, "utf8")));
+      }
+    };
+    rewrite((t) => t.replace(/\r\n/g, "\n"));
+    await applyMigrations(url("m3.db"), { dir: copy });
+    rewrite((t) => t.replace(/\n/g, "\r\n"));
+    const again = await applyMigrations(url("m3.db"), { dir: copy });
+    expect(again.applied).toEqual([]);
+    expect(again.alreadyApplied.length).toBe(listMigrations(copy).length);
+  });
+
   it("encrypted databases migrate and cannot be opened without the key", async () => {
     await applyMigrations(url("enc.db"), { encryptionKey: "device-key-".padEnd(32, "x") });
     const header = fs.readFileSync(path.join(dir, "enc.db")).subarray(0, 15).toString("latin1");

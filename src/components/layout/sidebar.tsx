@@ -169,11 +169,13 @@ export function Sidebar({ userRole, userName, userEmail }: SidebarProps) {
               onClick={() => setCollapsed(!collapsed)}
               className="h-8 w-8"
               title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-expanded={!collapsed}
             >
               <ChevronLeft className={cn("h-4 w-4 transition-transform", collapsed && "rotate-180")} />
             </Button>
             <form action="/api/auth/logout" method="POST">
-              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" title="Logout">
+              <Button type="submit" variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" title="Logout" aria-label="Log out">
                 <LogOut className="h-4 w-4" />
               </Button>
             </form>

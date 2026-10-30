@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { authorize } from "@/lib/permissions";
 import { backupStatus, runBackup } from "@/lib/backup/runtime";
 import { BackupError } from "@/lib/backup/service";
+import { prisma } from "@/lib/prisma";
+import { userRateLimitGuard } from "@/lib/rate-limit";
 
 export async function GET() {
   const auth = await authorize("backupLocal", "read");
@@ -10,9 +12,11 @@ export async function GET() {
   return NextResponse.json(await backupStatus());
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   const auth = await authorize("backupLocal", "write", { offlineCapable: true });
   if (auth.response) return auth.response;
+  const limited = await userRateLimitGuard(prisma, request, "backupRun", auth.user.id);
+  if (limited) return limited;
   try {
     const r = await runBackup("MANUAL", "USER");
     return NextResponse.json({ backupId: r.backupId, file: r.file, size: r.size }, { status: 201 });

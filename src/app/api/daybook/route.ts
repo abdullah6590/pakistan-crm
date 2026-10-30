@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authorize } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
+import { booksCustomerDaybook } from "@/lib/sales/books-queries";
 
 export async function GET(request: NextRequest) {
   const auth = await authorize("daybook", "read");
@@ -124,10 +125,12 @@ export async function GET(request: NextRequest) {
       take: 100,
     });
 
+    // "Charge for Sale ..." rows of the old Sales module were charges, not money received (Report 28 §1)
     const payments = await prisma.customerPayment.findMany({
       where: {
         ...(entityId ? { customerId: entityId } : {}),
         ...(hasDateFilter ? { date: dateFilter } : {}),
+        NOT: { notes: { startsWith: "Charge for Sale" } },
       },
       include: { customer: { select: { name: true } } },
       orderBy: { date: "desc" },
@@ -145,6 +148,8 @@ export async function GET(request: NextRequest) {
         description: `Payment received - ${p.paymentMethod}`, debit: 0, credit: p.amount,
         reference: p.chequeNumber || null, entityName: p.customer.name,
       })),
+      // Bills, receipts and refunds since Sales moved to Books
+      ...(await booksCustomerDaybook(prisma, { customerId: entityId, from: dateFilter.gte, to: dateFilter.lte })),
     ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     let runningBalance = 0;
@@ -154,6 +159,12 @@ export async function GET(request: NextRequest) {
     }).reverse();
 
     const monthlyData: Record<string, { sales: number; receipts: number }> = {};
+    for (const e of ledger.filter((x) => !sales.some((s) => s.id === x.id) && !payments.some((p) => p.id === x.id))) {
+      const key = `${new Date(e.date).getFullYear()}-${String(new Date(e.date).getMonth() + 1).padStart(2, "0")}`;
+      if (!monthlyData[key]) monthlyData[key] = { sales: 0, receipts: 0 };
+      if (e.type === "SALE") monthlyData[key].sales += e.debit;
+      if (e.type === "RECEIPT") monthlyData[key].receipts += e.credit;
+    }
     sales.forEach(s => {
       const key = `${new Date(s.createdAt).getFullYear()}-${String(new Date(s.createdAt).getMonth() + 1).padStart(2, "0")}`;
       if (!monthlyData[key]) monthlyData[key] = { sales: 0, receipts: 0 };

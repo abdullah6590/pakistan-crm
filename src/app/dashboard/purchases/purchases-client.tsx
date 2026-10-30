@@ -41,6 +41,8 @@ interface Props {
   suppliers: SupplierOption[];
   stats: { totalSpent: number; totalPaid: number; totalPending: number; totalPurchases: number };
   pagination: { page: number; totalPages: number; totalRecords: number };
+  /** Purchases entered before Purchases moved to Books (Report 30): shown read-only under Purchases → Older purchases */
+  older?: boolean;
 }
 
 const statusConfig: Record<string, { icon: React.ElementType; variant: "success"|"warning"|"destructive"|"secondary"; label: string }> = {
@@ -50,8 +52,9 @@ const statusConfig: Record<string, { icon: React.ElementType; variant: "success"
   OVERDUE: { icon: Ban, variant: "destructive", label: "Overdue" },
 };
 
-export default function PurchasesClient({ purchases, suppliers, stats, pagination }: Props) {
+export default function PurchasesClient({ purchases, suppliers, stats, pagination, older }: Props) {
   const router = useRouter();
+  const base = older ? "/dashboard/purchases/older" : "/dashboard/purchases";
   
   // Use debounced search to update URL
   const handleSearch = (term: string) => {
@@ -59,7 +62,7 @@ export default function PurchasesClient({ purchases, suppliers, stats, paginatio
     if (term) params.set("search", term);
     else params.delete("search");
     params.set("page", "1");
-    router.push(`/dashboard/purchases?${params.toString()}`);
+    router.push(`${base}?${params.toString()}`);
   };
 
   const updateFilter = (key: string, value: string) => {
@@ -67,13 +70,13 @@ export default function PurchasesClient({ purchases, suppliers, stats, paginatio
     if (value && value !== "all") params.set(key, value);
     else params.delete(key);
     params.set("page", "1");
-    router.push(`/dashboard/purchases?${params.toString()}`);
+    router.push(`${base}?${params.toString()}`);
   };
 
   const handlePageChange = (newPage: number) => {
     const params = new URLSearchParams(window.location.search);
     params.set("page", newPage.toString());
-    router.push(`/dashboard/purchases?${params.toString()}`);
+    router.push(`${base}?${params.toString()}`);
   };
 
 
@@ -81,13 +84,17 @@ export default function PurchasesClient({ purchases, suppliers, stats, paginatio
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Purchases"
-        description="Manage component purchases from suppliers"
+        title={older ? "Older purchases" : "Purchases"}
+        description={older ? "Entered before Purchases moved to Books; kept as records and read-only" : "Manage component purchases from suppliers"}
         icon={Truck}
         actions={
-          <Button onClick={() => router.push("/dashboard/purchases/new")}>
-            <Plus className="h-4 w-4 mr-1" /> New Purchase
-          </Button>
+          older ? (
+            <Button variant="outline" onClick={() => router.push("/dashboard/purchases")}>Back to Purchases</Button>
+          ) : (
+            <Button onClick={() => router.push("/dashboard/purchases/new")}>
+              <Plus className="h-4 w-4 mr-1" /> New Purchase
+            </Button>
+          )
         }
       />
 

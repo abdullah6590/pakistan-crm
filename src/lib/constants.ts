@@ -131,7 +131,7 @@ export const SIDEBAR_NAV: NavItem[] = [
   },
   {
     title: 'Backup',
-    href: '/dashboard/backup',
+    href: '/dashboard/accounting/backups',
     icon: HardDrive,
     roles: ['ADMIN'],
   },

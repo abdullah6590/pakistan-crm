@@ -1,70 +1,33 @@
-// src/app/api/customer-ledger/route.ts - Customer Ledger API
+// src/app/api/customer-ledger/route.ts - Customer Ledger from Books (Report 28 §6): bills raise what the customer owes,
+// payments and returns lower it, with a running balance. Bills from before Sales moved to Books are under Older bills.
 import { NextRequest, NextResponse } from "next/server";
 import { authorize } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
-import { getAuthUser } from "@/lib/auth";
+import { customerStatement } from "@/lib/sales/statement";
 
 export async function GET(request: NextRequest) {
   const auth = await authorize("customers", "read");
   if (auth.response) return auth.response;
-  const user = auth.user;
 
   const { searchParams } = new URL(request.url);
   const customerId = searchParams.get("customerId");
   if (!customerId) return NextResponse.json({ error: "customerId is required" }, { status: 400 });
 
-  const startDate = searchParams.get("startDate");
-  const endDate = searchParams.get("endDate");
+  const st = await customerStatement(prisma, customerId, { from: searchParams.get("startDate") ?? undefined, to: searchParams.get("endDate") ?? undefined });
+  if (!st) return NextResponse.json({ error: "Customer not found" }, { status: 404 });
 
-  const dateFilter: any = {};
-  if (startDate) dateFilter.gte = new Date(startDate);
-  if (endDate) dateFilter.lte = new Date(endDate);
-  const hasDateFilter = Object.keys(dateFilter).length > 0;
-
-  const customer = await prisma.customer.findUnique({
-    where: { id: customerId },
-    select: { id: true, name: true, phone: true, totalPurchased: true, balanceDue: true },
-  });
-  if (!customer) return NextResponse.json({ error: "Customer not found" }, { status: 404 });
-
-  const sales = await prisma.sale.findMany({
-    where: { customerId, ...(hasDateFilter ? { createdAt: dateFilter } : {}) },
-    include: { items: { include: { component: { select: { name: true, sku: true } } } } },
-    orderBy: { createdAt: "asc" },
-  });
-
-  const payments = await prisma.customerPayment.findMany({
-    where: { customerId, ...(hasDateFilter ? { date: dateFilter } : {}) },
-    orderBy: { date: "asc" },
-  });
-
-  const entries = [
-    ...sales.map(s => ({
-      id: s.id, date: s.createdAt, type: "SALE" as const,
-      description: `Sale ${s.invoiceNumber}`,
-      debit: s.total, credit: 0, reference: s.invoiceNumber,
-      details: s.items.map(i => `${i.component.name} x${i.quantity} @ ${i.unitPrice}`).join(", "),
+  const ledger = [
+    ...(Number(st.opening) !== 0 ? [{ id: "opening", date: st.from, type: "OPENING", description: "Opening balance", debit: 0, credit: 0, reference: null, details: "", balance: Number(st.opening) }] : []),
+    ...st.rows.map((r) => ({
+      id: r.docId, date: r.date, type: r.kind === "Bill" || r.kind === "Cash sale" ? "SALE" : r.kind === "Payment received" ? "RECEIPT" : r.kind.toUpperCase(),
+      description: `${r.kind} ${r.docNo}`, debit: Number(r.debit), credit: Number(r.credit), reference: r.docNo,
+      details: [r.remaining !== undefined ? `Still owed on this bill: ${r.remaining}` : null, r.remarks].filter(Boolean).join(" · "),
+      balance: Number(r.balance),
     })),
-    ...payments.map(p => ({
-      id: p.id, date: p.date, type: "RECEIPT" as const,
-      description: `Payment received via ${p.paymentMethod}${p.chequeNumber ? ` (Cheque: ${p.chequeNumber})` : ""}`,
-      debit: 0, credit: p.amount, reference: p.chequeNumber || null,
-      details: p.notes || "",
-    })),
-  ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-  let balance = 0;
-  const ledger = entries.map(entry => {
-    balance += entry.debit - entry.credit;
-    return { ...entry, balance };
-  });
-
-  const totalSales = sales.reduce((s, sale) => s + sale.total, 0);
-  const totalReceived = payments.reduce((s, p) => s + p.amount, 0);
-
+  ];
   return NextResponse.json({
-    customer,
+    customer: { ...st.customer, balanceDue: Number(st.closing) },
     ledger,
-    summary: { totalSales, totalReceived, balanceDue: totalSales - totalReceived },
+    summary: { totalSales: Number(st.totalDebit), totalReceived: Number(st.totalCredit), balanceDue: Number(st.closing) },
   });
 }

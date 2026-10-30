@@ -263,6 +263,15 @@ export function postVoucher(args: { documentType: "PAYMENT_VOUCHER" | "RECEIPT_V
   return assertBalanced({ documentType: args.documentType, lines: compact([dr(args.debit, amount), cr(args.credit, amount)]) });
 }
 
+/** Opening stock (Report 28 §6): stock already on hand when Books starts, at cost, against opening-balance equity. No income. */
+export function postOpeningStock(args: { values: Dec[] }): JournalEntry {
+  const total = paisa(sum(args.values));
+  return assertBalanced({
+    documentType: "OPENING_STOCK",
+    lines: compact([dr(GL.INVENTORY, total, "Opening stock"), cr(GL.OPENING_BALANCE_EQUITY, total, "Opening stock")]),
+  });
+}
+
 /** Opening balance (legacy SubAccount.Dr/Cr) against opening-balance equity. */
 export function postOpeningBalance(args: { account: AccountRef; debit: Dec; credit: Dec }): JournalEntry {
   const net = paisa(sub(args.debit, args.credit));

@@ -14,26 +14,32 @@ import { toast } from "sonner";
 
 export default function SupplierLedgerClient({ supplierId }: { supplierId: string }) {
   const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  // Loading until the answer for the filters now shown has arrived
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState({ start: "", end: "" });
 
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({ supplierId });
-      if (dateRange.start) params.append("startDate", dateRange.start);
-      if (dateRange.end) params.append("endDate", dateRange.end);
-      const res = await fetch(`/api/supplier-ledger?${params.toString()}`);
-      const json = await res.json();
-      if (res.ok) setData(json);
-      else toast.error(json.error);
-    } catch {
-      toast.error("Failed to load ledger");
-    }
-    setLoading(false);
-  };
+  const loadKey = `${supplierId}|${dateRange.start}|${dateRange.end}`;
+  const loading = loadedFor !== loadKey;
 
-  useEffect(() => { fetchData(); }, [supplierId, dateRange]);
+  useEffect(() => {
+    let current = true;
+    (async () => {
+      try {
+        const params = new URLSearchParams({ supplierId });
+        if (dateRange.start) params.append("startDate", dateRange.start);
+        if (dateRange.end) params.append("endDate", dateRange.end);
+        const res = await fetch(`/api/supplier-ledger?${params.toString()}`);
+        const json = await res.json();
+        if (!current) return;
+        if (res.ok) setData(json);
+        else toast.error(json.error);
+      } catch {
+        if (current) toast.error("Failed to load ledger");
+      }
+      if (current) setLoadedFor(loadKey);
+    })();
+    return () => { current = false; };
+  }, [supplierId, dateRange, loadKey]);
 
   const handlePrint = () => window.print();
 

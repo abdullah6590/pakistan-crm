@@ -2,13 +2,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authorize } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
-import { getAuthUser } from "@/lib/auth";
-import { customerPaymentSchema } from "@/lib/validations";
 
 export async function GET(request: NextRequest) {
   const auth = await authorize("customerPayments", "read");
   if (auth.response) return auth.response;
-  const user = auth.user;
 
   const { searchParams } = new URL(request.url);
   const customerId = searchParams.get("customerId");
@@ -46,53 +43,12 @@ export async function GET(request: NextRequest) {
   });
 }
 
-export async function POST(request: NextRequest) {
+/**
+ * Customer payments are received in Books now (Sales → Receive payment), linked to the bills they pay (Report 28). This
+ * older list stays readable; it no longer records payments, so a payment can never be counted twice.
+ */
+export async function POST() {
   const auth = await authorize("customerPayments", "write");
   if (auth.response) return auth.response;
-  const user = auth.user;
-
-  const body = await request.json();
-  const validation = customerPaymentSchema.safeParse(body);
-  if (!validation.success) {
-    return NextResponse.json({ error: "Validation error" }, { status: 400 });
-  }
-
-  const data = validation.data;
-
-  const payment = await prisma.customerPayment.create({
-    data: {
-      customerId: data.customerId,
-      amount: data.amount,
-      paymentMethod: data.paymentMethod as any,
-      chequeNumber: data.chequeNumber || null,
-      bankName: data.bankName || null,
-      date: data.date || new Date(),
-      notes: data.notes || null,
-      saleId: data.saleId || null,
-      userId: user.id,
-    },
-  });
-
-  // Update customer balance
-  await prisma.customer.update({
-    where: { id: data.customerId },
-    data: { balanceDue: { decrement: data.amount } },
-  });
-
-  // Create finance record
-  await prisma.finance.create({
-    data: {
-      transactionRef: `TXN-CP-${Date.now()}`,
-      type: "INCOME",
-      category: "COMPONENT_SALE",
-      amount: data.amount,
-      description: `Payment received from customer`,
-      paymentMethod: data.paymentMethod,
-      reference: `Customer Payment`,
-      referenceId: payment.id,
-      userId: user.id,
-    },
-  });
-
-  return NextResponse.json({ success: true, payment }, { status: 201 });
+  return NextResponse.json({ error: "Customer payments are recorded in Sales → Receive payment now; this older list is read-only" }, { status: 409 });
 }

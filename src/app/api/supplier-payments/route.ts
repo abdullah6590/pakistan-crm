@@ -2,13 +2,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authorize } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
-import { getAuthUser } from "@/lib/auth";
-import { supplierPaymentSchema } from "@/lib/validations";
 
 export async function GET(request: NextRequest) {
   const auth = await authorize("supplierPayments", "read");
   if (auth.response) return auth.response;
-  const user = auth.user;
 
   const { searchParams } = new URL(request.url);
   const supplierId = searchParams.get("supplierId");
@@ -46,54 +43,12 @@ export async function GET(request: NextRequest) {
   });
 }
 
-export async function POST(request: NextRequest) {
+/**
+ * Supplier payments are made in Books now (Purchases → Pay supplier), linked to the bills they settle (Report 30). This
+ * older list stays readable; it no longer records payments, so a payment can never be posted twice through two screens.
+ */
+export async function POST() {
   const auth = await authorize("supplierPayments", "write");
   if (auth.response) return auth.response;
-  const user = auth.user;
-
-  const body = await request.json();
-  const validation = supplierPaymentSchema.safeParse(body);
-  if (!validation.success) {
-    return NextResponse.json({ error: "Validation error" }, { status: 400 });
-  }
-
-  const data = validation.data;
-
-  // Create supplier payment
-  const payment = await prisma.supplierPayment.create({
-    data: {
-      supplierId: data.supplierId,
-      amount: data.amount,
-      paymentMethod: data.paymentMethod as any,
-      chequeNumber: data.chequeNumber || null,
-      bankName: data.bankName || null,
-      date: data.date || new Date(),
-      notes: data.notes || null,
-      purchaseId: data.purchaseId || null,
-      userId: user.id,
-    },
-  });
-
-  // Update supplier balance
-  await prisma.supplier.update({
-    where: { id: data.supplierId },
-    data: { balanceDue: { decrement: data.amount } },
-  });
-
-  // Create finance record
-  await prisma.finance.create({
-    data: {
-      transactionRef: `TXN-SP-${Date.now()}`,
-      type: "EXPENSE",
-      category: "COMPONENT_PURCHASE",
-      amount: data.amount,
-      description: `Payment to supplier`,
-      paymentMethod: data.paymentMethod,
-      reference: `Supplier Payment`,
-      referenceId: payment.id,
-      userId: user.id,
-    },
-  });
-
-  return NextResponse.json({ success: true, payment }, { status: 201 });
+  return NextResponse.json({ error: "Supplier payments are recorded in Purchases → Pay supplier now; this older list is read-only" }, { status: 409 });
 }

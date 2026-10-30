@@ -19,20 +19,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   return NextResponse.json({ payment });
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+/** Older payments are kept as they are: never deleted (Report 28). A Books receipt is cancelled from its voucher. */
+export async function DELETE() {
   const auth = await authorize("customerPayments", "delete");
   if (auth.response) return auth.response;
-  const user = auth.user;
-
-  const { id } = await params;
-  const payment = await prisma.customerPayment.findUnique({ where: { id } });
-  if (!payment) return NextResponse.json({ error: "Payment not found" }, { status: 404 });
-
-  await prisma.customer.update({
-    where: { id: payment.customerId },
-    data: { balanceDue: { increment: payment.amount } },
-  });
-
-  await prisma.customerPayment.delete({ where: { id } });
-  return NextResponse.json({ success: true });
+  return NextResponse.json({ error: "Older customer payments are kept as records and cannot be deleted" }, { status: 409 });
 }

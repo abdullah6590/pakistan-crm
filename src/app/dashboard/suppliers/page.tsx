@@ -1,43 +1,21 @@
-// src/app/(dashboard)/suppliers/page.tsx - Suppliers (Server)
+// src/app/dashboard/suppliers/page.tsx - Suppliers (Report 30 §1): search, filter, what each is owed (from Books), add.
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
-import { redirect } from "next/navigation";
-import SuppliersClient from "./suppliers-client";
-import { buildSuppliersWhere } from "@/lib/filters";
-import { parseSortParams, buildOrderBy, SUPPLIERS_SORT_WHITELIST } from "@/lib/sort";
+import { can } from "@/lib/permissions";
+import { accountingReady, serialize } from "@/lib/accounting/server";
+import { supplierList } from "@/lib/purchases/queries";
+import SuppliersClient, { type SupplierRow } from "./suppliers-client";
 
-export default async function SuppliersPage({ searchParams }: { searchParams: Promise<{ [key: string]: string | undefined }> }) {
+export const dynamic = "force-dynamic";
+
+export default async function SuppliersPage({ searchParams }: { searchParams: Promise<{ search?: string; status?: string; owed?: string }> }) {
   const user = await getAuthUser();
   if (!user) redirect("/login");
-
-  const params = await searchParams;
-  const page = parseInt((params as any).page || "1", 10);
-  const limit = 50;
-  const skip = (page - 1) * limit;
-  const whereClause = buildSuppliersWhere(params as any);
-  
-  const sortConfig = parseSortParams(params as any);
-  const orderByClause = buildOrderBy(sortConfig, SUPPLIERS_SORT_WHITELIST, { name: "asc" });
-
-  const [suppliers, totalSuppliers] = await Promise.all([
-    prisma.supplier.findMany({
-      where: whereClause,
-      take: limit,
-      skip,
-      include: {
-        _count: { select: { purchases: true, components: true } },
-      },
-      orderBy: orderByClause,
-    }),
-    prisma.supplier.count({ where: whereClause })
-  ]);
-
-  const totalPages = Math.ceil(totalSuppliers / limit);
-
-  return (
-    <SuppliersClient 
-      suppliers={JSON.parse(JSON.stringify(suppliers))} 
-      pagination={{ page, totalPages, totalRecords: totalSuppliers }} 
-    />
-  );
+  if (!can(user.role, "suppliers", "read")) redirect("/dashboard");
+  await accountingReady();
+  const p = await searchParams;
+  const status = (["active", "archived", "all"] as const).find((s) => s === p.status) ?? "active";
+  const suppliers = await supplierList(prisma, { search: p.search, status, withBalance: p.owed === "1" });
+  return <SuppliersClient suppliers={serialize(suppliers) as SupplierRow[]} canEdit={can(user.role, "suppliers", "write")} filters={{ search: p.search ?? "", status, owed: p.owed === "1" }} />;
 }

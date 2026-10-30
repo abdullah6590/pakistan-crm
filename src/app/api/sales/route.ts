@@ -1,106 +1,48 @@
-// src/app/api/sales/route.ts - Sales management API
+// src/app/api/sales/route.ts - Sales on Books (Report 28): list bills and make a bill.
+// A registered customer's bill is a Books sale invoice; a walk-in bill is a cash sale. Bills made before Sales moved
+// to Books are in the old Sales table and are listed with `?older=1` (read-only).
 import { NextRequest, NextResponse } from "next/server";
 import { authorize } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
-import { getAuthUser } from "@/lib/auth";
-import { saleSchema } from "@/lib/validations";
-import { generateInvoiceNumber } from "@/lib/utils";
-import { handleApiError } from "@/lib/api-error";
-import { createSale, SaleError } from "@/lib/sales/bill";
+import { accountingError, accountingReady, serialize } from "@/lib/accounting/server";
+import { createScreenSale } from "@/lib/sales/books-sales";
+import { listBills } from "@/lib/sales/books-queries";
+import { screenSaleSchema } from "@/lib/sales/schemas";
+import { isAuthority } from "@/lib/sync/local";
+import { queueScreenEntry } from "@/lib/sync/screen-commands";
 
 export async function GET(request: NextRequest) {
   const auth = await authorize("sales", "read");
   if (auth.response) return auth.response;
-  const user = auth.user;
-
-  const { searchParams } = new URL(request.url);
-  const search = searchParams.get("search") || "";
-  const customerId = searchParams.get("customerId");
-  const paymentStatus = searchParams.get("paymentStatus");
-  let page = parseInt(searchParams.get("page") || "1", 10);
-  let limit = parseInt(searchParams.get("limit") || "50", 10);
-  if (isNaN(page) || page < 1) page = 1;
-  if (isNaN(limit) || limit < 1) limit = 10;
-  if (limit > 100) limit = 100;
-
-  const skip = (page - 1) * limit;
-
-  const sales = await prisma.sale.findMany({
-    where: {
-      AND: [
-        search ? {
-          OR: [
-            { invoiceNumber: { contains: search } },
-            { walkInName: { contains: search } },
-            { customer: { name: { contains: search } } },
-          ],
-        } : {},
-        customerId ? { customerId } : {},
-        paymentStatus ? { paymentStatus: paymentStatus as any } : {},
-      ],
-    },
-    include: {
-      customer: { select: { id: true, name: true, phone: true } },
-      items: { include: { component: { select: { id: true, name: true, sku: true } } } },
-    },
-    orderBy: { createdAt: "desc" },
-    skip,
-    take: limit,
+  const p = new URL(request.url).searchParams;
+  if (p.get("older") === "1") {
+    const sales = await prisma.sale.findMany({
+      include: { customer: { select: { id: true, name: true, phone: true } }, items: { include: { component: { select: { id: true, name: true, sku: true } } } } },
+      orderBy: { createdAt: "desc" },
+      take: Math.min(Number(p.get("limit")) || 50, 100),
+    });
+    return NextResponse.json({ sales });
+  }
+  const result = await listBills(prisma, {
+    search: p.get("search") ?? undefined, customerId: p.get("customerId") ?? undefined, status: p.get("status") ?? undefined,
+    from: p.get("from") ?? undefined, to: p.get("to") ?? undefined, page: Number(p.get("page")) || 1,
   });
-
-  const totalRecords = await prisma.sale.count({
-    where: {
-      AND: [
-        search ? {
-          OR: [
-            { invoiceNumber: { contains: search } },
-            { walkInName: { contains: search } },
-            { customer: { name: { contains: search } } },
-          ],
-        } : {},
-        customerId ? { customerId } : {},
-        paymentStatus ? { paymentStatus: paymentStatus as any } : {},
-      ],
-    },
-  });
-
-  // Stats
-  const totalSales = await prisma.sale.aggregate({
-    _sum: { total: true, profit: true },
-    _count: true,
-  });
-
-  return NextResponse.json({
-    sales,
-    pagination: {
-      total: totalRecords,
-      pages: Math.ceil(totalRecords / limit),
-      page,
-      limit,
-    },
-    stats: {
-      totalRevenue: totalSales._sum.total || 0,
-      totalProfit: totalSales._sum.profit || 0,
-      totalSales: totalSales._count,
-    },
-  });
+  return NextResponse.json(result);
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await authorize("sales", "write");
+  const auth = await authorize("sales", "write", { offlineCapable: true });
   if (auth.response) return auth.response;
-  const user = auth.user;
-
-  const body = await request.json();
-  const invoiceNumber = body.invoiceNumber || generateInvoiceNumber("INV", Date.now() % 10000);
-
   try {
-    // Stock, the customer's charge and Finance are applied with the bill (src/lib/sales/bill.ts)
-    const result = await prisma.$transaction((tx) => createSale(tx, user.id, body, invoiceNumber));
-
-    return NextResponse.json({ sale: result }, { status: 201 });
-  } catch (error: any) {
-    if (error instanceof SaleError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
-    return handleApiError(error);
+    await accountingReady();
+    const input = screenSaleSchema.parse(await request.json());
+    if (!isAuthority()) {
+      const { requestId, ...rest } = input;
+      return queueScreenEntry("SCREEN_SALE", auth.user.id, rest, requestId);
+    }
+    const result = await createScreenSale(prisma, { id: auth.user.id, role: auth.user.role }, input);
+    return NextResponse.json(serialize({ sale: result.document, receipt: result.receipt, repeated: result.repeated }), { status: result.repeated ? 200 : 201 });
+  } catch (error) {
+    return accountingError(error);
   }
 }

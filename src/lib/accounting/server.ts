@@ -21,7 +21,7 @@ export function accountingReady(): Promise<void> {
 }
 
 export function accountingError(error: unknown) {
-  if (error instanceof PostingError) return NextResponse.json({ error: error.message }, { status: error.status });
+  if (error instanceof PostingError) return NextResponse.json({ error: error.message, ...(error.details !== undefined ? { details: error.details } : {}) }, { status: error.status });
   if (error instanceof ZodError) {
     const first = error.issues[0];
     return NextResponse.json({ error: first ? `${first.path.join(".") || "input"}: ${first.message}` : "Validation error" }, { status: 400 });

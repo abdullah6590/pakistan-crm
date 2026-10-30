@@ -12,6 +12,8 @@ import { submitCommand, Preview } from "./outbox";
 import { registerDevice, authenticateDevice, revokeDevice, pushCommands, pullChanges, snapshot, SyncAuthError } from "./server";
 import { syncOnce, backoffMs, Transport, NetworkError } from "./worker";
 import { checkProtocol, SYNC_PROTOCOL, MIN_SYNC_PROTOCOL } from "./commands";
+import { billPayments } from "@/lib/accounting/payables";
+import { invoicePayments } from "@/lib/accounting/receivables";
 import { UpstreamRefused } from "./http-transport";
 
 let cloud: PrismaClient;
@@ -56,7 +58,6 @@ const sale = (actor: string, qty: number, price = 1250) => ({
   type: "CREATE_DOCUMENT", actorUserId: actor, docType: "SALE_INVOICE",
   input: { date: "2026-10-22", partyAccountId: id.customer, lines: [{ componentId: id.paper, quantity: qty, unit: "packet", unitPrice: price }] },
 });
-
 beforeAll(async () => {
   const t = await createTestDb();
   ({ cleanup, dir } = t);
@@ -75,11 +76,9 @@ beforeAll(async () => {
   }
   await createPurchaseInvoice(cloud, { id: id.store, role: "INVENTORY_MANAGER" }, { date: "2026-10-01", partyAccountId: id.supplier, lines: [{ componentId: id.paper, quantity: 20, unit: "packet", unitPrice: 1250 }] });
 });
-
 afterAll(async () => {
   await cleanup?.();
 });
-
 describe("device credentials", () => {
   it("authenticates only an active device with its exact secret", async () => {
     const { device, secret } = await registerDevice(cloud, { name: "Counter PC", role: "DEVICE", registeredById: id.admin });
@@ -90,14 +89,12 @@ describe("device credentials", () => {
     await expect(authenticateDevice(cloud, `${device.id}.${secret}`)).rejects.toThrow(/revoked/);
     const stored = await cloud.device.findUniqueOrThrow({ where: { id: device.id } });
     expect(stored.secretHash).not.toContain(secret);
-  });
-
+});
   it("backoff grows exponentially with jitter and is capped", () => {
     expect([backoffMs(1, () => 0.5), backoffMs(2, () => 0.5), backoffMs(3, () => 0.5)]).toEqual([5000, 10000, 20000]);
     expect(backoffMs(30, () => 0.5)).toBe(30 * 60_000);
   });
 });
-
 describe("offline work, then automatic sync", () => {
   it("a new device downloads a full copy, works offline, and syncs exactly once when back online", async () => {
     const d = await newDevice("Shop PC");
@@ -261,10 +258,10 @@ describe("offline work, then automatic sync", () => {
     expect(await d.db.journalLine.count()).toBe(await cloud.journalLine.count());
   });
 });
-
 describe("upgrades (Report 26 Phase 9)", () => {
   it("a computer on an incompatible protocol is refused before any entry is read, so its entries stay queued", async () => {
-    expect(checkProtocol(null)).toBeNull(); // computers from before the header existed speak version 1
+    // Computers from before the header existed speak version 1, which protocol 2 (Report 30) no longer accepts
+    expect(checkProtocol(null)).toMatchObject({ status: 426, code: "CLIENT_TOO_OLD" });
     expect(checkProtocol(String(SYNC_PROTOCOL))).toBeNull();
     expect(checkProtocol(String(SYNC_PROTOCOL + 1))).toMatchObject({ status: 409, code: "SERVER_TOO_OLD" });
     expect(checkProtocol(String(MIN_SYNC_PROTOCOL - 1))).toMatchObject({ status: 426, code: "CLIENT_TOO_OLD" });
@@ -279,5 +276,73 @@ describe("upgrades (Report 26 Phase 9)", () => {
     const row = await d.db.outboxCommand.findUniqueOrThrow({ where: { id: e.id } });
     expect(row.status).toBe("FAILED_RETRY");
     expect(await cloud.syncInbox.count({ where: { commandId: e.id } })).toBe(0); // nothing recorded as rejected
+  });
+});
+describe("Sales and Purchases screens offline (protocol 2, Report 30)", () => {
+  it("a purchase bill with part paid now, a later supplier payment for it, a sale and a receipt: entered offline, posted once", async () => {
+    const supplier = await cloud.supplier.create({ data: { name: "Offline Mill", phone: "0300-9990000" } });
+    const customer = await cloud.customer.create({ data: { name: "Offline Customer" } });
+    const d = await newDevice("Godown PC");
+    await syncOnce(d.db, d.transport);
+    // Suppliers and customers come with the copy, so the screens can use them offline
+    expect([await d.db.supplier.count({ where: { id: supplier.id } }), await d.db.customer.count({ where: { id: customer.id } })]).toEqual([1, 1]);
+
+    d.state.online = false;
+    const bill = await submitCommand(d.db, d.local, {
+      type: "SCREEN_PURCHASE", actorUserId: id.admin,
+      input: { date: "2026-10-23", supplierId: supplier.id, vendorBillNo: "OM-1", items: [{ componentId: id.paper, quantity: 10, unit: "packet", unitPrice: "1000.50" }], paidNow: { amount: "3000", method: "CASH" } },
+    });
+    expect((JSON.parse(bill.preview!) as Preview).total).toBe("10005");
+    // A later payment for that same bill, made before anything was synced, refers to it by its entry
+    const pay = await submitCommand(d.db, d.local, {
+      type: "PAY_SUPPLIER", actorUserId: id.admin,
+      input: { supplierId: supplier.id, date: "2026-10-24", amount: "2005", method: "BANK_TRANSFER", reference: "TT-9", allocations: [{ bill: { commandRef: bill.id }, amount: "2005" }] },
+    });
+    const sold = await submitCommand(d.db, d.local, {
+      type: "SCREEN_SALE", actorUserId: id.clerk,
+      input: { date: "2026-10-24", customerId: customer.id, items: [{ componentId: id.paper, quantity: 2, unit: "packet", unitPrice: 1500 }], paidNow: { amount: "1000", method: "CASH" } },
+    });
+    const got = await submitCommand(d.db, d.local, {
+      type: "RECEIVE_PAYMENT", actorUserId: id.clerk,
+      input: { customerId: customer.id, date: "2026-10-25", amount: "2000", method: "CASH", allocations: [{ invoice: { commandRef: sold.id }, amount: "2000" }] },
+    });
+    expect([bill, pay, sold, got].map((e) => e.provisionalRef?.startsWith(`P-${d.device.code}-`))).toEqual([true, true, true, true]);
+
+    // Back online; the first answer is lost on the way, so everything is sent twice
+    d.state.online = true;
+    d.state.loseNextResponse = true;
+    await syncOnce(d.db, d.transport);
+    const r = await syncOnce(d.db, d.transport, new Date(Date.now() + 3_600_000));
+    expect(r.needsReview).toBe(0);
+    expect((await d.db.outboxCommand.findMany({ where: { id: { in: [bill.id, pay.id, sold.id, got.id] } } })).map((e) => e.status)).toEqual(["SYNCED", "SYNCED", "SYNCED", "SYNCED"]);
+
+    const pi = await cloud.accountingDocument.findUniqueOrThrow({ where: { commandId: bill.id } });
+    const p = await billPayments(cloud, pi.id);
+    expect([pi.docNo.startsWith("PI-"), pi.total, p.paid, p.remaining, p.status, p.payments.map((x) => x.docNo.slice(0, 3))]).toEqual([true, "10005", "5005", "5000", "PARTIALLY_PAID", ["CPV", "BPV"]]);
+    const si = await cloud.accountingDocument.findUniqueOrThrow({ where: { commandId: sold.id } });
+    const i = await invoicePayments(cloud, si.id);
+    expect([si.total, i.paid, i.status]).toEqual(["3000", "3000", "PAID"]);
+    // Exactly once: one bill, one payment of each kind, one sale, one receipt for these entries
+    expect(await cloud.accountingDocument.count({ where: { commandId: { in: [bill.id, `${bill.id}:paid`, pay.id, sold.id, `${sold.id}:paid`, got.id] } } })).toBe(6);
+    expect(await cloud.syncInbox.count({ where: { commandId: { in: [bill.id, pay.id, sold.id, got.id] } } })).toBe(4);
+    // The computer's copy now holds the official bill with its payments, and the books still balance
+    expect((await d.db.accountingDocument.findUniqueOrThrow({ where: { commandId: bill.id } })).docNo).toBe(pi.docNo);
+    expect((await billPayments(d.db, pi.id)).remaining).toBe("5000");
+    expect((await trialBalance(cloud)).balanced).toBe(true);
+  });
+
+  it("offline entries are checked against the server's rules and roles when they arrive", async () => {
+    const supplier = await cloud.supplier.findFirstOrThrow({ where: { name: "Offline Mill" } });
+    const d = await newDevice("Store PC");
+    await syncOnce(d.db, d.transport);
+    // Store staff may enter a bill but not pay a supplier: refused on this computer already
+    await expect(submitCommand(d.db, d.local, {
+      type: "PAY_SUPPLIER", actorUserId: id.store, input: { supplierId: supplier.id, date: "2026-10-26", amount: "10", method: "CASH", allocations: [] },
+    })).rejects.toThrow(/not allowed/);
+    // Paying more than a bill owes is refused here too, before it is queued
+    const pi = await cloud.accountingDocument.findFirstOrThrow({ where: { type: "PURCHASE_INVOICE", vendorBillNo: "OM-1" } });
+    await expect(submitCommand(d.db, d.local, {
+      type: "PAY_SUPPLIER", actorUserId: id.admin, input: { supplierId: supplier.id, date: "2026-10-26", amount: "9000", method: "CASH", allocations: [{ bill: { id: pi.id }, amount: "9000" }] },
+    })).rejects.toThrow(/only 5000 is still payable/);
   });
 });

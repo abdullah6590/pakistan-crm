@@ -1,120 +1,78 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
-import { formatCurrency, formatDate } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import { Printer } from "lucide-react";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, Download, Printer } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
+import { formatDate, formatPaisa } from "@/lib/utils";
 
-export default function StatementClient({ supplier }: { supplier: any }) {
-  
-  const ledger = useMemo(() => {
-    const entries = [
-      ...supplier.purchases.map((p: any) => ({
-        id: p.id,
-        date: p.createdAt,
-        type: "PURCHASE",
-        description: `Purchase ${p.poNumber}`,
-        ref: p.poNumber,
-        credit: p.total,
-        debit: 0
-      })),
-      ...supplier.supplierPayments.map((p: any) => ({
-        id: p.id,
-        date: p.date,
-        type: "PAYMENT",
-        description: `Payment ${p.paymentMethod}`,
-        ref: p.chequeNumber || "-",
-        credit: 0,
-        debit: p.amount
-      }))
-    ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+export interface SupplierStatement {
+  supplier: { id: string; name: string; phone: string | null; contactPerson: string | null };
+  partyCode: string | null; from: string | null; to: string | null; opening: string; closing: string; totalDebit: string; totalCredit: string;
+  rows: { date: string; docId: string; docNo: string; kind: string; reference: string | null; remarks: string | null; debit: string; credit: string; balance: string; remaining?: string }[];
+}
 
-    let balance = 0;
-    return entries.map(e => {
-      // For suppliers: Purchases increase what we owe (credit), Payments decrease what we owe (debit)
-      // So balance = sum(credit) - sum(debit). A positive balance means we owe the supplier.
-      balance += e.credit - e.debit;
-      return { ...e, balance };
-    });
-  }, [supplier]);
+const rs = (v: string | number) => formatPaisa(v);
+/** Positive: owed to the supplier; "Dr": the supplier owes the business. */
+const owed = (v: string) => (Number(v) < 0 ? `${rs(-Number(v))} Dr` : rs(v));
 
+export default function StatementClient({ statement: st }: { statement: SupplierStatement }) {
+  const router = useRouter();
+  const [from, setFrom] = useState(st.from ?? "");
+  const [to, setTo] = useState(st.to ?? "");
+  const range = `${from ? `from=${from}&` : ""}${to ? `to=${to}&` : ""}`;
+  const pdf = `/api/suppliers/${st.supplier.id}/statement?${range}format=pdf`;
   return (
-    <div className="bg-white text-black min-h-screen p-8 print:p-0">
-      <div className="max-w-4xl mx-auto border print:border-0 rounded-lg p-8 print:p-0">
-        
-        <div className="flex justify-between items-start mb-8">
+    <div className="space-y-6 max-w-5xl">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon" aria-label="Back to supplier" onClick={() => router.push(`/dashboard/suppliers/${st.supplier.id}`)}><ArrowLeft className="h-5 w-5" aria-hidden /></Button>
           <div>
-            <h1 className="text-3xl font-bold uppercase text-gray-800 tracking-wider">Supplier Statement</h1>
-            <p className="text-gray-500 mt-1">Generated: {new Date().toLocaleString()}</p>
-          </div>
-          <div className="print:hidden flex gap-2">
-            <Button variant="outline" onClick={() => window.history.back()}>Back</Button>
-            <Button onClick={() => window.print()}><Printer className="mr-2 h-4 w-4" /> Print Statement</Button>
+            <h1 className="text-2xl font-bold tracking-tight">Statement: {st.supplier.name}</h1>
+            <p className="text-sm text-muted-foreground">{st.partyCode} · positive balance = owed to the supplier</p>
           </div>
         </div>
-
-        <div className="flex justify-between items-end border-b pb-6 mb-6">
-          <div>
-            <h3 className="font-semibold text-gray-500 uppercase text-xs tracking-wider mb-2">Supplier Details</h3>
-            <p className="text-xl font-bold">{supplier.name}</p>
-            {supplier.company && <p className="text-gray-700">{supplier.company}</p>}
-            {supplier.phone && <p className="text-gray-700">{supplier.phone}</p>}
-            {supplier.email && <p className="text-gray-700">{supplier.email}</p>}
-            {supplier.address && <p className="text-gray-700">{supplier.address}, {supplier.city}</p>}
-          </div>
-          <div className="text-right">
-            <h3 className="font-semibold text-gray-500 uppercase text-xs tracking-wider mb-2">Account Summary</h3>
-            <p className="text-gray-700">Total Purchased: {formatCurrency(supplier.totalPurchased)}</p>
-            <p className="text-2xl font-bold text-red-600 mt-2">
-              Balance Payable: {formatCurrency(supplier.balanceDue)}
-            </p>
-          </div>
+        <div className="flex gap-2">
+          <a className={buttonVariants({ variant: "outline", className: "gap-2" })} href={`${pdf}&inline=1`} target="_blank" rel="noreferrer"><Printer className="h-4 w-4" aria-hidden /> Print</a>
+          <a className={buttonVariants({ variant: "outline", className: "gap-2" })} href={pdf} download><Download className="h-4 w-4" aria-hidden /> PDF</a>
         </div>
-
-        <Table className="border-collapse border border-gray-200">
-          <TableHeader className="bg-gray-100">
-            <TableRow>
-              <TableHead className="w-32">Date</TableHead>
-              <TableHead>Description</TableHead>
-              <TableHead>Ref</TableHead>
-              <TableHead className="text-right text-red-700">Credit (Billed)</TableHead>
-              <TableHead className="text-right text-green-700">Debit (Paid)</TableHead>
-              <TableHead className="text-right font-bold">Balance Payable</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {ledger.map(entry => (
-              <TableRow key={entry.id + entry.type}>
-                <TableCell>{formatDate(entry.date)}</TableCell>
-                <TableCell>{entry.description}</TableCell>
-                <TableCell>{entry.ref}</TableCell>
-                <TableCell className="text-right text-red-700">
-                  {entry.credit > 0 ? formatCurrency(entry.credit) : "-"}
-                </TableCell>
-                <TableCell className="text-right text-green-700">
-                  {entry.debit > 0 ? formatCurrency(entry.debit) : "-"}
-                </TableCell>
-                <TableCell className="text-right font-bold border-l bg-gray-50/50">
-                  {formatCurrency(entry.balance)}
-                </TableCell>
-              </TableRow>
-            ))}
-            {ledger.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center py-10 text-gray-500">
-                  No transactions found for this supplier.
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-
-        <div className="mt-16 text-center text-sm text-gray-400 print:block hidden">
-          <p>Generated by Pakistan CRM.</p>
-        </div>
-
       </div>
+
+      <Card>
+        <CardContent className="flex flex-wrap items-end gap-3 p-4">
+          <div className="space-y-1"><Label htmlFor="st-from">From</Label><Input id="st-from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></div>
+          <div className="space-y-1"><Label htmlFor="st-to">To</Label><Input id="st-to" type="date" value={to} onChange={(e) => setTo(e.target.value)} /></div>
+          <Button variant="outline" onClick={() => router.push(`/dashboard/suppliers/${st.supplier.id}/statement?${range}`)}>Show</Button>
+          <div className="ml-auto text-sm">Opening <b className="tabular-nums">{owed(st.opening)}</b> · Closing <b className="tabular-nums">{owed(st.closing)}</b></div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Document</TableHead><TableHead>Details</TableHead><TableHead className="text-right">Debit</TableHead><TableHead className="text-right">Credit</TableHead><TableHead className="text-right">Balance</TableHead></TableRow></TableHeader>
+            <TableBody>
+              <TableRow className="bg-muted/30"><TableCell colSpan={5} className="text-sm">Opening balance</TableCell><TableCell className="text-right tabular-nums">{owed(st.opening)}</TableCell></TableRow>
+              {st.rows.map((r) => (
+                <TableRow key={`${r.docId}-${r.date}-${r.debit}-${r.credit}`}>
+                  <TableCell className="text-xs whitespace-nowrap">{formatDate(r.date)}</TableCell>
+                  <TableCell>{r.kind === "Purchase bill" ? <a className="font-mono text-xs hover:underline" href={`/dashboard/purchases/${r.docId}`}>{r.docNo}</a> : <span className="font-mono text-xs">{r.docNo}</span>}</TableCell>
+                  <TableCell className="text-sm">{r.kind}{r.reference ? ` (${r.reference})` : ""}{r.remaining !== undefined && Number(r.remaining) > 0 ? <span className="text-xs text-muted-foreground"> · payable {rs(r.remaining)}</span> : null}</TableCell>
+                  <TableCell className="text-right tabular-nums">{Number(r.debit) ? rs(r.debit) : ""}</TableCell>
+                  <TableCell className="text-right tabular-nums">{Number(r.credit) ? rs(r.credit) : ""}</TableCell>
+                  <TableCell className="text-right tabular-nums">{owed(r.balance)}</TableCell>
+                </TableRow>
+              ))}
+              <TableRow className="font-semibold"><TableCell colSpan={3}>Totals</TableCell><TableCell className="text-right tabular-nums">{rs(st.totalDebit)}</TableCell><TableCell className="text-right tabular-nums">{rs(st.totalCredit)}</TableCell><TableCell className="text-right tabular-nums">{owed(st.closing)}</TableCell></TableRow>
+            </TableBody>
+          </Table>
+          <p className="border-t p-3 text-xs text-muted-foreground">Credit: purchase bills and refunds received from the supplier. Debit: payments and goods returned. Cancelled documents are left out.</p>
+        </CardContent>
+      </Card>
     </div>
   );
 }

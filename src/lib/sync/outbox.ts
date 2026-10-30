@@ -7,6 +7,7 @@ import type { PrismaClient } from "@prisma/client";
 import { PostingError, Tx } from "@/lib/accounting/posting";
 import { CommandOutcome, commandSchema, dependencyOf } from "./commands";
 import { Conflict, Deferred, perform } from "./execute";
+import { CREATES_DOCUMENT } from "./command-types";
 
 export const OUTBOX_STATUS = {
   PENDING_SYNC: "Pending sync",
@@ -46,7 +47,7 @@ export async function speculate<T>(db: PrismaClient, device: LocalDevice, fn: (t
         for (const row of pending) {
           const cmd = commandSchema.parse(JSON.parse(row.payload));
           // Already posted and copied here (it reached the server before this copy learned so): do not count twice (D-011)
-          if (cmd.type === "CREATE_DOCUMENT" && (await tx.accountingDocument.count({ where: { commandId: cmd.id } }))) continue;
+          if (CREATES_DOCUMENT.has(cmd.type) && (await tx.accountingDocument.count({ where: { commandId: cmd.id } }))) continue;
           if (cmd.type === "RECORD_CHARGE" && (await tx.chargeRecord.count({ where: { commandId: cmd.id } }))) continue;
           const sp = `pending_${n++}`;
           await tx.$executeRawUnsafe(`SAVEPOINT ${sp}`);
@@ -141,7 +142,7 @@ export async function submitCommand(db: PrismaClient, device: LocalDevice, draft
       return await db.$transaction(async (tx) => {
         const last = await tx.outboxCommand.findFirst({ where: { seq: { gt: 0 } }, orderBy: { seq: "desc" }, select: { seq: true } });
         const seq = (last?.seq ?? 0) + 1;
-        const provisional = command.type === "CREATE_DOCUMENT" || command.type === "RECORD_CHARGE" ? `P-${device.code}-${String(seq).padStart(5, "0")}` : null;
+        const provisional = CREATES_DOCUMENT.has(command.type) || command.type === "RECORD_CHARGE" ? `P-${device.code}-${String(seq).padStart(5, "0")}` : null;
         return tx.outboxCommand.create({
           data: {
             id: command.id, seq, type: command.type, payload: JSON.stringify(command), preview: JSON.stringify(preview), provisionalRef: provisional,

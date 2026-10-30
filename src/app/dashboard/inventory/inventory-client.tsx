@@ -59,6 +59,8 @@ export default function InventoryClient({ components, categories, suppliers, sta
   const router = useRouter();
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<ComponentItem | null>(null);
+  // Changing an existing item's quantity is a stock count in Books (approved by someone else; owner override with a reason)
+  const [countReason, setCountReason] = useState("");
   const [deleting, setDeleting] = useState<ComponentItem | null>(null);
   const [loading, setLoading] = useState(false);
   const [localCategories, setLocalCategories] = useState(categories);
@@ -225,9 +227,12 @@ export default function InventoryClient({ components, categories, suppliers, sta
     } finally { setLoading(false); }
   };
 
+  const quantityChanged = !!editing && (parseInt(form.quantity) || 0) !== editing.quantity;
+
   const handleUpdate = async () => {
     if (!editing) return;
     if (!form.name) { toast.error("Name is required"); return; }
+    if (quantityChanged && countReason.trim().length < 5) { toast.error("A changed quantity is a stock count: give the reason (who counted, why)"); return; }
     if (!form.categoryId) { toast.error("Category is required"); return; }
     setLoading(true);
     try {
@@ -239,7 +244,8 @@ export default function InventoryClient({ components, categories, suppliers, sta
           description: form.description || undefined,
           sku: form.sku,
           categoryId: form.categoryId,
-          quantity: parseInt(form.quantity) || 0,
+          // Sent only when changed: a new quantity becomes a stock count waiting for approval
+          ...(quantityChanged ? { quantity: parseInt(form.quantity) || 0, countReason } : {}),
           minQuantity: parseInt(form.minQuantity) || 5,
           unitCost: calcValues.purchasePrice || parseFloat(form.unitCost) || 0,
           unitPrice: calcValues.salePrice || parseFloat(form.unitPrice) || 0,
@@ -265,7 +271,12 @@ export default function InventoryClient({ components, categories, suppliers, sta
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to update");
       setEditing(null);
-      toast.success("Product updated");
+      setCountReason("");
+      if (data.stockCount?.status === "PENDING_APPROVAL") {
+        toast.success(`Product updated. The new quantity is stock count ${data.stockCount.docNo}, waiting for approval in Books`, { duration: 10000 });
+      } else if (data.stockCount) {
+        toast.success(`Product updated. Stock count ${data.stockCount.docNo} posted`);
+      } else toast.success("Product updated");
       router.refresh();
     } catch (e: any) { toast.error(e.message);
     } finally { setLoading(false); }
@@ -300,6 +311,9 @@ export default function InventoryClient({ components, categories, suppliers, sta
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => window.print()}>
               <Printer className="h-4 w-4 mr-1" /> Print Report
+            </Button>
+            <Button variant="outline" onClick={() => router.push("/dashboard/inventory/opening-stock")}>
+              <PackageOpen className="h-4 w-4 mr-1" /> Opening stock
             </Button>
             <Button onClick={() => { resetForm(); setShowAdd(true); }}>
               <Plus className="h-4 w-4 mr-1" /> Add Product
@@ -441,7 +455,7 @@ export default function InventoryClient({ components, categories, suppliers, sta
                         ) : null}
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm">{formatCurrency(c.supplierPrice)}</TableCell>
-                      <TableCell className="text-right font-mono text-sm text-amber-600">
+                      <TableCell className="text-right font-mono text-sm text-amber-700 dark:text-amber-400">
                         {c.weightKg && c.weightKg > 0 && c.ratePerKg && c.ratePerKg > 0 ? (
                           <div>
                             {formatCurrency(c.ratePerKg)}<span className="text-[10px] text-muted-foreground block">/kg</span>
@@ -461,10 +475,10 @@ export default function InventoryClient({ components, categories, suppliers, sta
                       <TableCell>{getStockBadge(c)}</TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
-                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(c)}>
+                          <Button variant="ghost" size="icon" className="h-7 w-7" aria-label={`Edit ${c.name}`} title="Edit" onClick={() => openEdit(c)}>
                             <Edit className="h-3.5 w-3.5" />
                           </Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => setDeleting(c)}>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" aria-label={`Delete ${c.name}`} title="Delete" onClick={() => setDeleting(c)}>
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </div>
@@ -676,6 +690,13 @@ export default function InventoryClient({ components, categories, suppliers, sta
                   const itemsPerPkg = parseInt(form.itemsPerPackage) || 1;
                   setForm({...form, quantity: String(qty), packages: String(Math.floor(qty / itemsPerPkg)), looseQuantity: String(qty % itemsPerPkg)});
                 }} />
+                {quantityChanged && (
+                  <div className="space-y-1 rounded-md border border-amber-500/30 bg-amber-500/5 p-2">
+                    <Label className="text-xs">Stock count: was {editing!.quantity}, counted {parseInt(form.quantity) || 0}. Reason *</Label>
+                    <Input value={countReason} onChange={e => setCountReason(e.target.value)} placeholder="e.g. counted in the store by Ali" />
+                    <p className="text-xs text-muted-foreground">Sent to Books as a stock count. Stock changes only after someone else approves it (or the owner, with an override reason).</p>
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex gap-4">

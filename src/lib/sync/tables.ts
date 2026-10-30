@@ -10,6 +10,9 @@ export const REPLICATED_TABLES: ReplicatedTable[] = [
   { name: "users", key: "id" },
   { name: "devices", key: "id" },
   { name: "component_categories", key: "id" },
+  // Customers and suppliers (protocol 2): needed to enter bills and payments offline; items point at their supplier
+  { name: "customers", key: "id" },
+  { name: "suppliers", key: "id" },
   { name: "components", key: "id" },
   { name: "item_unit_profiles", key: "id" },
   { name: "item_unit_conversions", key: "id" },
@@ -20,6 +23,7 @@ export const REPLICATED_TABLES: ReplicatedTable[] = [
   { name: "accounting_documents", key: "id" },
   { name: "accounting_document_lines", key: "id" },
   { name: "charge_records", key: "id" },
+  { name: "payment_allocations", key: "id" },
   { name: "journal_entries", key: "id", appendOnly: true },
   { name: "journal_lines", key: "id", appendOnly: true },
   { name: "stock_movements", key: "id", appendOnly: true },

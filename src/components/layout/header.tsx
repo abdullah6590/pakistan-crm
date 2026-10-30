@@ -3,6 +3,7 @@
 
 import { useState } from "react";
 import { useTheme } from "next-themes";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   Bell,
@@ -33,6 +34,7 @@ interface HeaderProps {
 }
 
 export function Header({ userName, userEmail, userRole, unreadNotifications }: HeaderProps) {
+  const router = useRouter();
   const { theme, setTheme } = useTheme();
   const [searchOpen, setSearchOpen] = useState(false);
 
@@ -84,6 +86,7 @@ export function Header({ userName, userEmail, userRole, unreadNotifications }: H
           className="h-9 w-9"
           onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
           title="Toggle theme"
+          aria-label="Switch between light and dark theme"
         >
           <Sun className="h-4 w-4 rotate-0 scale-100 transition-transform dark:-rotate-90 dark:scale-0" />
           <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-transform dark:rotate-0 dark:scale-100" />
@@ -92,7 +95,7 @@ export function Header({ userName, userEmail, userRole, unreadNotifications }: H
         {/* Notifications */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-9 w-9 relative">
+            <Button variant="ghost" size="icon" className="h-9 w-9 relative" aria-label={unreadNotifications > 0 ? `Notifications, ${unreadNotifications} unread` : "Notifications"}>
               <Bell className="h-4 w-4" />
               {unreadNotifications > 0 && (
                 <Badge
@@ -169,7 +172,8 @@ export function Header({ userName, userEmail, userRole, unreadNotifications }: H
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={async () => {
               await fetch("/api/auth/logout", { method: "POST" });
-              window.location.href = "/login";
+              router.replace("/login");
+              router.refresh();
             }} className="w-full cursor-pointer text-red-600">
               Sign out
             </DropdownMenuItem>

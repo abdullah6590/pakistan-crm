@@ -5,6 +5,7 @@ import { authorize } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { ensureFolder, DriveError } from "@/lib/backup/drive";
 import { driveLabel, driveStatus, uploadsNow } from "@/lib/backup/runtime";
+import { userRateLimitGuard } from "@/lib/rate-limit";
 
 export async function GET() {
   const auth = await authorize("backupLocal", "read");
@@ -25,6 +26,9 @@ export async function POST(request: NextRequest) {
   const parsed = schema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   const body = parsed.data;
+  // Folder and settings changes are light; an upload copies whole backups, so it has the backup-run limit
+  const limited = await userRateLimitGuard(prisma, request, body.action === "upload-now" ? "backupRun" : "backupSettings", auth.user.id);
+  if (limited) return limited;
   try {
     if (body.action === "folder") {
       const id = await ensureFolder(prisma, body.folderName ?? "Pakistan CRM Backups", driveLabel().tenantId);

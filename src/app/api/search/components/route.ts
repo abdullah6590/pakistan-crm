@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authorize } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
+import { UNIT_FIELDS, withSaleUnits } from "@/lib/sales/units";
 
 export async function GET(request: NextRequest) {
   try {
@@ -41,8 +42,8 @@ export async function GET(request: NextRequest) {
           gsm: true,
           divisor: true,
           weightKg: true,
-          rimInSheet: true,
           ratePerKg: true,
+          ...UNIT_FIELDS,
         },
       });
     } else if (q.trim().length > 0) {
@@ -67,13 +68,13 @@ export async function GET(request: NextRequest) {
           gsm: true,
           divisor: true,
           weightKg: true,
-          rimInSheet: true,
           ratePerKg: true,
+          ...UNIT_FIELDS,
         },
       });
     }
 
-    return NextResponse.json({ data: components });
+    return NextResponse.json({ data: components.map(withSaleUnits) });
   } catch (error) {
     console.error("Error searching components:", error);
     return NextResponse.json({ error: "Failed to search components" }, { status: 500 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { Mic, MicOff, Loader2, X, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -29,8 +29,14 @@ const NAVIGATION_INTENTS = [
   { keywords: ["finance", "accounts", "money"], path: "/dashboard/finance", name: "Finance" },
   { keywords: ["projects", "jobs", "tasks"], path: "/dashboard/projects", name: "Projects" },
   { keywords: ["reports", "analytics", "stats"], path: "/dashboard/reports", name: "Reports" },
-  { keywords: ["backup", "sync", "settings"], path: "/dashboard/backup", name: "Backup" },
+  { keywords: ["backup", "sync", "settings"], path: "/dashboard/accounting/backups", name: "Backup" },
 ];
+
+// Whether this browser can do speech recognition (it does not change while the page is open).
+// On the server it counts as unsupported, so the button only appears once the page runs in the browser.
+const subscribeToNothing = () => () => {};
+const browserSupportsSpeech = () => !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+const serverSupportsSpeech = () => false;
 
 export default function VoiceAssistant() {
   const router = useRouter();
@@ -39,8 +45,41 @@ export default function VoiceAssistant() {
   const [error, setError] = useState<string | null>(null);
   const [showTooltip, setShowTooltip] = useState(false);
   
+  const supported = useSyncExternalStore(subscribeToNothing, browserSupportsSpeech, serverSupportsSpeech);
   const recognitionRef = useRef<any>(null);
   const tooltipTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const processCommand = useCallback((text: string) => {
+    // 1. Check for Navigation Intents
+    if (text.includes("go to") || text.includes("open") || text.includes("show")) {
+      for (const intent of NAVIGATION_INTENTS) {
+        if (intent.keywords.some(kw => text.includes(kw))) {
+          toast.success(`Navigating to ${intent.name}`);
+          router.push(intent.path);
+          return;
+        }
+      }
+    }
+
+    // 2. Direct Navigation (without "go to")
+    for (const intent of NAVIGATION_INTENTS) {
+      if (intent.keywords.some(kw => text === kw || text === `go ${kw}`)) {
+        toast.success(`Navigating to ${intent.name}`);
+        router.push(intent.path);
+        return;
+      }
+    }
+
+    // 3. Action Intents
+    if (text.includes("add") || text.includes("new") || text.includes("create")) {
+      if (text.includes("customer")) { router.push("/dashboard/customers"); toast.info("Opening Customers"); return; }
+      if (text.includes("supplier") || text.includes("vendor")) { router.push("/dashboard/suppliers"); toast.info("Opening Suppliers"); return; }
+      if (text.includes("item") || text.includes("component") || text.includes("stock")) { router.push("/dashboard/inventory"); toast.info("Opening Inventory"); return; }
+    }
+
+    // 4. Unrecognized
+    toast.error("Command not recognized: " + text);
+  }, [router]);
 
   // Initialize Speech Recognition
   useEffect(() => {
@@ -98,12 +137,8 @@ export default function VoiceAssistant() {
         recognitionRef.current.onend = () => {
           setIsListening(false);
           // Don't clear transcript immediately if we successfully parsed something
-          if (transcript === "Listening...") {
-            setTranscript("");
-          }
+          setTranscript((t) => (t === "Listening..." ? "" : t));
         };
-      } else {
-        setError("Speech recognition is not supported in this browser. Try Google Chrome.");
       }
     }
 
@@ -112,46 +147,9 @@ export default function VoiceAssistant() {
         recognitionRef.current.abort();
       }
     };
-  }, []);
-
-  const processCommand = (text: string) => {
-    // 1. Check for Navigation Intents
-    if (text.includes("go to") || text.includes("open") || text.includes("show")) {
-      for (const intent of NAVIGATION_INTENTS) {
-        if (intent.keywords.some(kw => text.includes(kw))) {
-          toast.success(`Navigating to ${intent.name}`);
-          router.push(intent.path);
-          return;
-        }
-      }
-    }
-
-    // 2. Direct Navigation (without "go to")
-    for (const intent of NAVIGATION_INTENTS) {
-      if (intent.keywords.some(kw => text === kw || text === `go ${kw}`)) {
-        toast.success(`Navigating to ${intent.name}`);
-        router.push(intent.path);
-        return;
-      }
-    }
-
-    // 3. Action Intents
-    if (text.includes("add") || text.includes("new") || text.includes("create")) {
-      if (text.includes("customer")) { router.push("/dashboard/customers"); toast.info("Opening Customers"); return; }
-      if (text.includes("supplier") || text.includes("vendor")) { router.push("/dashboard/suppliers"); toast.info("Opening Suppliers"); return; }
-      if (text.includes("item") || text.includes("component") || text.includes("stock")) { router.push("/dashboard/inventory"); toast.info("Opening Inventory"); return; }
-    }
-
-    // 4. Unrecognized
-    toast.error("Command not recognized: " + text);
-  };
+  }, [processCommand]);
 
   const toggleListen = () => {
-    if (error && error.includes("not supported")) {
-      toast.error(error);
-      return;
-    }
-
     if (isListening) {
       recognitionRef.current?.abort(); // Forcefully abort instead of stop to immediately end it
       setIsListening(false);
@@ -171,7 +169,7 @@ export default function VoiceAssistant() {
     tooltipTimeoutRef.current = setTimeout(() => setShowTooltip(false), 5000);
   };
 
-  if (error && error.includes("not supported")) {
+  if (!supported) {
     return null; // Hide completely if browser doesn't support it
   }
 

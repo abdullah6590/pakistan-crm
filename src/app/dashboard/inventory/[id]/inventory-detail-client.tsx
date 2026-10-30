@@ -93,7 +93,8 @@ export default function InventoryDetailClient({ component: initial, categories, 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: form.name, description: form.description || undefined,
-          categoryId: form.categoryId, quantity: parseInt(form.quantity) || 0,
+          // The quantity is changed with "Adjust stock" (a stock count), not here
+          categoryId: form.categoryId,
           minQuantity: parseInt(form.minQuantity) || 5,
           unitCost: parseFloat(form.unitCost) || 0,
           unitPrice: parseFloat(form.unitPrice) || 0,
@@ -127,19 +128,22 @@ export default function InventoryDetailClient({ component: initial, categories, 
     setLoading(true);
     const qty = parseInt(adjust.quantity) || 0;
     if (qty <= 0) { toast.error("Enter valid quantity"); setLoading(false); return; }
+    if (adjust.notes.trim().length < 5) { toast.error("Give the reason for this stock count (who counted, why)"); setLoading(false); return; }
     try {
       const newQty = adjust.type === "ADD" ? component.quantity + qty : Math.max(0, component.quantity - qty);
       const res = await fetch(`/api/inventory/${component.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ quantity: newQty }),
+        body: JSON.stringify({ quantity: newQty, countReason: adjust.notes }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Adjustment failed");
       setComponent(data.component);
       setAdjusting(false);
       setAdjust({ type: "ADD", quantity: "1", notes: "" });
-      toast.success("Stock adjusted");
+      toast.success(data.stockCount?.status === "PENDING_APPROVAL"
+        ? `Stock count ${data.stockCount.docNo} created; stock changes once it is approved in Books`
+        : `Stock count ${data.stockCount?.docNo ?? ""} posted`, { duration: 10000 });
       router.refresh();
     } catch (e: any) { toast.error(e.message);
     } finally { setLoading(false); }
@@ -150,7 +154,7 @@ export default function InventoryDetailClient({ component: initial, categories, 
       {/* Header */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => router.push("/dashboard/inventory")}>
+          <Button variant="ghost" size="icon" aria-label="Back to Inventory" onClick={() => router.push("/dashboard/inventory")}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>
@@ -430,7 +434,7 @@ export default function InventoryDetailClient({ component: initial, categories, 
             </Select>
           </div>
           <div className="space-y-1"><Label>Quantity</Label><Input type="number" min="1" value={adjust.quantity} onChange={e => setAdjust({...adjust, quantity: e.target.value})} /></div>
-          <div className="space-y-1"><Label>Notes</Label><Input value={adjust.notes} onChange={e => setAdjust({...adjust, notes: e.target.value})} placeholder="Reason for adjustment" /></div>
+          <div className="space-y-1"><Label>Notes</Label><Input value={adjust.notes} onChange={e => setAdjust({...adjust, notes: e.target.value})} placeholder="Reason (who counted, why) *" /></div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => setAdjusting(false)}>Cancel</Button>

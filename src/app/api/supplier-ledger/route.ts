@@ -1,72 +1,35 @@
-// src/app/api/supplier-ledger/route.ts - Supplier Ledger API
+// src/app/api/supplier-ledger/route.ts - Supplier Ledger from Books (Report 30 §7): purchase bills raise what is owed to
+// the supplier; payments, returns and refunds lower it, with a running balance. Purchases from before Purchases moved to
+// Books are under Purchases → Older purchases.
 import { NextRequest, NextResponse } from "next/server";
 import { authorize } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
-import { getAuthUser } from "@/lib/auth";
+import { supplierStatement } from "@/lib/purchases/queries";
 
 export async function GET(request: NextRequest) {
   const auth = await authorize("suppliers", "read");
   if (auth.response) return auth.response;
-  const user = auth.user;
 
   const { searchParams } = new URL(request.url);
   const supplierId = searchParams.get("supplierId");
   if (!supplierId) return NextResponse.json({ error: "supplierId is required" }, { status: 400 });
 
-  const startDate = searchParams.get("startDate");
-  const endDate = searchParams.get("endDate");
+  const st = await supplierStatement(prisma, supplierId, { from: searchParams.get("startDate") ?? undefined, to: searchParams.get("endDate") ?? undefined });
+  if (!st) return NextResponse.json({ error: "Supplier not found" }, { status: 404 });
 
-  const dateFilter: any = {};
-  if (startDate) dateFilter.gte = new Date(startDate);
-  if (endDate) dateFilter.lte = new Date(endDate);
-  const hasDateFilter = Object.keys(dateFilter).length > 0;
-
-  const supplier = await prisma.supplier.findUnique({
-    where: { id: supplierId },
-    select: { id: true, name: true, company: true, phone: true, totalPurchased: true, balanceDue: true },
-  });
-  if (!supplier) return NextResponse.json({ error: "Supplier not found" }, { status: 404 });
-
-  const purchases = await prisma.purchase.findMany({
-    where: { supplierId, ...(hasDateFilter ? { createdAt: dateFilter } : {}) },
-    include: { items: { include: { component: { select: { name: true, sku: true } } } } },
-    orderBy: { createdAt: "asc" },
-  });
-
-  const payments = await prisma.supplierPayment.findMany({
-    where: { supplierId, ...(hasDateFilter ? { date: dateFilter } : {}) },
-    orderBy: { date: "asc" },
-  });
-
-  // Build chronological ledger
-  const entries = [
-    ...purchases.map(p => ({
-      id: p.id, date: p.createdAt, type: "PURCHASE" as const,
-      description: `Purchase ${p.poNumber}${p.invoiceRef ? ` (Ref: ${p.invoiceRef})` : ""}`,
-      debit: p.total, credit: 0, reference: p.poNumber,
-      details: p.items.map(i => `${i.component.name} x${i.quantity} @ ${i.unitCost}`).join(", "),
+  // This screen's columns: "debit" = purchased (owed to the supplier), "credit" = paid, returned or refunded
+  const ledger = [
+    ...(Number(st.opening) !== 0 ? [{ id: "opening", date: st.from, type: "OPENING", description: "Opening balance", debit: 0, credit: 0, reference: null, details: "", balance: Number(st.opening) }] : []),
+    ...st.rows.map((r) => ({
+      id: r.docId, date: r.date, type: r.kind === "Purchase bill" ? "PURCHASE" : r.kind === "Payment" ? "PAYMENT" : r.kind.toUpperCase().replace(/ /g, "_"),
+      description: `${r.kind} ${r.docNo}${r.reference ? ` (${r.reference})` : ""}`, debit: Number(r.credit), credit: Number(r.debit), reference: r.docNo,
+      details: [r.remaining !== undefined ? `Still payable on this bill: ${r.remaining}` : null, r.remarks].filter(Boolean).join(" · "),
+      balance: Number(r.balance),
     })),
-    ...payments.map(p => ({
-      id: p.id, date: p.date, type: "PAYMENT" as const,
-      description: `Payment via ${p.paymentMethod}${p.chequeNumber ? ` (Cheque: ${p.chequeNumber})` : ""}`,
-      debit: 0, credit: p.amount, reference: p.chequeNumber || null,
-      details: p.notes || "",
-    })),
-  ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-  // Calculate running balance
-  let balance = 0;
-  const ledger = entries.map(entry => {
-    balance += entry.debit - entry.credit;
-    return { ...entry, balance };
-  });
-
-  const totalPurchased = purchases.reduce((s, p) => s + p.total, 0);
-  const totalPaid = payments.reduce((s, p) => s + p.amount, 0);
-
+  ];
   return NextResponse.json({
-    supplier,
+    supplier: { ...st.supplier, company: null, balanceDue: Number(st.closing) },
     ledger,
-    summary: { totalPurchased, totalPaid, balanceDue: totalPurchased - totalPaid },
+    summary: { totalPurchased: Number(st.totalCredit), totalPaid: Number(st.totalDebit), balanceDue: Number(st.closing) },
   });
 }

@@ -6,6 +6,10 @@ import { hashPassword, createToken } from "@/lib/auth";
 import { tenancyMode } from "@/lib/tenancy/config";
 import { registerSchema } from "@/lib/validations";
 import prisma from "@/lib/prisma";
+import { newSessionData } from "@/lib/auth-sessions";
+import { clientIpIdentities, rateLimitGuard, trustedClientIp } from "@/lib/rate-limit";
+
+class RegistrationClosedError extends Error {}
 
 export async function GET() {
   // Multi-tenant: businesses and their first administrator are created by the platform, not by sign-up
@@ -19,6 +23,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Registration is closed. Your business account is created by the provider." }, { status: 403 });
   }
   try {
+    // Registration only creates the very first administrator, so one bucket for the whole server is enough, plus the
+    // caller's address where a trusted proxy reports it
+    const limited = await rateLimitGuard(prisma, "register", [["bootstrap"], ...clientIpIdentities(request)]);
+    if (limited) return limited;
     const body = await request.json();
 
     // Validate input
@@ -56,29 +64,38 @@ export async function POST(request: Request) {
     const hashedPassword = await hashPassword(password);
 
     // Create the bootstrap administrator
-    const user = await prisma.user.create({
-      data: {
-        name,
-        email,
-        password: hashedPassword,
-        phone: phone || null,
-        role: "ADMIN",
-        isActive: true,
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        image: true,
-      },
+    const { user, session } = await prisma.$transaction(async (tx) => {
+      // Repeat the bootstrap check inside the write transaction so two simultaneous first-user requests
+      // cannot both create administrators.
+      if (await tx.user.count()) throw new RegistrationClosedError();
+      const user = await tx.user.create({
+        data: {
+          name,
+          email,
+          password: hashedPassword,
+          phone: phone || null,
+          role: "ADMIN",
+          isActive: true,
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          image: true,
+        },
+      });
+      const session = await tx.session.create({ data: newSessionData(user.id, {
+        userAgent: request.headers.get("user-agent") || undefined,
+        ip: trustedClientIp(request),
+      }) });
+      return { user, session };
     });
-
-    // Create JWT token
     const token = await createToken({
       userId: user.id,
       email: user.email,
       role: user.role,
+      sessionId: session.id,
     });
 
     // Set cookie
@@ -97,6 +114,12 @@ export async function POST(request: Request) {
 
     return response;
   } catch (error) {
+    if (error instanceof RegistrationClosedError) {
+      return NextResponse.json(
+        { error: "Registration is closed. Ask an administrator to create your account." },
+        { status: 403 },
+      );
+    }
     console.error("Register error:", error);
     return NextResponse.json(
       { error: "Internal server error" },

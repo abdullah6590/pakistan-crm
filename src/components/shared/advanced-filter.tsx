@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Search, X, Filter, Printer, LineChart } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -28,16 +28,15 @@ interface Props {
 export function AdvancedFilter({ filters, onSearchChange, showPrint = true, showAnalyze = true, moduleName }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [activeFilters, setActiveFilters] = useState<{ [key: string]: string }>({});
-
-  useEffect(() => {
+  // The filters in use are read from the address bar
+  const activeFilters = useMemo(() => {
     const current: { [key: string]: string } = {};
     searchParams.forEach((value, key) => {
       if (key !== "page" && value && value !== "all") {
         current[key] = value;
       }
     });
-    setActiveFilters(current);
+    return current;
   }, [searchParams]);
 
   const updateFilter = (key: string, value: string) => {

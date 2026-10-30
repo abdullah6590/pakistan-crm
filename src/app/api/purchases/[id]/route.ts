@@ -1,85 +1,61 @@
-// src/app/api/purchases/[id]/route.ts
+// src/app/api/purchases/[id]/route.ts - One purchase bill (Report 30): view it, correct it (a new revision that keeps its
+// payments) or cancel it (full reversal of stock and accounts; its payments become the supplier's credit). Purchase
+// orders from the old Purchases table are read-only.
 import { NextRequest, NextResponse } from "next/server";
 import { authorize } from "@/lib/permissions";
-import prisma from "@/lib/prisma";
-import { getAuthUser } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { accountingError, accountingReady, serialize } from "@/lib/accounting/server";
+import { PostingError, cancelDocument } from "@/lib/accounting/posting";
+import { amendScreenPurchase } from "@/lib/purchases/books-purchases";
+import { loadPurchaseBill } from "@/lib/purchases/queries";
+import { amendPurchaseSchema, cancelSchema } from "@/lib/purchases/schemas";
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+const OLDER = "This purchase was entered before Purchases moved to Books and can no longer be changed; enter a new bill instead";
+
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await authorize("purchases", "read");
   if (auth.response) return auth.response;
-  const user = auth.user;
-
   const { id } = await params;
+  const bill = await loadPurchaseBill(prisma, id);
+  if (bill) return NextResponse.json(serialize({ bill }));
   const purchase = await prisma.purchase.findUnique({
     where: { id },
-    include: {
-      supplier: true,
-      items: { include: { component: { select: { id: true, name: true, sku: true } } } },
-      user: { select: { name: true } },
-    },
+    include: { supplier: true, items: { include: { component: { select: { id: true, name: true, sku: true } } } }, user: { select: { name: true } } },
   });
-
   if (!purchase) return NextResponse.json({ error: "Purchase not found" }, { status: 404 });
-  return NextResponse.json({ purchase });
+  return NextResponse.json({ purchase, older: true });
 }
 
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await authorize("purchases", "write");
   if (auth.response) return auth.response;
-  const user = auth.user;
-
   const { id } = await params;
-  const existing = await prisma.purchase.findUnique({ where: { id } });
-  if (!existing) return NextResponse.json({ error: "Purchase not found" }, { status: 404 });
-
-  // Authorization Check: Only ADMIN or the creator can modify
-  if (user.role !== "ADMIN" && existing.userId !== user.id) {
-    return NextResponse.json({ error: "Forbidden: Not authorized to modify this purchase" }, { status: 403 });
+  try {
+    await accountingReady();
+    if (await prisma.purchase.findUnique({ where: { id }, select: { id: true } })) return NextResponse.json({ error: OLDER }, { status: 409 });
+    const { reason, ...input } = amendPurchaseSchema.parse(await request.json());
+    const result = await amendScreenPurchase(prisma, { id: auth.user.id, role: auth.user.role }, id, {
+      ...input, vendorBillDate: input.vendorBillDate || null, dueDate: input.dueDate || null, biltyDate: input.biltyDate || null,
+    }, reason);
+    return NextResponse.json(serialize({ purchase: result.document, releasedCredit: result.releasedCredit }));
+  } catch (error) {
+    return accountingError(error);
   }
-
-  const body = await request.json();
-  const purchase = await prisma.purchase.update({
-    where: { id },
-    data: {
-      paymentStatus: body.paymentStatus,
-      paidAmount: body.paidAmount,
-      notes: body.notes,
-    },
-  });
-
-  return NextResponse.json({ success: true, purchase });
 }
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  // Cancelling a purchase bill is for those who may delete purchases (administrators)
   const auth = await authorize("purchases", "delete");
   if (auth.response) return auth.response;
-  const user = auth.user;
-
   const { id } = await params;
-  const existing = await prisma.purchase.findUnique({ where: { id } });
-  if (!existing) return NextResponse.json({ error: "Purchase not found" }, { status: 404 });
-
-  // Reverse inventory increments
-  const items = await prisma.purchaseItem.findMany({ where: { purchaseId: id } });
-  for (const item of items) {
-    await prisma.component.update({
-      where: { id: item.componentId },
-      data: {
-        quantity: { decrement: item.quantity },
-        totalPurchased: { decrement: item.quantity },
-      },
-    });
+  try {
+    if (await prisma.purchase.findUnique({ where: { id }, select: { id: true } })) return NextResponse.json({ error: OLDER }, { status: 409 });
+    const { reason } = cancelSchema.parse(await request.json().catch(() => ({})));
+    const doc = await prisma.accountingDocument.findUnique({ where: { id } });
+    if (!doc || doc.type !== "PURCHASE_INVOICE") throw new PostingError("Purchase bill not found", 404);
+    const cancelled = await cancelDocument(prisma, { id: auth.user.id, role: auth.user.role }, id, reason);
+    return NextResponse.json(serialize({ purchase: cancelled }));
+  } catch (error) {
+    return accountingError(error);
   }
-
-  await prisma.purchase.delete({ where: { id } });
-  return NextResponse.json({ success: true, message: "Purchase deleted" });
 }

@@ -3,10 +3,12 @@ import { NextResponse } from "next/server";
 import { hashPassword, verifyPassword, createToken } from "@/lib/auth";
 import { loginSchema } from "@/lib/validations";
 import prisma from "@/lib/prisma";
-import { isLimited, recordFailure, clearFailures } from "@/lib/rate-limit";
+import { trustedClientIp } from "@/lib/rate-limit";
+import { loginAttempt } from "@/lib/login-protection";
 import { tenancyMode, DEFAULT_TENANT_ID } from "@/lib/tenancy/config";
 import { getTenantBySlug } from "@/lib/tenancy/registry";
 import { runWithTenant } from "@/lib/tenancy/context";
+import { createSession } from "@/lib/auth-sessions";
 
 export async function POST(request: Request) {
   // Multi-tenant: the business named at sign-in selects the database; everything below runs inside it
@@ -35,14 +37,12 @@ async function login(request: Request, tenantId: string) {
 
     const { email, password } = parsed.data;
 
-    const ip = request.headers.get("x-forwarded-for")?.split(",")[0].trim() || "local";
-    const limitKeys = [`login:email:${tenantId}:${email.toLowerCase()}`, `login:ip:${ip}`];
-    if (isLimited(limitKeys)) {
-      return NextResponse.json(
-        { error: "Too many failed login attempts. Try again in 15 minutes." },
-        { status: 429 }
-      );
-    }
+    const ip = trustedClientIp(request);
+    // Only failed attempts count; a browser where this account signed in before has its own counter, so guessing at
+    // an account cannot lock its user out (src/lib/login-protection.ts)
+    const attempt = loginAttempt(prisma, request, tenantId, email);
+    const limited = await attempt.refused();
+    if (limited) return limited;
 
     // Find user
     const user = await prisma.user.findUnique({
@@ -50,7 +50,7 @@ async function login(request: Request, tenantId: string) {
     });
 
     if (!user) {
-      recordFailure(limitKeys);
+      await attempt.failed();
       return NextResponse.json(
         { error: "Invalid email or password" },
         { status: 401 }
@@ -58,6 +58,7 @@ async function login(request: Request, tenantId: string) {
     }
 
     if (!user.isActive) {
+      await attempt.failed();
       return NextResponse.json(
         { error: "Account has been deactivated. Contact admin." },
         { status: 403 }
@@ -67,20 +68,22 @@ async function login(request: Request, tenantId: string) {
     // Verify password
     const isValid = await verifyPassword(password, user.password);
     if (!isValid) {
-      recordFailure(limitKeys);
+      await attempt.failed();
       return NextResponse.json(
         { error: "Invalid email or password" },
         { status: 401 }
       );
     }
 
-    clearFailures(limitKeys);
-
-    // Create JWT token
+    const session = await createSession(prisma, user.id, {
+      userAgent: request.headers.get("user-agent") || undefined,
+      ip,
+    });
     const token = await createToken({
       userId: user.id,
       email: user.email,
       role: user.role,
+      sessionId: session.id,
       tenantId,
     });
 
@@ -103,6 +106,7 @@ async function login(request: Request, tenantId: string) {
       maxAge: 60 * 60 * 24 * 7, // 7 days
       path: "/",
     });
+    attempt.succeeded(response);
 
     return response;
   } catch (error) {

@@ -10,7 +10,11 @@ import {
   createPressLoss, createVoucher, createTransfer, createOpeningBalance, createSaleReturn, createPurchaseReturn, createStockAdjustment,
 } from "@/lib/accounting/posting";
 import { recordCharge, postChargeAsExpense, reverseChargePosting, cancelCharge } from "@/lib/accounting/charges";
-import { SyncCommand, CommandOutcome, commandHash, commandSchema } from "./commands";
+import { CommandOutcome, SyncCommand, commandHash, commandSchema } from "./commands";
+import { paySupplier } from "@/lib/accounting/payables";
+import { receivePayment } from "@/lib/accounting/receivables";
+import { createScreenPurchase, partyForSupplier } from "@/lib/purchases/books-purchases";
+import { accountForPayment, createScreenSale, partyForCustomer } from "@/lib/sales/books-sales";
 
 type Creator = (db: Tx, actor: Actor, input: never) => Promise<{ id: string; docNo: string }>;
 const CREATE: Record<string, Creator> = {
@@ -96,6 +100,43 @@ export async function perform(tx: Tx, cmd: SyncCommand, deviceId: string): Promi
       : await cancelDocument(tx, actor, doc.id, cmd.reason ?? "");
     return { status: "ACCEPTED", documentId: after.id, docNo: after.docNo };
   }
+  if (cmd.type === "SCREEN_PURCHASE") {
+    requirePermission(actor, "purchases", "write");
+    if (cmd.input.paidNow && Number(cmd.input.paidNow.amount) > 0) requirePermission(actor, "supplierPayments", "write");
+    const r = await createScreenPurchase(tx, actor, {
+      ...cmd.input, vendorBillDate: cmd.input.vendorBillDate || null, dueDate: cmd.input.dueDate || null, biltyDate: cmd.input.biltyDate || null, requestId: cmd.id,
+    });
+    await tx.accountingDocument.updateMany({ where: { id: { in: [r.document.id, ...(r.payment ? [r.payment.id] : [])] } }, data: { originDeviceId: deviceId } });
+    return { status: "ACCEPTED", documentId: r.document.id, docNo: r.document.docNo };
+  }
+  if (cmd.type === "PAY_SUPPLIER") {
+    requirePermission(actor, "supplierPayments", "write");
+    const { allocations, supplierId, method, cashAccountId, ...rest } = cmd.input;
+    const bills = [];
+    for (const a of allocations) bills.push({ billId: (await resolveDocument(tx, a.bill)).id, amount: a.amount });
+    const party = await partyForSupplier(tx, supplierId, actor.id, { allowInactive: true });
+    const cash = await accountForPayment(tx, method, cashAccountId, actor.id);
+    const r = await paySupplier(tx, actor, { ...rest, partyAccountId: party.id, cashAccountId: cash.id, allocations: bills, requestId: cmd.id });
+    await tx.accountingDocument.update({ where: { id: r.payment.id }, data: { originDeviceId: deviceId } });
+    return { status: "ACCEPTED", documentId: r.payment.id, docNo: r.payment.docNo };
+  }
+  if (cmd.type === "SCREEN_SALE") {
+    requirePermission(actor, "sales", "write");
+    const r = await createScreenSale(tx, actor, { ...cmd.input, requestId: cmd.id });
+    await tx.accountingDocument.updateMany({ where: { id: { in: [r.document.id, ...(r.receipt ? [r.receipt.id] : [])] } }, data: { originDeviceId: deviceId } });
+    return { status: "ACCEPTED", documentId: r.document.id, docNo: r.document.docNo };
+  }
+  if (cmd.type === "RECEIVE_PAYMENT") {
+    requirePermission(actor, "customerPayments", "write");
+    const { allocations, customerId, method, cashAccountId, ...rest } = cmd.input;
+    const invoices = [];
+    for (const a of allocations) invoices.push({ invoiceId: (await resolveDocument(tx, a.invoice)).id, amount: a.amount });
+    const party = await partyForCustomer(tx, customerId, actor.id);
+    const cash = await accountForPayment(tx, method, cashAccountId, actor.id);
+    const r = await receivePayment(tx, actor, { ...rest, partyAccountId: party.id, cashAccountId: cash.id, allocations: invoices, requestId: cmd.id });
+    await tx.accountingDocument.update({ where: { id: r.receipt.id }, data: { originDeviceId: deviceId } });
+    return { status: "ACCEPTED", documentId: r.receipt.id, docNo: r.receipt.docNo };
+  }
   if (cmd.type === "RECORD_CHARGE") {
     requirePermission(actor, "charges", "write");
     const documentId = cmd.documentRef ? (await resolveDocument(tx, cmd.documentRef)).id : undefined;
@@ -129,6 +170,10 @@ async function stored(db: PrismaClient | Tx, deviceId: string, commandId: string
  */
 /** The series a create command will be numbered in. */
 export function seriesOf(cmd: SyncCommand): string | null {
+  // A bill from the Purchases or Sales screen is numbered in its bill series; a payment's series depends on the
+  // account (cash or bank) and is numbered by the server
+  if (cmd.type === "SCREEN_PURCHASE") return DOCUMENT_SERIES.PURCHASE_INVOICE;
+  if (cmd.type === "SCREEN_SALE") return cmd.input.customerId ? DOCUMENT_SERIES.SALE_INVOICE : DOCUMENT_SERIES.CASH_SALE;
   if (cmd.type !== "CREATE_DOCUMENT") return null;
   return cmd.docType === "VOUCHER" ? String((cmd.input as { series?: unknown }).series ?? "") : DOCUMENT_SERIES[cmd.docType] ?? null;
 }

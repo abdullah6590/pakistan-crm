@@ -12,13 +12,19 @@ const HISTORY_TABLE = `CREATE TABLE IF NOT EXISTS "_prisma_migrations" (
   "id" TEXT PRIMARY KEY NOT NULL, "checksum" TEXT NOT NULL, "finished_at" DATETIME, "migration_name" TEXT NOT NULL,
   "logs" TEXT, "rolled_back_at" DATETIME, "started_at" DATETIME NOT NULL DEFAULT current_timestamp, "applied_steps_count" INTEGER UNSIGNED NOT NULL DEFAULT 0)`;
 
-export function listMigrations(dir = MIGRATIONS_DIR): { name: string; sql: string; checksum: string }[] {
+/**
+ * A migration's checksum is taken over its text with Windows line endings turned into Unix ones: Git on Windows may
+ * check the same file out either way (core.autocrlf), and that must not count as a change. `rawChecksum` (the file as
+ * it is on disk) is still accepted for any database that recorded it.
+ */
+export function listMigrations(dir = MIGRATIONS_DIR): { name: string; sql: string; checksum: string; rawChecksum: string }[] {
   return fs.readdirSync(/* turbopackIgnore: true */ dir)
     .filter((f) => fs.statSync(/* turbopackIgnore: true */ path.join(dir, f)).isDirectory())
     .sort()
     .map((name) => {
       const sql = fs.readFileSync(/* turbopackIgnore: true */ path.join(dir, name, "migration.sql"), "utf8");
-      return { name, sql, checksum: crypto.createHash("sha256").update(sql).digest("hex") };
+      const sha = (text: string) => crypto.createHash("sha256").update(text).digest("hex");
+      return { name, sql, checksum: sha(sql.replace(/\r\n/g, "\n")), rawChecksum: sha(sql) };
     });
 }
 
@@ -38,7 +44,7 @@ export async function applyMigrations(target: string | Client, opts: { encryptio
     for (const m of listMigrations(opts.dir)) {
       const previous = done.get(m.name);
       if (previous !== undefined) {
-        if (previous !== m.checksum) throw new Error(`Migration ${m.name} was changed after it was applied; refusing to continue`);
+        if (previous !== m.checksum && previous !== m.rawChecksum) throw new Error(`Migration ${m.name} was changed after it was applied; refusing to continue`);
         result.alreadyApplied.push(m.name);
         continue;
       }

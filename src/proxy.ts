@@ -2,6 +2,8 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose";
+import { randomUUID } from "node:crypto";
+import { buildContentSecurityPolicy } from "@/lib/security-headers";
 
 if (!process.env.JWT_SECRET) {
   throw new Error("CRITICAL ERROR: JWT_SECRET environment variable is not set.");
@@ -28,6 +30,21 @@ const roleRouteMap: Record<string, string[]> = {
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const nonce = Buffer.from(randomUUID()).toString("base64");
+  const csp = buildContentSecurityPolicy(nonce, process.env.NODE_ENV !== "production");
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-nonce", nonce);
+  requestHeaders.set("Content-Security-Policy", csp);
+  const next = () => {
+    const response = NextResponse.next({ request: { headers: requestHeaders } });
+    response.headers.set("Content-Security-Policy", csp);
+    return response;
+  };
+  const redirect = (url: URL) => {
+    const response = NextResponse.redirect(url);
+    response.headers.set("Content-Security-Policy", csp);
+    return response;
+  };
 
   // Public routes
   if (
@@ -38,7 +55,7 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith("/favicon") ||
     pathname === "/"
   ) {
-    return NextResponse.next();
+    return next();
   }
 
   // Check for auth token
@@ -47,7 +64,7 @@ export async function proxy(request: NextRequest) {
   if (!token) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("callbackUrl", pathname);
-    return NextResponse.redirect(loginUrl);
+    return redirect(loginUrl);
   }
 
   try {
@@ -57,14 +74,14 @@ export async function proxy(request: NextRequest) {
     // Check role-based access
     for (const [route, allowedRoles] of Object.entries(roleRouteMap)) {
       if (pathname.startsWith(route) && !allowedRoles.includes(userRole)) {
-        return NextResponse.redirect(new URL("/dashboard", request.url));
+        return redirect(new URL("/dashboard", request.url));
       }
     }
 
-    return NextResponse.next();
+    return next();
   } catch {
     const loginUrl = new URL("/login", request.url);
-    return NextResponse.redirect(loginUrl);
+    return redirect(loginUrl);
   }
 }
 

@@ -4,8 +4,8 @@
 // loads inputs, applies those rules and stores the results with an audit trail (OD-10, OD-11).
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { Prisma, PrismaClient, LedgerAccount, AccountingDocument } from "@prisma/client";
-import { Dec, dec, ZERO, add, sub, mul, div, cmp, isZero, isNegative, toPlain, toPaisa, fromPaisa, hasAtMostDecimals } from "@/lib/domain/decimal";
-import { ItemUnitConfig, ItemKind, QuantityError, toBaseQuantity, unitFactor } from "@/lib/domain/units";
+import { Dec, dec, ZERO, add, sub, mul, div, cmp, isZero, isNegative, toPlain, toPaisa, fromPaisa, hasAtMostDecimals, roundHalfEven } from "@/lib/domain/decimal";
+import { ItemUnitConfig, ItemKind, QuantityError, toBaseQuantity, unitFactor, pricePerBaseUnit } from "@/lib/domain/units";
 import { priceLine, weightPerPacket, LinePricing } from "@/lib/domain/pricing";
 import { receive, receiveUncosted, reverseReceipt, issue, referenceCostPerPack, CostState, CostStatus, EMPTY_COST_STATE } from "@/lib/domain/costing";
 import { applyMovement, NegativeStockPolicy } from "@/lib/domain/stock";
@@ -13,9 +13,11 @@ import { documentTotal, DEFAULT_TOTAL_ROUNDING } from "@/lib/domain/rounding";
 import {
   AccountRef, JournalEntry, SoldLine, accountMovement, assertBalanced,
   postSaleInvoice, postCashSale, postPurchaseInvoice, postStockIssue, postVoucher, postTransfer, postOpeningBalance, postSaleReturn, postPurchaseReturn, postStockAdjustment, ReturnedLine,
+  postOpeningStock,
 } from "@/lib/domain/ledger";
 import { can } from "@/lib/permissions";
 import { Db, MAIN_LOCATION, STOCK_ISSUE_REASONS, PRESS_LOSS_REASONS, getSetting, SettingKey } from "./setup";
+import { carryToRevision, refundsFundedBy, releaseForCancelled } from "./allocations";
 
 export type Tx = Prisma.TransactionClient;
 
@@ -25,6 +27,8 @@ export interface Actor {
 }
 
 export class PostingError extends Error {
+  /** Extra facts for the screen, e.g. the suppliers a new one may duplicate. */
+  details?: unknown;
   constructor(message: string, public status = 400) {
     super(message);
   }
@@ -42,6 +46,7 @@ export const DOCUMENT_SERIES: Record<string, string> = {
   SALE_RETURN: "SR",
   PURCHASE_RETURN: "PRN",
   STOCK_ADJUSTMENT: "SADJ",
+  OPENING_STOCK: "OS",
   TRANSFER: "TR",
   OPENING_BALANCE: "OB",
 };
@@ -90,6 +95,8 @@ export interface PurchaseInvoiceInput {
   vendorBillDate?: Date | string | null;
   biltyNo?: string;
   biltyDate?: Date | string | null;
+  /** When the supplier is to be paid (payment terms); optional (Report 30). */
+  dueDate?: Date | string | null;
   /** Freight, loading, bilty and similar charges: recorded only (2026-10-22 rule). */
   charges?: ChargeInput[];
   remarks?: string;
@@ -192,6 +199,14 @@ export interface TransferInput {
   fromAccountId: string;
   toAccountId: string;
   amount: number | string;
+  remarks?: string;
+}
+
+/** Stock already on hand when Books starts (Report 28 §6), at cost per base unit. */
+export interface OpeningStockInput {
+  date: Date | string;
+  /** `unitCost` is the cost of one `unit` (a configured pack unit or the base unit; default: base unit). */
+  lines: { componentId: string; quantity: number | string; unit?: string; loose?: number | string; unitCost: number | string }[];
   remarks?: string;
 }
 
@@ -338,9 +353,11 @@ export interface ItemContext {
 }
 
 type ComponentWithProfile = Prisma.ComponentGetPayload<{ include: { unitProfile: { include: { conversions: true } } } }>;
+/** The item fields its units are worked out from. */
+export type UnitSource = Pick<ComponentWithProfile, "unit" | "rimInSheet" | "itemsPerPackage" | "packagingUnit" | "unitProfile">;
 
 /** Until an item's units are confirmed (Report 13 D-C), derive them from the existing item fields. */
-function fallbackUnitConfig(c: ComponentWithProfile): ItemUnitConfig {
+function fallbackUnitConfig(c: UnitSource): ItemUnitConfig {
   const unit = (c.unit || "piece").toLowerCase();
   if (unit === "sheet") return { kind: "PAPER", baseUnit: "sheet", conversions: [{ code: "packet", factor: c.rimInSheet && c.rimInSheet > 0 ? c.rimInSheet : 100 }] };
   if (unit === "kg") return { kind: "WEIGHT", baseUnit: "kg", baseDecimals: 3 };
@@ -364,7 +381,7 @@ function referenceCost(c: ComponentWithProfile, cfg: ItemUnitConfig): Dec | null
   return perPack === null ? null : div(perPack, factor);
 }
 
-export function unitConfigFor(c: ComponentWithProfile): { cfg: ItemUnitConfig; confirmed: boolean } {
+export function unitConfigFor(c: UnitSource): { cfg: ItemUnitConfig; confirmed: boolean } {
   const p = c.unitProfile;
   if (!p) return { cfg: fallbackUnitConfig(c), confirmed: false };
   return {
@@ -424,6 +441,8 @@ interface PostCtx {
   policy: NegativeStockPolicy;
   negative: boolean;
   costEstimated: boolean;
+  /** For the item's Inventory history: which document moved the stock, and who made it */
+  ref: StockRef;
 }
 
 async function costState(tx: Tx, componentId: string): Promise<CostState> {
@@ -442,7 +461,38 @@ async function locationBalance(tx: Tx, componentId: string, locationId: string):
   return row ? dec(row.onHand) : ZERO;
 }
 
-async function saveLocationBalance(tx: Tx, componentId: string, locationId: string, onHand: Dec) {
+/**
+ * Opening stock for items whose count already includes it (the one-time move of existing stock into Books) must not
+ * be added to the count a second time.
+ */
+const countAlreadyIncludes = new AsyncLocalStorage<true>();
+export function withoutItemCountChange<T>(fn: () => Promise<T>): Promise<T> {
+  return countAlreadyIncludes.run(true, fn);
+}
+
+interface StockRef { docNo: string; userId: string; note?: string }
+
+async function saveLocationBalance(tx: Tx, componentId: string, locationId: string, onHand: Dec, ref?: StockRef) {
+  // The item's stock count on the Inventory and Sales screens moves with Books' main store, by the same change. It is
+  // never overwritten, so stock still entered outside Books (older screens) is kept (Report 28 §6).
+  if (!countAlreadyIncludes.getStore()) {
+    const location = await tx.stockLocation.findUnique({ where: { id: locationId }, select: { code: true } });
+    if (location?.code === MAIN_LOCATION) {
+      // The count holds whole numbers: it moves by the change in the rounded balance, so small kg movements never
+      // add up to a drift (0.4 kg sold three times moves it by 1, not by 0)
+      const before = await locationBalance(tx, componentId, locationId);
+      const whole = Math.round(Number(s(onHand))) - Math.round(Number(s(before)));
+      if (whole !== 0) {
+        const c = await tx.component.update({ where: { id: componentId }, data: { quantity: { increment: whole } } });
+        // The item's Inventory history shows every Books movement too, so stock reports agree with Books
+        if (ref) {
+          await tx.inventoryHistory.create({
+            data: { componentId, type: whole > 0 ? "ADD" : "REMOVE", quantity: Math.abs(whole), balanceAfter: c.quantity, reference: `Books ${ref.docNo}${ref.note ? ` ${ref.note}` : ""}`, performedBy: ref.userId },
+          });
+        }
+      }
+    }
+  }
   await tx.itemStockBalance.upsert({
     where: { componentId_locationId: { componentId, locationId } },
     create: { componentId, locationId, onHand: s(onHand) },
@@ -457,7 +507,7 @@ async function takeFromLocation(ctx: PostCtx, item: ItemContext, locationId: str
   if (!m.allowed) {
     throw new PostingError(`Not enough stock of ${item.name}: ${s(before)} ${item.cfg.baseUnit} available, ${s(qty)} needed (negative stock is blocked)`, 409);
   }
-  await saveLocationBalance(ctx.tx, item.componentId, locationId, m.balanceAfter);
+  await saveLocationBalance(ctx.tx, item.componentId, locationId, m.balanceAfter, ctx.ref);
   if (m.warning) ctx.negative = true;
   return { balanceAfter: m.balanceAfter, warning: m.warning ? `${item.name}: ${m.warning.message} (${s(m.balanceAfter)} ${item.cfg.baseUnit})` : undefined };
 }
@@ -467,7 +517,7 @@ async function stockIn(ctx: PostCtx, item: ItemContext, a: { lineNo?: number; lo
   const next = a.value === null ? receiveUncosted(st, a.qty) : receive(st, a.qty, div(a.value, a.qty));
   await saveCostState(ctx.tx, item.componentId, next);
   const balanceAfter = add(await locationBalance(ctx.tx, item.componentId, a.locationId), a.qty);
-  await saveLocationBalance(ctx.tx, item.componentId, a.locationId, balanceAfter);
+  await saveLocationBalance(ctx.tx, item.componentId, a.locationId, balanceAfter, ctx.ref);
   if (a.value === null) ctx.costEstimated = true;
   await ctx.tx.stockMovement.create({
     data: {
@@ -510,7 +560,7 @@ async function stockOutAtValue(ctx: PostCtx, item: ItemContext, a: { lineNo?: nu
 async function relocate(ctx: PostCtx, item: ItemContext, a: { lineNo: number; fromId: string; toId: string; qty: Dec }) {
   const taken = await takeFromLocation(ctx, item, a.fromId, a.qty);
   const toAfter = add(await locationBalance(ctx.tx, item.componentId, a.toId), a.qty);
-  await saveLocationBalance(ctx.tx, item.componentId, a.toId, toAfter);
+  await saveLocationBalance(ctx.tx, item.componentId, a.toId, toAfter, ctx.ref);
   const st = await costState(ctx.tx, item.componentId);
   const value = st.averageCost === null ? null : mul(a.qty, st.averageCost);
   const status: CostStatus = value === null ? "UNAVAILABLE" : "ACTUAL";
@@ -524,7 +574,11 @@ async function relocate(ctx: PostCtx, item: ItemContext, a: { lineNo: number; fr
 }
 
 export async function newCtx(tx: Tx, documentId: string, date: Date): Promise<PostCtx> {
-  return { tx, documentId, date, policy: await getSetting(tx, "NEGATIVE_STOCK_POLICY"), negative: false, costEstimated: false };
+  const doc = await tx.accountingDocument.findUnique({ where: { id: documentId }, select: { docNo: true, createdById: true } });
+  return {
+    tx, documentId, date, policy: await getSetting(tx, "NEGATIVE_STOCK_POLICY"), negative: false, costEstimated: false,
+    ref: { docNo: doc?.docNo ?? documentId, userId: doc?.createdById ?? "system" },
+  };
 }
 
 // ─── Journal and balances ──────────────────────────────────────────
@@ -659,7 +713,9 @@ async function purchaseInvoiceInTx(tx: Tx, actor: Actor, input: PurchaseInvoiceI
     roundingMode: DEFAULT_TOTAL_ROUNDING.PURCHASE_INVOICE, remarks: input.remarks, createdById: actor.id, postedAt: new Date(),
     vendorBillNo: input.vendorBillNo || null, vendorBillDate: optionalDate(input.vendorBillDate, "Vendor bill date"),
     biltyNo: input.biltyNo || null, biltyDate: optionalDate(input.biltyDate, "Bilty date"),
+    dueDate: optionalDate(input.dueDate, "Due date"),
   }, { supersedes });
+  if (doc.dueDate && doc.dueDate < date) throw new PostingError("The due date cannot be before the bill date");
   const ctx = await newCtx(tx, doc.id, date);
   const amounts: Dec[] = [];
   for (const [i, l] of lines.entries()) {
@@ -730,32 +786,58 @@ async function postCount(tx: Tx, actor: Actor, doc: Prisma.AccountingDocumentGet
   const ctx = await newCtx(tx, doc.id, doc.date);
   let gain = ZERO;
   let loss = ZERO;
+  const applied: { componentId: string; name: string; screenBefore: number; booksBefore: string; counted: string; adjustment: string }[] = [];
   for (const line of doc.lines) {
     const item = await loadItem(tx, line.componentId!);
     const book = await locationBalance(tx, item.componentId, doc.locationId!);
-    const diff = sub(dec(line.baseQuantity), book);
-    let costAmount: Dec | null = null;
-    let costStatus: CostStatus = "ACTUAL";
-    let note: string | undefined;
-    if (cmp(diff, ZERO) > 0) {
-      const st = await costState(tx, item.componentId);
-      costAmount = st.averageCost === null ? null : mul(diff, st.averageCost);
-      if (costAmount === null) { costStatus = "UNAVAILABLE"; note = "No cost recorded for this item; the gain is not valued"; }
-      await stockIn(ctx, item, { lineNo: line.lineNo, locationId: doc.locationId!, qty: diff, value: costAmount });
-      if (costAmount !== null) gain = add(gain, costAmount);
-    } else if (cmp(diff, ZERO) < 0) {
-      const out = await stockOut(ctx, item, { lineNo: line.lineNo, locationId: doc.locationId!, qty: sub(ZERO, diff) });
-      costAmount = out.cost;
-      costStatus = out.status;
-      note = out.note;
-      if (out.cost !== null) loss = add(loss, out.cost);
+    // The count is the truth for both records: Books moves by (counted - Books quantity), and the item's count on the
+    // Inventory and Sales screens is set to what was counted, even if stock was entered outside Books before
+    const screenBefore = (await tx.component.findUniqueOrThrow({ where: { id: item.componentId }, select: { quantity: true } })).quantity;
+    await withoutItemCountChange(() => countLine(ctx, item, line, book).then((r) => { gain = add(gain, r.gain); loss = add(loss, r.loss); }));
+    const counted = Math.round(Number(line.baseQuantity));
+    if (counted !== screenBefore) {
+      await tx.component.update({ where: { id: item.componentId }, data: { quantity: counted } });
     }
-    await tx.accountingDocumentLine.update({
-      where: { id: line.id },
-      data: { bookQuantity: s(book), costAmount: costAmount === null ? null : s(costAmount), costStatus, costNote: note },
+    await tx.inventoryHistory.create({
+      data: {
+        componentId: item.componentId, type: "ADJUST", quantity: Math.abs(counted - screenBefore), balanceAfter: counted,
+        reference: `Books ${doc.docNo} stock count (was ${screenBefore}, counted ${counted})`, performedBy: actor.id,
+      },
     });
+    applied.push({ componentId: item.componentId, name: item.name, screenBefore, booksBefore: s(book), counted: line.baseQuantity, adjustment: String(counted - screenBefore) });
   }
+  await audit(tx, doc.id, "COUNT_APPLIED", actor.id, { after: applied });
   return finishPosting(tx, ctx, doc, postStockAdjustment({ gain, loss }), actor);
+}
+
+/** One counted line: stock moves by the difference from Books, valued at average cost. */
+async function countLine(ctx: PostCtx, item: ItemContext, line: { id: string; lineNo: number; baseQuantity: string }, book: Dec) {
+  const { tx } = ctx;
+  const locationId = (await tx.accountingDocument.findUniqueOrThrow({ where: { id: ctx.documentId }, select: { locationId: true } })).locationId!;
+  let gain = ZERO;
+  let loss = ZERO;
+  const diff = sub(dec(line.baseQuantity), book);
+  let costAmount: Dec | null = null;
+  let costStatus: CostStatus = "ACTUAL";
+  let note: string | undefined;
+  if (cmp(diff, ZERO) > 0) {
+    const st = await costState(tx, item.componentId);
+    costAmount = st.averageCost === null ? null : mul(diff, st.averageCost);
+    if (costAmount === null) { costStatus = "UNAVAILABLE"; note = "No cost recorded for this item; the gain is not valued"; }
+    await stockIn(ctx, item, { lineNo: line.lineNo, locationId, qty: diff, value: costAmount });
+    if (costAmount !== null) gain = costAmount;
+  } else if (cmp(diff, ZERO) < 0) {
+    const out = await stockOut(ctx, item, { lineNo: line.lineNo, locationId, qty: sub(ZERO, diff) });
+    costAmount = out.cost;
+    costStatus = out.status;
+    note = out.note;
+    if (out.cost !== null) loss = out.cost;
+  }
+  await tx.accountingDocumentLine.update({
+    where: { id: line.id },
+    data: { bookQuantity: s(book), costAmount: costAmount === null ? null : s(costAmount), costStatus, costNote: note },
+  });
+  return { gain, loss };
 }
 
 /** Post an approved stock issue or press loss: stock leaves its location and its cost moves to the charge account. */
@@ -1005,6 +1087,39 @@ async function stockAdjustmentInTx(tx: Tx, actor: Actor, input: StockAdjustmentI
   return tx.accountingDocument.findUniqueOrThrow({ where: { id: doc.id }, include: { lines: { orderBy: { lineNo: "asc" } } } });
 }
 
+// ─── Opening stock ─────────────────────────────────────────────────
+
+async function openingStockInTx(tx: Tx, actor: Actor, input: OpeningStockInput, supersedes?: AccountingDocument) {
+  const lines = requireLines(input.lines);
+  const date = toDate(input.date);
+  const main = await locationByCode(tx, MAIN_LOCATION);
+  const doc = await newDocument(tx, {
+    type: "OPENING_STOCK", date, status: "POSTED", locationId: main.id, remarks: input.remarks ?? "Opening stock", createdById: actor.id, postedAt: new Date(),
+  }, { supersedes });
+  const ctx = await newCtx(tx, doc.id, date);
+  const values: Dec[] = [];
+  const seen = new Set<string>();
+  for (const [i, l] of lines.entries()) {
+    if (seen.has(l.componentId)) throw new PostingError("List each item once");
+    seen.add(l.componentId);
+    const item = await loadItem(tx, l.componentId);
+    const entry = { componentId: l.componentId, quantity: l.quantity, unit: l.unit, loose: l.loose };
+    const qty = baseQuantityOf(item, entry);
+    // Opening stock is valued at what it cost; an unknown cost stays unresolved and is never entered as zero
+    const cost = money(l.unitCost, `${item.name}: cost`);
+    if (cmp(cost, ZERO) <= 0) throw new PostingError(`${item.name}: enter what one ${l.unit ?? item.cfg.baseUnit} cost; opening stock is never valued at zero`);
+    const value = roundHalfEven(mul(qty, pricePerBaseUnit(item.cfg, cost, l.unit)), 2);
+    await stockIn(ctx, item, { lineNo: i + 1, locationId: main.id, qty, value, kind: "RECEIPT" });
+    await tx.accountingDocumentLine.create({
+      data: lineRecord(doc.id, i + 1, item, entry, qty, { unitPrice: s(cost), amount: s(value), costAmount: s(value), costStatus: "ACTUAL" }),
+    });
+    values.push(value);
+  }
+  const entry = postOpeningStock({ values });
+  const total = values.reduce((t, v) => add(t, v), ZERO);
+  return finishPosting(tx, ctx, doc, entry, actor, { total: { exact: total, total, roundingAdjustment: ZERO } });
+}
+
 // ─── Vouchers, transfers, opening balances ─────────────────────────
 
 async function voucherInTx(tx: Tx, actor: Actor, input: VoucherInput, supersedes?: AccountingDocument) {
@@ -1085,6 +1200,12 @@ export async function cancelInTx(tx: Tx, actor: Actor, id: string, reason: strin
   if (!doc) throw new PostingError("Document not found", 404);
   // An expense posting belongs to its charge record; reversing it elsewhere would leave the charge "posted"
   if (doc.type === "CHARGE_EXPENSE" && !opts.fromCharge) throw new PostingError("Reverse this posting from its charge record", 409);
+  // Money from this receipt was paid back to the customer: the refund has to be cancelled first (Report 28)
+  const refunds = await refundsFundedBy(tx, id);
+  if (refunds.length) throw new PostingError(`Part of this payment was refunded (${refunds.join(", ")}); cancel the refund first`, 409);
+  // Goods returned against this bill: the return refers to its lines, so it has to be cancelled first (Report 30)
+  const returns = await tx.accountingDocument.findMany({ where: { returnOfId: id, status: "POSTED" }, select: { docNo: true } });
+  if (returns.length) throw new PostingError(`Goods were returned against this bill (${returns.map((r) => r.docNo).join(", ")}); cancel the return first`, 409);
   const now = new Date();
   if (doc.status === "PENDING_APPROVAL") {
     await tx.accountingDocument.update({ where: { id }, data: { status: "CANCELLED", cancelledById: actor.id, cancelledAt: now, cancelReason: reason } });
@@ -1114,7 +1235,7 @@ export async function cancelInTx(tx: Tx, actor: Actor, id: string, reason: strin
     } else {
       // Put back stock that went out of this location, at the cost it left with
       balanceAfter = add(await locationBalance(tx, m.componentId, m.locationId), absQty);
-      await saveLocationBalance(tx, m.componentId, m.locationId, balanceAfter);
+      await saveLocationBalance(tx, m.componentId, m.locationId, balanceAfter, { docNo: doc.docNo, userId: actor.id, note: "reversed" });
       if (m.kind === "ISSUE") {
         const st = await costState(tx, m.componentId);
         await saveCostState(tx, m.componentId, value === null ? receiveUncosted(st, absQty) : receive(st, absQty, div(sub(ZERO, value), absQty)));
@@ -1136,7 +1257,12 @@ export async function cancelInTx(tx: Tx, actor: Actor, id: string, reason: strin
       },
     });
   }
-  await audit(tx, id, action, actor.id, { reason, before: { status: "POSTED", total: doc.total } });
+  // Its payments become unapplied credit again; an amendment instead carries them to the new revision (Report 28)
+  const released = action === "AMEND" ? [] : await releaseForCancelled(tx, id, actor.id, reason);
+  await audit(tx, id, action, actor.id, {
+    reason,
+    before: { status: "POSTED", total: doc.total, ...(released.length ? { releasedAllocations: released.map((a) => ({ id: a.id, amount: a.amount })) } : {}) },
+  });
   return tx.accountingDocument.findUniqueOrThrow({ where: { id } });
 }
 
@@ -1157,6 +1283,7 @@ const CREATORS: Record<string, Creator<never>> = {
   VOUCHER: voucherInTx as Creator<never>,
   TRANSFER: transferInTx as Creator<never>,
   OPENING_BALANCE: openingBalanceInTx as Creator<never>,
+  OPENING_STOCK: openingStockInTx as Creator<never>,
 };
 
 const TX_OPTIONS = { timeout: 60_000 };
@@ -1184,6 +1311,7 @@ export const createStockAdjustment = (db: Db, actor: Actor, input: StockAdjustme
 export const createVoucher = (db: Db, actor: Actor, input: VoucherInput) => run(db, (tx) => voucherInTx(tx, actor, input));
 export const createTransfer = (db: Db, actor: Actor, input: TransferInput) => run(db, (tx) => transferInTx(tx, actor, input));
 export const createOpeningBalance = (db: Db, actor: Actor, input: OpeningBalanceInput) => run(db, (tx) => openingBalanceInTx(tx, actor, input));
+export const createOpeningStock = (db: Db, actor: Actor, input: OpeningStockInput) => run(db, (tx) => openingStockInTx(tx, actor, input));
 
 function requireApprover(actor: Actor) {
   if (!can(actor.role, "stockApproval", "write")) throw new PostingError("Only an administrator can approve or reject stock issues", 403);
@@ -1227,6 +1355,18 @@ export async function amendDocument(db: Db, actor: Actor, id: string, input: unk
     if (old.status !== "POSTED" && old.status !== "PENDING_APPROVAL") throw new PostingError("Only a posted or pending document can be amended", 409);
     await cancelInTx(tx, actor, id, `Amended: ${reason}`, "AMEND");
     const fresh = await tx.accountingDocument.findUniqueOrThrow({ where: { id } });
-    return creator(tx, actor, input as never, fresh);
+    const revised = (await creator(tx, actor, input as never, fresh)) as AccountingDocument;
+    // Payments follow the bill (and a receipt's allocations follow the receipt) to the new revision (Report 28)
+    const moved = await carryToRevision(tx, fresh, revised, actor.id);
+    if (moved.carried.length || moved.released.length) {
+      await audit(tx, revised.id, "ALLOCATIONS_MOVED", actor.id, {
+        reason,
+        after: {
+          carried: moved.carried.map((a) => ({ id: a.id, amount: a.amount })),
+          released: moved.released.map((r) => ({ id: r.allocation.id, amount: s(r.amount) })),
+        },
+      });
+    }
+    return revised;
   });
 }

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authorize } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { startAuthorization, disconnectDrive, DriveError } from "@/lib/backup/drive";
+import { userRateLimitGuard } from "@/lib/rate-limit";
 
 /** Where Google sends the user back: this computer (desktop: http://127.0.0.1:<port>) or the public server URL. */
 function redirectUri(request: NextRequest) {
@@ -13,6 +14,8 @@ function redirectUri(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const auth = await authorize("backupLocal", "write", { offlineCapable: true });
   if (auth.response) return auth.response;
+  const limited = await userRateLimitGuard(prisma, request, "sensitive", auth.user.id);
+  if (limited) return limited;
   const body = await request.json().catch(() => ({}));
   try {
     if (body?.action === "disconnect") {

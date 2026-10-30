@@ -2,6 +2,7 @@
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 import { redirect } from "next/navigation";
+import { UNIT_FIELDS, withSaleUnits } from "@/lib/sales/units";
 import NewSaleClient from "./new-sale-client";
 
 export default async function NewSalePage() {
@@ -15,7 +16,7 @@ export default async function NewSalePage() {
       take: 15,
       select: {
         id: true, name: true, sku: true, quantity: true,
-        unitCost: true, unitPrice: true, minQuantity: true
+        unitCost: true, unitPrice: true, minQuantity: true, ...UNIT_FIELDS,
       },
     }),
     prisma.customer.findMany({ 
@@ -28,7 +29,7 @@ export default async function NewSalePage() {
 
   return (
     <NewSaleClient
-      initialComponents={JSON.parse(JSON.stringify(initialComponents))}
+      initialComponents={JSON.parse(JSON.stringify(initialComponents.map(withSaleUnits)))}
       initialCustomers={JSON.parse(JSON.stringify(initialCustomers))}
     />
   );

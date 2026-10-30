@@ -53,10 +53,10 @@ export async function applySnapshot(
     await tx.$executeRawUnsafe("PRAGMA defer_foreign_keys = ON");
     // Stale rows go first: a document the upstream re-posted under a new id keeps its entry id and number (D-020)
     if (opts.prune) {
-      // History is append-only by trigger (and deleting an entry cascades to its lines): the guards are lifted inside
-      // this transaction only and restored before it commits
+      // History and payment allocations are protected from deletion by trigger (and deleting an entry cascades to its
+      // lines): the guards are lifted inside this transaction only and restored before it commits
       const guards = (await tx.$queryRawUnsafe(
-        `SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND name IN (${REPLICATED_TABLES.filter((t) => t.appendOnly).map((t) => `'${t.name}_no_delete'`).join(", ")})`,
+        `SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND name IN (${REPLICATED_TABLES.map((t) => `'${t.name}_no_delete'`).join(", ")})`,
       )) as { name: string; sql: string }[];
       for (const g of guards) await tx.$executeRawUnsafe(`DROP TRIGGER "${g.name}"`);
       for (const t of REPLICATED_TABLES) {

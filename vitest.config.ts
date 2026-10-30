@@ -8,10 +8,10 @@ export default defineConfig({
     environment: "node",
     // Modules that load src/lib/auth.ts require a signing secret; tests get a random one per run.
     env: { JWT_SECRET: randomBytes(32).toString("base64url") },
-    // Integration tests build real databases, run scrypt and start PowerShell (DPAPI). On a small machine
-    // (4 threads) full parallelism starved workers; two at a time with a 30 s limit is deterministic (D-019).
+    // Integration tests build real databases, run scrypt and start PowerShell (DPAPI). On a small machine,
+    // concurrent database suites can exhaust a fork; one worker is slower but is the reliable release gate.
     pool: "forks",
-    poolOptions: { forks: { maxForks: 2, minForks: 1 } },
+    maxWorkers: 1,
     testTimeout: 30_000,
     hookTimeout: 60_000,
   },

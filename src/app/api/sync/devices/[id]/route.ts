@@ -4,10 +4,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { authorize } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { moveDevices, revokeDevice } from "@/lib/sync/server";
+import { userRateLimitGuard } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await authorize("sync", "delete");
   if (auth.response) return auth.response;
+  const limited = await userRateLimitGuard(prisma, request, "sensitive", auth.user.id);
+  if (limited) return limited;
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
   const device = await prisma.device.findUnique({ where: { id } });

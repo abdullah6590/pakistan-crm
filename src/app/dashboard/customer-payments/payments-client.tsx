@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { Plus, Banknote, Search, Trash2, ArrowDownLeft } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -69,8 +69,13 @@ export default function CustomerPaymentsClient({ payments: initialData, customer
   const handleDelete = async () => {
     if (!deleteId) return;
     setDeleting(true);
-    try { await fetch(`/api/customer-payments/${deleteId}`, { method: "DELETE" }); toast.success("Deleted"); setDeleteId(null); window.location.reload(); }
-    catch { toast.error("Failed"); }
+    try {
+      const res = await fetch(`/api/customer-payments/${deleteId}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Could not delete");
+      toast.success("Deleted"); setDeleteId(null); window.location.reload();
+    }
+    catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); setDeleteId(null); }
     setDeleting(false);
   };
 
@@ -79,8 +84,9 @@ export default function CustomerPaymentsClient({ payments: initialData, customer
 
   return (
     <div className="space-y-6 p-6">
-      <PageHeader title="Customer Receipts" description="Record payments received from customers" icon={ArrowDownLeft}
-        actions={<Button onClick={() => setShowAdd(true)} className="gap-2"><Plus className="h-4 w-4" /> Record Receipt</Button>} />
+      {/* Older receipts, read-only: customer payments are received in Books now, linked to their bills (Report 28) */}
+      <PageHeader title="Older customer receipts" description="Recorded before Sales moved to Books; kept as records" icon={ArrowDownLeft}
+        actions={<Link href="/dashboard/sales/payments" className={buttonVariants({ className: "gap-2" })}><Plus className="h-4 w-4" /> Receive payment (Books)</Link>} />
 
       <div className="flex gap-3 flex-wrap">
         <div className="flex-1 min-w-64">
