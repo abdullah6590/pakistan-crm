@@ -3,6 +3,7 @@ import { authorize } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 import { UNIT_FIELDS, withSaleUnits } from "@/lib/sales/units";
+import { SPEC_FIELDS } from "@/lib/product-spec";
 
 export async function GET(request: NextRequest) {
   try {
@@ -37,12 +38,7 @@ export async function GET(request: NextRequest) {
           unitCost: true,
           unitPrice: true,
           minQuantity: true,
-          dimensionX: true,
-          dimensionY: true,
-          gsm: true,
-          divisor: true,
-          weightKg: true,
-          ratePerKg: true,
+          ...SPEC_FIELDS,
           ...UNIT_FIELDS,
         },
       });
@@ -63,12 +59,7 @@ export async function GET(request: NextRequest) {
           unitCost: true,
           unitPrice: true,
           minQuantity: true,
-          dimensionX: true,
-          dimensionY: true,
-          gsm: true,
-          divisor: true,
-          weightKg: true,
-          ratePerKg: true,
+          ...SPEC_FIELDS,
           ...UNIT_FIELDS,
         },
       });

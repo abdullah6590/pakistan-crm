@@ -21,6 +21,7 @@ import { PAYMENT_METHODS } from "@/lib/constants";
 import { formatCurrency } from "@/lib/utils";
 import { toast } from "sonner";
 import PriceCalculator, { type PriceCalcValues, defaultCalcValues } from "@/components/shared/price-calculator";
+import { specLabel } from "@/lib/product-spec";
 import { NewCustomerDialog } from "@/components/shared/new-customer-dialog";
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -34,6 +35,7 @@ interface ComponentOption {
   gsm?: number | null; divisor?: number | null;
   weightKg?: number | null; rimInSheet?: number | null;
   ratePerKg?: number | null;
+  size?: string | null; grams?: number | null;
   /** Units the item is sold in (Books item units): the stock unit and pack units with their size in stock units */
   baseUnit?: string; saleUnit?: string;
   units?: { code: string; factor: number }[];
@@ -538,7 +540,10 @@ export default function NewSaleClient({ initialComponents, initialCustomers, edi
                         onClick={() => addToCart(comp)}
                       >
                         <div className="min-w-0">
-                          <p className="text-sm font-medium truncate">{comp.name}</p>
+                          <p className="text-sm font-medium truncate">
+                            {comp.name}
+                            {specLabel(comp) && <span className="ml-2 inline-block whitespace-nowrap rounded bg-muted px-1.5 py-0.5 text-xs font-normal text-foreground/80">{specLabel(comp)}</span>}
+                          </p>
                           <p className="text-xs text-muted-foreground">
                             {comp.sku} · Stock: {available(comp)} {comp.baseUnit ?? ""} · {formatCurrency(comp.unitPrice)}
                           </p>
@@ -562,7 +567,10 @@ export default function NewSaleClient({ initialComponents, initialCustomers, edi
                     <div key={`${item.componentId}-${i}`} className="space-y-0">
                       <div className="flex flex-wrap items-center gap-2 p-3 rounded-lg border bg-muted/30">
                         <div className="flex-1 min-w-[10rem]">
-                          <p className="text-sm font-medium truncate">{item.componentName}</p>
+                          <p className="text-sm font-medium truncate">
+                            {item.componentName}
+                            {specLabel(item.compData) && <span className="ml-2 inline-block whitespace-nowrap rounded bg-muted px-1.5 py-0.5 text-xs font-normal text-foreground/80">{specLabel(item.compData)}</span>}
+                          </p>
                           <p className="text-xs text-muted-foreground">
                             {item.sku} · Stock: {item.availableStock} {item.compData.baseUnit ?? ""} · Cost: {formatCurrency(item.unitCost)}
                             {isPack(item) && ` · 1 ${item.unit} = ${factorOf(item)} ${item.compData.baseUnit}`}

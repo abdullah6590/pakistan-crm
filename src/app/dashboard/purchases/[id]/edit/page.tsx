@@ -8,6 +8,7 @@ import { loadPurchaseBill } from "@/lib/purchases/queries";
 import { mayEditBill } from "@/lib/purchases/books-purchases";
 import { PAYMENT_METHOD_ACCOUNTS } from "@/lib/sales/books-sales";
 import { UNIT_FIELDS, withSaleUnits } from "@/lib/sales/units";
+import { SPEC_FIELDS } from "@/lib/product-spec";
 import NewPurchaseClient from "../../new/new-purchase-client";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +26,7 @@ export default async function EditPurchasePage({ params }: { params: Promise<{ i
   if (doc.status !== "POSTED" || !can(user.role, "purchases", "write") || !mayEditBill({ id: user.id, role: user.role }, doc) || !bill.supplier) redirect(`/dashboard/purchases/${id}`);
   const items = await prisma.component.findMany({
     where: { isActive: true }, orderBy: { totalPurchased: "desc" }, take: 15,
-    select: { id: true, name: true, sku: true, quantity: true, ...UNIT_FIELDS },
+    select: { id: true, name: true, sku: true, quantity: true, ...SPEC_FIELDS, ...UNIT_FIELDS },
   });
   const toDay = (d: Date | null) => (d ? d.toISOString() : null);
   return (

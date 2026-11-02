@@ -8,6 +8,7 @@ import { generateSaleBillPDF } from "@/lib/pdf-generator";
 import { formatDate } from "@/lib/utils";
 import { loadBooksBill } from "@/lib/sales/books-queries";
 import { invoicePdf } from "@/lib/books-pdf";
+import { specLabel } from "@/lib/product-spec";
 
 const STATUS_LABEL: Record<string, string> = { PAID: "Paid", PARTIALLY_PAID: "Partially paid", UNPAID: "Unpaid", CANCELLED: "Cancelled" };
 
@@ -40,7 +41,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       customer: books.customerName,
       phone: books.customerPhone,
       status: STATUS_LABEL[books.status] ?? books.status,
-      lines: doc.lines.map((l) => ({ description: l.description ?? "", sku: l.component?.sku, quantity: l.quantity, unit: l.unit, loose: l.loose, unitPrice: l.unitPrice, amount: l.amount })),
+      lines: doc.lines.map((l) => ({ description: l.description ?? "", spec: specLabel(l.component), sku: l.component?.sku, quantity: l.quantity, unit: l.unit, loose: l.loose, unitPrice: l.unitPrice, amount: l.amount })),
       total: books.total, paid: books.paid, remaining: books.remaining,
       payments: books.payments.map((p) => ({ date: p.date, receiptNo: p.receiptNo, method: p.method, amount: p.amount })),
       words: books.words, notes: books.notes, printedBy: auth.user.name,

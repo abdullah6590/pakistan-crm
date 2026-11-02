@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ArrowLeft, Package, Plus, Search, Trash2, Truck, UserPlus } from "lucide-react";
+import { ArrowLeft, Calculator, Package, Plus, Search, Trash2, Truck, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,9 +11,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import PriceCalculator, { type PriceCalcValues, defaultCalcValues } from "@/components/shared/price-calculator";
 import { formatPaisa } from "@/lib/utils";
+import { specLabel, type ProductSpec } from "@/lib/product-spec";
 
-export interface ItemOption {
+export interface ItemOption extends ProductSpec {
   id: string; name: string; sku: string; quantity: number;
   baseUnit?: string; purchaseUnit?: string; units?: { code: string; factor: number }[];
 }
@@ -108,6 +110,23 @@ export default function NewPurchaseClient({ suppliers: initialSuppliers, initial
   const total = useMemo(() => Math.round(lines.reduce((t, l) => t + lineAmount(l), 0) * 100) / 100, [lines]);
   const paidNow = Number(paid.amount) || 0;
   const set = (i: number, patch: Partial<Line>) => setLines(lines.map((l, j) => (j === i ? { ...l, ...patch } : l)));
+
+  // Price calculator per line (the same formula as Inventory and New Sale): weight from size, GSM and divisor, times
+  // the rate per kg, gives the purchase price for the line
+  const [calcOpen, setCalcOpen] = useState<string | null>(null);
+  const [calc, setCalc] = useState<Record<string, PriceCalcValues>>({});
+  const toggleCalc = (l: Line) => {
+    if (calcOpen === l.componentId) { setCalcOpen(null); return; }
+    setCalcOpen(l.componentId);
+    if (!calc[l.componentId]) {
+      const it = l.item;
+      setCalc((prev) => ({ ...prev, [l.componentId]: {
+        dimensionX: it.dimensionX || 0, dimensionY: it.dimensionY || 0, gsm: it.gsm || 0, divisor: it.divisor || 15500,
+        weightKg: it.weightKg || 0, rimInSheet: it.rimInSheet || 100, ratePerKg: it.ratePerKg || 0,
+        purchasePrice: Number(l.price) || 0, salePrice: 0,
+      } }));
+    }
+  };
   const add = (item: ItemOption) => {
     setItemQuery("");
     if (lines.some((l) => l.componentId === item.id)) { toast.info(`${item.name} is already on the bill`); return; }
@@ -223,7 +242,11 @@ export default function NewPurchaseClient({ suppliers: initialSuppliers, initial
                   <div className="absolute z-20 top-full mt-1 max-h-60 w-full overflow-y-auto rounded-lg border bg-background shadow-lg">
                     {items.map((it) => (
                       <button key={it.id} type="button" className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => add(it)}>
-                        <span><span className="font-medium">{it.name}</span> <span className="text-xs text-muted-foreground">{it.sku} · in stock {it.quantity} {it.baseUnit ?? ""}</span></span>
+                        <span>
+                          <span className="font-medium">{it.name}</span>
+                          {specLabel(it) && <span className="ml-2 inline-block whitespace-nowrap rounded bg-muted px-1.5 py-0.5 text-xs">{specLabel(it)}</span>}{" "}
+                          <span className="text-xs text-muted-foreground">{it.sku} · in stock {it.quantity} {it.baseUnit ?? ""}</span>
+                        </span>
                         <Plus className="h-4 w-4 text-muted-foreground" aria-hidden />
                       </button>
                     ))}
@@ -233,9 +256,13 @@ export default function NewPurchaseClient({ suppliers: initialSuppliers, initial
               {lines.length === 0 ? <p className="py-6 text-center text-sm text-muted-foreground">Search above to add items.</p> : (
                 <div className="space-y-2">
                   {lines.map((l, i) => (
-                    <div key={l.componentId} className="flex flex-wrap items-end gap-2 rounded-lg border bg-muted/30 p-3">
+                    <div key={l.componentId}>
+                    <div className="flex flex-wrap items-end gap-2 rounded-lg border bg-muted/30 p-3">
                       <div className="min-w-[10rem] flex-1">
-                        <p className="text-sm font-medium">{l.name}</p>
+                        <p className="text-sm font-medium">
+                          {l.name}
+                          {specLabel(l.item) && <span className="ml-2 inline-block whitespace-nowrap rounded bg-muted px-1.5 py-0.5 text-xs font-normal">{specLabel(l.item)}</span>}
+                        </p>
                         <p className="text-xs text-muted-foreground">{l.sku}{isPack(l) ? ` · 1 ${l.unit} = ${factorOf(l)} ${l.item.baseUnit}` : ""}</p>
                       </div>
                       <div className="space-y-1"><Label htmlFor={`q-${i}`} className="text-xs">Qty</Label><Input id={`q-${i}`} className="h-8 w-20" inputMode="decimal" value={l.quantity} onFocus={(e) => e.target.select()} onChange={(e) => set(i, { quantity: decimal(e.target.value, 3) })} /></div>
@@ -250,7 +277,30 @@ export default function NewPurchaseClient({ suppliers: initialSuppliers, initial
                       {isPack(l) && <div className="space-y-1"><Label htmlFor={`l-${i}`} className="text-xs">+ loose {l.item.baseUnit}</Label><Input id={`l-${i}`} className="h-8 w-20" inputMode="decimal" value={l.loose} onChange={(e) => set(i, { loose: decimal(e.target.value, 3) })} /></div>}
                       <div className="space-y-1"><Label htmlFor={`p-${i}`} className="text-xs">Price per {l.unit || "unit"} (Rs)</Label><Input id={`p-${i}`} className="h-8 w-28" inputMode="decimal" value={l.price} placeholder="0.00" onFocus={(e) => e.target.select()} onChange={(e) => set(i, { price: decimal(e.target.value) })} /></div>
                       <p className="w-28 pb-1.5 text-right text-sm font-semibold tabular-nums">{formatPaisa(lineAmount(l))}</p>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" aria-label={`Remove ${l.name}`} onClick={() => setLines(lines.filter((_, j) => j !== i))}><Trash2 className="h-4 w-4" aria-hidden /></Button>
+                      <div className="flex items-center">
+                      <Button
+                        variant="ghost" size="icon"
+                        className={`h-8 w-8 ${calcOpen === l.componentId ? "bg-indigo-50 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-300" : "text-muted-foreground"}`}
+                        title="Price calculator" aria-label={`Price calculator for ${l.name}`} aria-expanded={calcOpen === l.componentId}
+                        onClick={() => toggleCalc(l)}
+                      ><Calculator className="h-4 w-4" aria-hidden /></Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" aria-label={`Remove ${l.name}`} onClick={() => { setLines(lines.filter((_, j) => j !== i)); if (calcOpen === l.componentId) setCalcOpen(null); }}><Trash2 className="h-4 w-4" aria-hidden /></Button>
+                      </div>
+                    </div>
+                    {calcOpen === l.componentId && (
+                      <div className="mt-1 mb-2">
+                        <PriceCalculator
+                          values={calc[l.componentId] || defaultCalcValues}
+                          onChange={(v) => {
+                            setCalc((prev) => ({ ...prev, [l.componentId]: v }));
+                            if (v.purchasePrice > 0) set(i, { price: String(Math.round(v.purchasePrice * 100) / 100) });
+                          }}
+                          compact
+                          showSalePrice={false}
+                        />
+                        <p className="mt-1 px-1 text-xs text-muted-foreground">The calculated price goes into &quot;Price per {l.unit || "unit"}&quot; above; you can still type over it.</p>
+                      </div>
+                    )}
                     </div>
                   ))}
                 </div>

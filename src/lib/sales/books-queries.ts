@@ -7,6 +7,7 @@ import { amountInWords } from "@/lib/domain/words";
 import { invoicePayments, paymentStatus, unappliedReceipts, openInvoices, PaymentStatus } from "@/lib/accounting/receivables";
 import { accountBalance } from "@/lib/accounting/posting";
 import { UNIT_FIELDS } from "./units";
+import { SPEC_FIELDS } from "@/lib/product-spec";
 
 export const BILL_TYPES = ["SALE_INVOICE", "CASH_SALE"];
 
@@ -86,7 +87,7 @@ export async function loadBooksBill(db: PrismaClient, id: string) {
   const doc = await db.accountingDocument.findUnique({
     where: { id },
     include: {
-      lines: { orderBy: { lineNo: "asc" }, include: { component: { select: { id: true, sku: true, name: true, quantity: true, unitCost: true, unitPrice: true, minQuantity: true, ...UNIT_FIELDS } } } },
+      lines: { orderBy: { lineNo: "asc" }, include: { component: { select: { id: true, sku: true, name: true, quantity: true, unitCost: true, unitPrice: true, minQuantity: true, ...SPEC_FIELDS, ...UNIT_FIELDS } } } },
       partyAccount: true, cashAccount: true,
       supersedes: { select: { id: true, docNo: true } }, supersededBy: { select: { id: true, docNo: true } },
     },
