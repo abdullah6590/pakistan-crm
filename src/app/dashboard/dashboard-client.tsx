@@ -21,7 +21,11 @@ import {
   Sparkles,
   Zap,
   Box,
+  Wallet,
+  Landmark,
+  ArrowDownLeft,
 } from "lucide-react";
+import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { formatCurrency, formatDate, timeAgo, getStatusColor, CHART_COLORS, MONTH_NAMES } from "@/lib/utils";
@@ -67,6 +71,8 @@ interface DashboardData {
   aiPredictions?: any[];
   aiAnomalies?: any[];
   visibility?: { finance: boolean; sales: boolean; purchases: boolean; projects: boolean; partners: boolean };
+  /** Money summary from Books (cash, bank, receivable, payable), when the user may read the books */
+  money?: { cash: string; bank: string; owedToYou: string; youOwe: string } | null;
 }
 
 interface DashboardClientProps {
@@ -168,9 +174,27 @@ export default function DashboardClient({ data, user }: DashboardClientProps) {
           Welcome back, {user.name?.split(" ")[0] || "User"} 👋
         </h1>
         <p className="text-muted-foreground">
-          Here's what's happening with your electronics business today.
+          Here's what's happening with your business today.
         </p>
       </div>
+
+      {/* ─── Money (from Books) ────────────────────────────── */}
+      {data.money && (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <Link href="/dashboard/accounting/reports?report=cash-book" className="rounded-xl transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <StatCard title="Cash in hand" value={formatCurrency(Number(data.money.cash))} subtitle="Open the cash book" icon={Wallet} color="success" />
+          </Link>
+          <Link href="/dashboard/accounting/reports?report=cash-book" className="rounded-xl transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <StatCard title="Bank" value={formatCurrency(Number(data.money.bank))} subtitle="Open the bank book" icon={Landmark} color="info" />
+          </Link>
+          <Link href="/dashboard/accounting/reports?report=party-balances&type=CUSTOMER" className="rounded-xl transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <StatCard title="Customers owe you" value={formatCurrency(Number(data.money.owedToYou))} subtitle="See who owes what" icon={ArrowDownLeft} color="warning" />
+          </Link>
+          <Link href="/dashboard/accounting/reports?report=party-balances&type=SUPPLIER" className="rounded-xl transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <StatCard title="You owe suppliers" value={formatCurrency(Number(data.money.youOwe))} subtitle="See whom you owe" icon={ArrowUpRight} color="danger" />
+          </Link>
+        </div>
+      )}
 
       {/* ─── Stats Grid ────────────────────────────────────── */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -543,7 +567,7 @@ export default function DashboardClient({ data, user }: DashboardClientProps) {
         <CardContent>
           {recentProjects.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-6">
-              No projects created yet. Start managing your electronics projects here.
+              No projects created yet. Start managing your projects here.
             </p>
           ) : (
             <div className="space-y-4">

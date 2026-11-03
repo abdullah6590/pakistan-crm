@@ -202,14 +202,15 @@ export async function daybook(db: PrismaClient, range: { from?: Date; to?: Date 
 }
 
 /**
- * Profit (R-07) from sale and cash-sale lines less sale returns, by document or item. Revenue is the exact
+ * Profit (R-07) from sale and cash-sale lines less sale returns, by document, item or customer (the old program's
+ * "profit for all customers"). Revenue is the exact
  * line value (document rounding is reported separately in the trial balance); cost is split by status so
  * estimated or missing costs are never hidden (OD-03).
  */
-export async function profitReport(db: PrismaClient, range: { from?: Date; to?: Date } = {}, groupBy: "document" | "item" = "item") {
+export async function profitReport(db: PrismaClient, range: { from?: Date; to?: Date } = {}, groupBy: "document" | "item" | "customer" = "item") {
   const lines = await db.accountingDocumentLine.findMany({
     where: { document: { type: { in: [...SALE_TYPES, "SALE_RETURN"] }, status: "POSTED", ...dateRange(range) } },
-    include: { document: { select: { id: true, docNo: true, type: true, date: true } }, component: { select: { id: true, name: true } } },
+    include: { document: { select: { id: true, docNo: true, type: true, date: true, partyAccount: { select: { id: true, name: true } } } }, component: { select: { id: true, name: true } } },
   });
   const groups = new Map<string, { key: string; label: string; revenue: Dec; cost: Dec; costedRevenue: Dec; estimated: number; unavailable: number }>();
   let revenue = ZERO, cost = ZERO, uncostedRevenue = ZERO;
@@ -217,8 +218,8 @@ export async function profitReport(db: PrismaClient, range: { from?: Date; to?: 
     const sign = l.document.type === "SALE_RETURN" ? -1 : 1;
     const amount = sign < 0 ? sub(ZERO, dec(l.amount)) : dec(l.amount);
     const lineCost = l.costAmount === null ? null : sign < 0 ? sub(ZERO, dec(l.costAmount)) : dec(l.costAmount);
-    const key = groupBy === "document" ? l.document.id : l.componentId ?? "none";
-    const label = groupBy === "document" ? l.document.docNo : l.component?.name ?? l.description ?? "-";
+    const key = groupBy === "document" ? l.document.id : groupBy === "customer" ? l.document.partyAccount?.id ?? "walk-in" : l.componentId ?? "none";
+    const label = groupBy === "document" ? l.document.docNo : groupBy === "customer" ? l.document.partyAccount?.name ?? "Counter / walk-in" : l.component?.name ?? l.description ?? "-";
     const g = groups.get(key) ?? { key, label, revenue: ZERO, cost: ZERO, costedRevenue: ZERO, estimated: 0, unavailable: 0 };
     g.revenue = add(g.revenue, amount);
     revenue = add(revenue, amount);

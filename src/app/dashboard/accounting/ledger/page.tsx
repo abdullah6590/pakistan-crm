@@ -15,6 +15,7 @@ import { buttonVariants } from "@/components/ui/button";
 import PrintButton from "../print-button";
 import ExcelButton from "../excel-button";
 import PeriodLinks from "@/components/shared/period-links";
+import AccountPicker from "./account-picker";
 
 const cell = "border-b border-dotted border-gray-400 px-2 py-1";
 const num = `${cell} text-right tabular-nums`;
@@ -25,7 +26,7 @@ export default async function LedgerPage({ searchParams }: { searchParams: Promi
   if (!can(user.role, "ledgers", "read")) redirect("/dashboard/accounting");
   const sp = await searchParams;
 
-  const accounts = await prisma.ledgerAccount.findMany({ orderBy: [{ kind: "asc" }, { name: "asc" }] });
+  const accounts = await prisma.ledgerAccount.findMany({ orderBy: [{ kind: "asc" }, { name: "asc" }], select: { id: true, code: true, name: true, kind: true, subType: true, phone: true, isActive: true } });
   const statement = sp.account
     ? await accountStatement(prisma, sp.account, { from: sp.from ? new Date(sp.from) : undefined, to: sp.to ? new Date(`${sp.to}T23:59:59.999Z`) : undefined })
     : null;
@@ -39,10 +40,7 @@ export default async function LedgerPage({ searchParams }: { searchParams: Promi
         <CardContent className="p-4">
           {sp.account && <PeriodLinks path="/dashboard/accounting/ledger" keep={{ account: sp.account }} from={sp.from} to={sp.to} />}
           <form className="grid gap-2 md:grid-cols-5">
-            <select name="account" defaultValue={sp.account ?? ""} className="flex h-10 w-full rounded-lg border border-input bg-background px-3 text-sm md:col-span-2" required>
-              <option value="">Choose an account</option>
-              {accounts.map((a) => <option key={a.id} value={a.id}>{a.code} · {a.name}{a.isActive ? "" : " (inactive)"}</option>)}
-            </select>
+            <AccountPicker accounts={accounts} value={sp.account} />
             <Input name="from" type="date" defaultValue={sp.from ?? ""} />
             <Input name="to" type="date" defaultValue={sp.to ?? ""} />
             <button className={buttonVariants({})} type="submit">Show</button>

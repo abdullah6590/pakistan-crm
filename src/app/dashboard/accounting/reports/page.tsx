@@ -20,11 +20,14 @@ import PrintButton from "../print-button";
 import ExcelButton from "../excel-button";
 import PeriodLinks from "@/components/shared/period-links";
 import { balanceSheet, profitAndLoss, type StatementGroup } from "@/lib/accounting/statements";
+import { cashBook, partyBalances, type PartyType } from "@/lib/accounting/books-reports";
 
 const REPORTS: Record<string, { title: string; resource: string }> = {
   "trial-balance": { title: "Trial balance", resource: "ledgers" },
   "profit-loss": { title: "Profit & Loss", resource: "ledgers" },
   "balance-sheet": { title: "Balance Sheet", resource: "ledgers" },
+  "cash-book": { title: "Cash / bank book", resource: "ledgers" },
+  "party-balances": { title: "Party balances", resource: "ledgers" },
   stock: { title: "Stock position", resource: "inventory" },
   press: { title: "Press reconciliation", resource: "press" },
   approvals: { title: "Waiting for approval", resource: "stockApproval" },
@@ -65,7 +68,7 @@ function range(sp: Record<string, string | undefined>) {
 function RangeForm({ report, sp, extra }: { report: string; sp: Record<string, string | undefined>; extra?: React.ReactNode }) {
   return (
     <>
-    <PeriodLinks path="/dashboard/accounting/reports" keep={{ report, by: sp.by, side: sp.side, view: sp.view }} from={sp.from} to={sp.to} />
+    <PeriodLinks path="/dashboard/accounting/reports" keep={{ report, by: sp.by, side: sp.side, account: sp.account, view: sp.view }} from={sp.from} to={sp.to} />
     <form className="mb-3 flex flex-wrap gap-2 print:hidden">
       <input type="hidden" name="report" value={report} />
       <Input name="from" type="date" defaultValue={sp.from ?? ""} className="max-w-[11rem]" />
@@ -78,7 +81,7 @@ function RangeForm({ report, sp, extra }: { report: string; sp: Record<string, s
 }
 
 /** Reports that can be downloaded as Excel, with the choices that shape them. */
-const EXCEL = new Set(["trial-balance", "profit-loss", "balance-sheet", "daybook", "stock"]);
+const EXCEL = new Set(["trial-balance", "profit-loss", "balance-sheet", "cash-book", "party-balances", "daybook", "stock"]);
 
 const th = "px-2 py-1";
 const cell = "border-b border-dotted border-gray-400 px-2 py-1";
@@ -97,7 +100,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
 
   return (
     <div className="space-y-6">
-      <PageHeader title={report.title} icon={Scale} actions={<div className="flex gap-2"><PrintButton />{EXCEL.has(key) && <ExcelButton query={{ report: key, from: sp.from, to: sp.to, location: sp.location }} />}</div>} />
+      <PageHeader title={report.title} icon={Scale} actions={<div className="flex gap-2"><PrintButton />{EXCEL.has(key) && <ExcelButton query={{ report: key, from: sp.from, to: sp.to, location: sp.location, account: sp.account, type: sp.type, min: sp.min }} />}</div>} />
       <div className="flex flex-wrap gap-2 print:hidden">
         {tabs.map(([k, r]) => (
           <Link key={k} href={`/dashboard/accounting/reports?report=${k}`} className={buttonVariants({ size: "sm", variant: k === key ? "default" : "outline" })}>{r.title}</Link>
@@ -109,6 +112,8 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
         {key === "trial-balance" && <TrialBalance to={sp.to} sp={sp} />}
         {key === "profit-loss" && <ProfitLoss sp={sp} dateFormat={dateFormat} />}
         {key === "balance-sheet" && <BalanceSheetView sp={sp} dateFormat={dateFormat} />}
+        {key === "cash-book" && <CashBookView sp={sp} dateFormat={dateFormat} />}
+        {key === "party-balances" && <PartyBalancesView sp={sp} dateFormat={dateFormat} />}
         {key === "stock" && <Stock location={sp.location} sp={sp} />}
         {key === "reconcile" && <Reconcile />}
         {key === "numbering" && <Numbering />}
@@ -297,15 +302,15 @@ async function Daybook({ sp, dateFormat }: { sp: Record<string, string | undefin
 }
 
 async function Profit({ sp }: { sp: Record<string, string | undefined> }) {
-  const by = sp.by === "document" ? "document" : "item";
+  const by = sp.by === "document" ? "document" : sp.by === "customer" ? "customer" : "item";
   const p = await profitReport(prisma, range(sp), by);
   return (
     <>
       <RangeForm report="profit" sp={sp} extra={
-        <select name="by" defaultValue={by} className={`${selectClass} max-w-[11rem]`}><option value="item">By item</option><option value="document">By document</option></select>
+        <select name="by" defaultValue={by} className={`${selectClass} max-w-[11rem]`}><option value="item">By item</option><option value="customer">By customer</option><option value="document">By document</option></select>
       } />
       <table className="w-full border-collapse text-sm">
-        <thead><tr className="border-y border-black"><th className={`${th} text-left`}>{by === "item" ? "Item" : "Document"}</th><th className={`${th} text-right`}>Sales less returns</th><th className={`${th} text-right`}>Cost</th><th className={`${th} text-right`}>Profit on costed sales</th><th className={`${th} text-left`}>Cost status</th></tr></thead>
+        <thead><tr className="border-y border-black"><th className={`${th} text-left`}>{by === "item" ? "Item" : by === "customer" ? "Customer" : "Document"}</th><th className={`${th} text-right`}>Sales less returns</th><th className={`${th} text-right`}>Cost</th><th className={`${th} text-right`}>Profit on costed sales</th><th className={`${th} text-left`}>Cost status</th></tr></thead>
         <tbody>
           {p.rows.map((r) => (
             <tr key={r.key}>
@@ -545,6 +550,96 @@ async function BalanceSheetView({ sp, dateFormat }: { sp: Record<string, string 
           </div>
         </div>
       </div>
+    </>
+  );
+}
+
+async function CashBookView({ sp, dateFormat }: { sp: Record<string, string | undefined>; dateFormat: string }) {
+  const accounts = await prisma.ledgerAccount.findMany({ where: { kind: "CASH_BANK" }, orderBy: [{ subType: "desc" }, { name: "asc" }], select: { id: true, name: true, subType: true, isActive: true } });
+  const accountId = sp.account && accounts.some((a) => a.id === sp.account) ? sp.account : accounts[0]?.id;
+  const book = accountId ? await withView(sp, (db) => cashBook(db, accountId, range(sp))) : null;
+  return (
+    <>
+      <RangeForm report="cash-book" sp={{ ...sp, account: accountId }} extra={
+        <select name="account" defaultValue={accountId} aria-label="Cash or bank account" className={`${selectClass} max-w-[16rem]`}>
+          {accounts.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.subType === "BANK" ? "bank" : "cash"}){a.isActive ? "" : " (inactive)"}</option>)}
+        </select>
+      } />
+      {!book ? <p className="text-sm text-gray-600">No cash or bank account yet.</p> : (
+        <>
+          <div className="mb-2 text-center font-semibold">
+            {book.account.subType === "BANK" ? "Bank book" : "Cash book"}: {book.account.name} · {sp.from ? formatDate(sp.from, dateFormat) : "Beginning"} to {sp.to ? formatDate(sp.to, dateFormat) : "today"}
+          </div>
+          <table className="w-full border-collapse text-sm">
+            <thead><tr className="border-y border-black"><th className={`${th} text-left`}>Date</th><th className={`${th} text-left`}>Ref</th><th className={`${th} text-left`}>Received from / paid to</th><th className={`${th} text-right`}>In</th><th className={`${th} text-right`}>Out</th><th className={`${th} text-right`}>Balance</th></tr></thead>
+            <tbody>
+              <tr><td className={cell}>{sp.from ? formatDate(sp.from, dateFormat) : ""}</td><td className={cell}>Opn</td><td className={cell}>Opening balance (B/F)</td><td className={num}></td><td className={num}></td><td className={`${num} font-semibold`}>{money(book.opening)}</td></tr>
+              {book.days.length === 0 && <tr><td className={`${cell} text-gray-500`} colSpan={6}>No money in or out in this period</td></tr>}
+              {book.days.map((d) => [
+                ...d.entries.map((e, j) => (
+                  <tr key={`${d.date}-${j}`}>
+                    <td className={cell}>{j === 0 ? formatDate(d.date, dateFormat) : ""}</td>
+                    <td className={cell}><Link className="text-primary print:text-black" href={`/dashboard/accounting/documents/${e.documentId}`}>{e.docNo}{e.reversal ? " (cancelled)" : ""}</Link></td>
+                    <td className={cell}>{e.particulars}{e.remarks ? <span className="text-gray-600"> · {e.remarks}</span> : null}</td>
+                    <td className={num}>{money(e.in)}</td>
+                    <td className={num}>{money(e.out)}</td>
+                    <td className={num}></td>
+                  </tr>
+                )),
+                <tr key={`${d.date}-close`} className="bg-gray-50 print:bg-white">
+                  <td className={cell}></td><td className={cell}></td>
+                  <td className={`${cell} italic`}>Day total and closing balance</td>
+                  <td className={`${num} font-semibold`}>{money(d.in)}</td>
+                  <td className={`${num} font-semibold`}>{money(d.out)}</td>
+                  <td className={`${num} font-semibold`}>{money(d.closing)}</td>
+                </tr>,
+              ])}
+            </tbody>
+            <tfoot><tr className="border-y border-black font-bold"><td className="px-2 py-2" colSpan={3}>Total and closing balance</td><td className="px-2 py-2 text-right tabular-nums">{money(book.totalIn)}</td><td className="px-2 py-2 text-right tabular-nums">{money(book.totalOut)}</td><td className="px-2 py-2 text-right tabular-nums">{money(book.closing)}</td></tr></tfoot>
+          </table>
+        </>
+      )}
+    </>
+  );
+}
+
+async function PartyBalancesView({ sp, dateFormat }: { sp: Record<string, string | undefined>; dateFormat: string }) {
+  const type: PartyType = sp.type === "CUSTOMER" || sp.type === "SUPPLIER" ? sp.type : "ALL";
+  const minimum = Number(sp.min) > 0 ? Number(sp.min) : 0;
+  const pb = await withView(sp, (db) => partyBalances(db, { type, minimum, asOf: range(sp).to }));
+  return (
+    <>
+      <PeriodLinks path="/dashboard/accounting/reports" keep={{ report: "party-balances", type: sp.type, min: sp.min, view: sp.view }} to={sp.to} mode="asOf" />
+      <form className="mb-3 flex flex-wrap gap-2 print:hidden">
+        <input type="hidden" name="report" value="party-balances" />
+        <select name="type" defaultValue={type} aria-label="Which parties" className={`${selectClass} max-w-[12rem]`}>
+          <option value="ALL">Customers and suppliers</option><option value="CUSTOMER">Customers only</option><option value="SUPPLIER">Suppliers only</option>
+        </select>
+        <Input name="min" type="number" min={0} step="any" defaultValue={sp.min ?? ""} placeholder="Balance more than Rs" aria-label="Only balances more than (Rs)" className="max-w-[12rem]" />
+        <Input name="to" type="date" defaultValue={sp.to ?? ""} aria-label="As on" className="max-w-[11rem]" />
+        <button className={buttonVariants({ variant: "outline" })} type="submit">Show</button>
+      </form>
+      <div className="mb-2 text-center font-semibold">
+        {type === "CUSTOMER" ? "Customer" : type === "SUPPLIER" ? "Supplier" : "Party"} balances as on {sp.to ? formatDate(sp.to, dateFormat) : "today"}{minimum ? `, more than ${money(String(minimum))}` : ""}
+      </div>
+      <table className="w-full border-collapse text-sm">
+        <thead><tr className="border-y border-black"><th className={`${th} text-left`}>Name</th><th className={`${th} text-left`}>Phone</th><th className={`${th} text-left`}>Type</th><th className={`${th} text-right`}>Owes you</th><th className={`${th} text-right`}>You owe</th></tr></thead>
+        <tbody>
+          {pb.rows.length === 0 && <tr><td className={`${cell} text-gray-500`} colSpan={5}>No balances</td></tr>}
+          {pb.rows.map((r) => (
+            <tr key={r.accountId}>
+              <td className={cell}><Link className="text-primary print:text-black" href={`/dashboard/accounting/ledger?account=${r.accountId}${sp.to ? `&to=${sp.to}` : ""}`}>{r.name}</Link>{r.active ? "" : " (archived)"}</td>
+              <td className={cell}>{r.phone ?? ""}</td>
+              <td className={cell}>{r.type === "CUSTOMER" ? "customer" : r.type === "SUPPLIER" ? "supplier" : (r.type ?? "").toLowerCase()}</td>
+              <td className={num}>{r.balance.startsWith("-") ? "" : money(r.balance)}</td>
+              <td className={num}>{r.balance.startsWith("-") ? money(r.balance.slice(1)) : ""}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="border-t border-black font-semibold"><td className={th} colSpan={3}>Total ({pb.rows.length})</td><td className={`${th} text-right tabular-nums`}>{money(pb.owedToYou)}</td><td className={`${th} text-right tabular-nums`}>{money(pb.youOwe)}</td></tr>
+        </tfoot>
+      </table>
     </>
   );
 }
