@@ -63,7 +63,10 @@ export default function BackupsClient({ status, drive, notice, canPickFolder = t
 
   async function choose() {
     const data = await send("/api/backups/pick-folder", "POST");
-    if (data?.directory) setForm((f) => ({ ...f, directory: data.directory }));
+    if (!data?.directory) return; // the window was closed without choosing
+    setForm((f) => ({ ...f, directory: data.directory }));
+    // The folder is saved at once (only the folder; other changes on the screen still wait for Save settings)
+    await send("/api/backups/settings", "PUT", { directory: data.directory }, `Backup folder saved: ${data.directory}`);
   }
 
   async function connectDrive() {

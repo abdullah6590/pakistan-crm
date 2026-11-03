@@ -127,7 +127,11 @@ export function pickFolder(): Promise<string | null> {
 $d = New-Object System.Windows.Forms.FolderBrowserDialog
 $d.Description = 'Choose the folder for Pakistan CRM backups (a different drive or a USB/external disk is best)'
 $d.ShowNewFolderButton = $true
-if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($d.SelectedPath) }`;
+# An invisible always-on-top owner, so the window opens in front of the browser instead of behind it
+$owner = New-Object System.Windows.Forms.Form -Property @{ TopMost = $true; ShowInTaskbar = $false; Opacity = 0 }
+$owner.Show(); $owner.Activate()
+if ($d.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($d.SelectedPath) }
+$owner.Close()`;
   return new Promise((resolve, reject) => {
     const ps = spawn("powershell.exe", ["-NoProfile", "-STA", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], { windowsHide: false });
     let out = "";

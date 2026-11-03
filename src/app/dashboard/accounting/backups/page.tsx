@@ -6,7 +6,9 @@ import { can } from "@/lib/permissions";
 import { PageHeader } from "@/components/shared/page-header";
 import BackupsClient from "./backups-client";
 import RestoreClient from "./restore-client";
+import { headers } from "next/headers";
 import { backupStatus, driveStatus, restoreSources } from "@/lib/backup/runtime";
+import { folderPickerAllowed } from "@/lib/backup/picker-access";
 import { nodeRole, tenancyMode } from "@/lib/tenancy/config";
 
 export default async function BackupsPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
@@ -16,8 +18,8 @@ export default async function BackupsPage({ searchParams }: { searchParams: Prom
   return (
     <div className="space-y-6">
       <PageHeader title="Backups" icon={HardDrive} description="Encrypted copies of this computer's data, including entries not yet synchronised. Only someone with the backup passphrase can restore them." />
-      {/* The Windows folder picker opens on the computer running the app: only offered on desktops and office servers */}
-      <BackupsClient status={await backupStatus()} drive={await driveStatus()} notice={await searchParams} canPickFolder={nodeRole() !== "cloud"} />
+      {/* The Windows folder picker opens on the computer running the app: offered there, and on the website opened on that same PC */}
+      <BackupsClient status={await backupStatus()} drive={await driveStatus()} notice={await searchParams} canPickFolder={folderPickerAllowed((await headers()).get("host"), nodeRole())} />
       {tenancyMode() !== "multi" && <RestoreClient sources={await restoreSources()} role={nodeRole()} />}
     </div>
   );
