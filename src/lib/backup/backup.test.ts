@@ -169,4 +169,15 @@ describe("retention and scheduling", () => {
     expect(dueBackups(at(9, 30), { ...s, enabled: false }, done, 51)).toEqual({ daily: false, frequent: false, missed: false });
     expect(await changeMarker(db)).toBeGreaterThan(0);
   });
+
+  it("a late-evening daily backup missed while the PC was off runs when it is switched on after midnight", () => {
+    const s = { enabled: true, dailyTime: "22:00", frequentMinutes: 0 };
+    // Last daily backup the evening before yesterday; off at 22:00 yesterday; switched on at 01:00 today
+    const missed = dueBackups(new Date(2026, 9, 22, 1, 0), s, { daily: new Date(2026, 9, 20, 22, 1) }, 10);
+    expect(missed).toMatchObject({ daily: true, missed: true });
+    // Yesterday's 22:00 backup was made: nothing is due until 22:00 today
+    expect(dueBackups(new Date(2026, 9, 22, 1, 0), s, { daily: new Date(2026, 9, 21, 22, 0) }, 10).daily).toBe(false);
+    expect(dueBackups(new Date(2026, 9, 22, 21, 59), s, { daily: new Date(2026, 9, 21, 22, 0) }, 10).daily).toBe(false);
+    expect(dueBackups(new Date(2026, 9, 22, 22, 0), s, { daily: new Date(2026, 9, 21, 22, 0) }, 10)).toMatchObject({ daily: true, missed: false });
+  });
 });

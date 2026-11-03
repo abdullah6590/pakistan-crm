@@ -239,9 +239,12 @@ export async function applyRetention(db: PrismaClient, policy: { keepDaily: numb
 export function dueBackups(now: Date, s: { enabled: boolean; dailyTime: string; frequentMinutes: number }, last: { daily?: Date | null; any?: Date | null; anySeq?: number | null }, changeSeq: number) {
   if (!s.enabled) return { daily: false, frequent: false, missed: false };
   const [h, m] = s.dailyTime.split(":").map(Number);
+  // The most recent scheduled time: today's, or yesterday's when today's has not come yet (a 22:00 backup missed
+  // while the PC was off still runs when it is switched on after midnight)
   const scheduled = new Date(now);
   scheduled.setHours(h, m, 0, 0);
-  const daily = now >= scheduled && (!last.daily || last.daily < scheduled);
+  if (scheduled > now) scheduled.setDate(scheduled.getDate() - 1);
+  const daily = !last.daily || last.daily < scheduled;
   const missed = daily && now.getTime() - scheduled.getTime() > 15 * 60_000;
   const frequent = !daily && s.frequentMinutes > 0 && (!last.any || now.getTime() - last.any.getTime() >= s.frequentMinutes * 60_000) && (last.anySeq === null || last.anySeq === undefined || changeSeq > last.anySeq);
   return { daily, frequent, missed };
