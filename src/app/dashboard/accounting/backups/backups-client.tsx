@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import FolderChooser from "./folder-chooser";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { FolderOpen, HardDrive, Save } from "lucide-react";
@@ -61,12 +62,12 @@ export default function BackupsClient({ status, drive, notice, canPickFolder = t
     }
   }
 
-  async function choose() {
-    const data = await send("/api/backups/pick-folder", "POST");
-    if (!data?.directory) return; // the window was closed without choosing
-    setForm((f) => ({ ...f, directory: data.directory }));
+  const [chooserOpen, setChooserOpen] = useState(false);
+  async function chosen(directory: string) {
+    setChooserOpen(false);
+    setForm((f) => ({ ...f, directory }));
     // The folder is saved at once (only the folder; other changes on the screen still wait for Save settings)
-    await send("/api/backups/settings", "PUT", { directory: data.directory }, `Backup folder saved: ${data.directory}`);
+    await send("/api/backups/settings", "PUT", { directory }, `Backup folder saved: ${directory}`);
   }
 
   async function connectDrive() {
@@ -95,7 +96,8 @@ export default function BackupsClient({ status, drive, notice, canPickFolder = t
             <Label>Backup folder</Label>
             <div className="flex gap-2">
               <Input value={form.directory} aria-describedby="folder-help" placeholder="e.g. C:\PakistanCRM-Backups (a different disk from the data, or a USB disk)" onChange={(e) => setForm({ ...form, directory: e.target.value })} />
-              {canPickFolder && <Button type="button" variant="outline" disabled={busy} onClick={choose}><FolderOpen className="mr-1 h-4 w-4" />Choose folder…</Button>}
+              {canPickFolder && <Button type="button" variant="outline" disabled={busy} onClick={() => setChooserOpen(true)}><FolderOpen className="mr-1 h-4 w-4" />Choose folder…</Button>}
+              {canPickFolder && chooserOpen && <FolderChooser open={chooserOpen} onClose={() => setChooserOpen(false)} onChoose={(d) => void chosen(d)} start={form.directory || null} />}
             </div>
             {!canPickFolder && <p id="folder-help" className="text-xs text-muted-foreground">Type the full folder path on the computer that runs Pakistan CRM, e.g. <span className="font-mono">C:\PakistanCRM-Backups</span>. The folder must already exist (create it in File Explorer first).</p>}
           </div>

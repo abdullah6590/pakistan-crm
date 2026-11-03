@@ -2,7 +2,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { spawn } from "node:child_process";
 import { prisma } from "@/lib/prisma";
 import { nodeRole, tenancyMode, DEFAULT_TENANT_ID } from "@/lib/tenancy/config";
 import { getSetting } from "@/lib/accounting/setup";
@@ -121,26 +120,6 @@ export function startBackupLoop() {
 }
 
 /** Windows folder picker on the computer running this application (desktop or office server). */
-export function pickFolder(): Promise<string | null> {
-  if (process.platform !== "win32") return Promise.reject(new BackupError("The folder picker is available on Windows computers only"));
-  const script = `Add-Type -AssemblyName System.Windows.Forms
-$d = New-Object System.Windows.Forms.FolderBrowserDialog
-$d.Description = 'Choose the folder for Pakistan CRM backups (a different drive or a USB/external disk is best)'
-$d.ShowNewFolderButton = $true
-# An invisible always-on-top owner, so the window opens in front of the browser instead of behind it
-$owner = New-Object System.Windows.Forms.Form -Property @{ TopMost = $true; ShowInTaskbar = $false; Opacity = 0 }
-$owner.Show(); $owner.Activate()
-if ($d.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($d.SelectedPath) }
-$owner.Close()`;
-  return new Promise((resolve, reject) => {
-    const ps = spawn("powershell.exe", ["-NoProfile", "-STA", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], { windowsHide: false });
-    let out = "";
-    ps.stdout.on("data", (d) => (out += d));
-    ps.on("error", (e) => reject(new BackupError(e.message)));
-    ps.on("close", () => resolve(out.trim() || null));
-  });
-}
-
 /** The chosen folder must exist and accept a test file. */
 export function checkFolder(dir: string) {
   if (!path.isAbsolute(dir)) throw new BackupError("Choose a full folder path");
