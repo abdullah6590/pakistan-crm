@@ -16,7 +16,8 @@ export default async function BackupsPage({ searchParams }: { searchParams: Prom
   return (
     <div className="space-y-6">
       <PageHeader title="Backups" icon={HardDrive} description="Encrypted copies of this computer's data, including entries not yet synchronised. Only someone with the backup passphrase can restore them." />
-      <BackupsClient status={await backupStatus()} drive={await driveStatus()} notice={await searchParams} />
+      {/* The Windows folder picker opens on the computer running the app: only offered on desktops and office servers */}
+      <BackupsClient status={await backupStatus()} drive={await driveStatus()} notice={await searchParams} canPickFolder={nodeRole() !== "cloud"} />
       {tenancyMode() !== "multi" && <RestoreClient sources={await restoreSources()} role={nodeRole()} />}
     </div>
   );
