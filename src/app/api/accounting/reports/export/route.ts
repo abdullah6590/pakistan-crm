@@ -1,5 +1,6 @@
 // src/app/api/accounting/reports/export/route.ts - Books reports and ledgers as an Excel file (the same figures as the
-// screen): trial balance, Profit & Loss, Balance Sheet, daybook, stock position and an account ledger.
+// screen): trial balance, Profit & Loss, Balance Sheet, cash/bank book, party balances, daybook, stock position and an
+// account ledger.
 import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { authorize } from "@/lib/permissions";
@@ -7,10 +8,11 @@ import { prisma } from "@/lib/prisma";
 import { accountStatement, daybook, stockReport, trialBalance } from "@/lib/accounting/queries";
 import { balanceSheet, profitAndLoss, type StatementGroup } from "@/lib/accounting/statements";
 import { getSetting } from "@/lib/accounting/setup";
+import { cashBook, partyBalances } from "@/lib/accounting/books-reports";
 import { DOCUMENT_TYPES } from "@/lib/accounting/meta";
 
 const RESOURCE: Record<string, string> = {
-  "trial-balance": "ledgers", "profit-loss": "ledgers", "balance-sheet": "ledgers", daybook: "ledgers", stock: "inventory", ledger: "ledgers",
+  "trial-balance": "ledgers", "profit-loss": "ledgers", "balance-sheet": "ledgers", "cash-book": "ledgers", "party-balances": "ledgers", daybook: "ledgers", stock: "inventory", ledger: "ledgers",
 };
 const MONEY = "#,##0.00;[Red]-#,##0.00";
 const n = (v: string | null | undefined) => (v === null || v === undefined || v === "" ? null : Number(v));
@@ -88,6 +90,31 @@ export async function GET(request: NextRequest) {
     ws.addRow(["   Profit to date", n(bs.profitToDate)]);
     bold(ws.addRow(["Total owner's equity", n(bs.equityTotal)]));
     name = `Balance-sheet-${to ?? "today"}`;
+  } else if (report === "cash-book") {
+    const accountId = sp.get("account") ?? (await prisma.ledgerAccount.findFirst({ where: { kind: "CASH_BANK" }, orderBy: [{ subType: "desc" }, { name: "asc" }] }))?.id;
+    const book = accountId ? await cashBook(prisma, accountId, range) : null;
+    if (!book) return NextResponse.json({ error: "Choose a cash or bank account" }, { status: 400 });
+    const ws = sheet(`${book.account.subType === "BANK" ? "Bank" : "Cash"} book`, `${book.account.name} · ${period}`, [{ header: "Date", width: 12 }, { header: "Ref", width: 16 }, { header: "Received from / paid to", width: 40 }, { header: "In", width: 16, money: true }, { header: "Out", width: 16, money: true }, { header: "Balance", width: 18, money: true }]);
+    ws.addRow([from ? new Date(from) : null, "Opn", "Opening balance (B/F)", null, null, n(book.opening)]);
+    for (const d of book.days) {
+      d.entries.forEach((e, j) => ws.addRow([j === 0 ? new Date(d.date) : null, `${e.docNo}${e.reversal ? " (cancelled)" : ""}`, e.remarks ? `${e.particulars} · ${e.remarks}` : e.particulars, n(e.in), n(e.out), null]));
+      ws.addRow([null, "", "Day total and closing balance", n(d.in), n(d.out), n(d.closing)]).font = { italic: true };
+    }
+    ws.getColumn(1).numFmt = "dd/mm/yyyy";
+    bold(ws.addRow(["", "", "Total and closing balance", n(book.totalIn), n(book.totalOut), n(book.closing)]));
+    name = `${book.account.subType === "BANK" ? "Bank" : "Cash"}-book-${from ?? "start"}-to-${to ?? "today"}`;
+  } else if (report === "party-balances") {
+    const typeParam = sp.get("type");
+    const type = typeParam === "CUSTOMER" || typeParam === "SUPPLIER" ? typeParam : "ALL";
+    const minimum = Number(sp.get("min")) > 0 ? Number(sp.get("min")) : 0;
+    const pb = await partyBalances(prisma, { type, minimum, asOf: range.to });
+    const ws = sheet("Party balances", `As on ${to ?? "today"}${minimum ? `, more than Rs ${minimum}` : ""}`, [{ header: "Name", width: 36 }, { header: "Phone", width: 16 }, { header: "Type", width: 12 }, { header: "Owes you", width: 16, money: true }, { header: "You owe", width: 16, money: true }]);
+    for (const r of pb.rows) {
+      const owes = !r.balance.startsWith("-");
+      ws.addRow([r.name, r.phone ?? "", (r.type ?? "").toLowerCase(), owes ? n(r.balance) : null, owes ? null : n(r.balance.slice(1))]);
+    }
+    bold(ws.addRow([`Total (${pb.rows.length})`, "", "", n(pb.owedToYou), n(pb.youOwe)]));
+    name = `Party-balances-${to ?? "today"}`;
   } else if (report === "daybook") {
     const db = await daybook(prisma, range);
     const ws = sheet("Daybook", period, [{ header: "Date", width: 12 }, { header: "Document", width: 16 }, { header: "Type", width: 20 }, { header: "Account", width: 32 }, { header: "Debit", width: 16, money: true }, { header: "Credit", width: 16, money: true }, { header: "Remarks", width: 36 }]);

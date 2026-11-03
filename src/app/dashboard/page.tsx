@@ -5,7 +5,8 @@ import prisma from "@/lib/prisma";
 import { formatCurrency } from "@/lib/utils";
 import { predictStockLevels, detectAnomalies } from "@/lib/ai-engine";
 import DashboardClient from "./dashboard-client";
-import { dashboardVisibility } from "@/lib/permissions";
+import { can, dashboardVisibility } from "@/lib/permissions";
+import { moneySummary } from "@/lib/accounting/books-reports";
 import { booksSalesSince, recentBooksBills } from "@/lib/sales/books-queries";
 
 export const dynamic = "force-dynamic";
@@ -173,5 +174,8 @@ export default async function DashboardPage() {
     }))).slice(0, 3),
   };
 
-  return <DashboardClient data={{ ...dashboardData, visibility: vis }} user={user} />;
+  // Money summary from Books, for people who may read the books
+  const money = can(user.role, "ledgers", "read") ? await moneySummary(prisma) : null;
+
+  return <DashboardClient data={{ ...dashboardData, visibility: vis, money }} user={user} />;
 }

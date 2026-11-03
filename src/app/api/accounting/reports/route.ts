@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
     if (report === "approvals") return { status: 200, body: { documents: await pendingApprovals(db) } };
     if (report === "self-approvals") return { status: 200, body: await selfApprovalReport(db, range) };
     if (report === "daybook") return { status: 200, body: await daybook(db, range) };
-    if (report === "profit") return { status: 200, body: await profitReport(db, range, searchParams.get("by") === "document" ? "document" : "item") };
+    if (report === "profit") return { status: 200, body: await profitReport(db, range, searchParams.get("by") === "document" ? "document" : searchParams.get("by") === "customer" ? "customer" : "item") };
     if (report === "negative-stock") return { status: 200, body: await negativeStockExceptions(db) };
     if (report === "kg") return { status: 200, body: { rows: await kgReport(db, range, searchParams.get("side") === "purchase" ? "purchase" : "sale") } };
     if (report === "numbering") return { status: 200, body: { series: await numberingReport(db) } };
