@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import FolderChooser from "./folder-chooser";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { FolderOpen, HardDrive, Save } from "lucide-react";
@@ -26,13 +27,21 @@ interface Drive {
   keepRemote: number; lastError: string | null; storage: { limit: string; used: string } | null; lastUpload: { at: string; fileId: string | null } | null; waiting: number;
 }
 
-export default function BackupsClient({ status, drive, notice }: { status: Status; drive: Drive; notice: Record<string, string | undefined> }) {
+export default function BackupsClient({ status, drive, notice, canPickFolder = true }: { status: Status; drive: Drive; notice: Record<string, string | undefined>; canPickFolder?: boolean }) {
   const router = useRouter();
   const [form, setForm] = useState({
     enabled: status.settings.enabled, directory: status.settings.directory ?? "", dailyTime: status.settings.dailyTime,
     frequentMinutes: status.settings.frequentMinutes, keepDaily: status.settings.keepDaily, keepFrequent: status.settings.keepFrequent,
   });
   const [pass, setPass] = useState({ passphrase: "", passphraseConfirm: "" });
+  // Why "Save passphrase" is not available yet, in plain words (null when it can be saved)
+  const passProblem = !pass.passphrase
+    ? "Type a passphrase of at least 12 characters, e.g. four unrelated words."
+    : pass.passphrase.length < 12
+      ? `${12 - pass.passphrase.length} more character${12 - pass.passphrase.length === 1 ? "" : "s"} needed (at least 12).`
+      : pass.passphrase !== pass.passphraseConfirm
+        ? "Type the same passphrase again in the second box."
+        : null;
   const [busy, setBusy] = useState(false);
   const [folderName, setFolderName] = useState(drive.folderName ?? "Pakistan CRM Backups");
 
@@ -53,9 +62,12 @@ export default function BackupsClient({ status, drive, notice }: { status: Statu
     }
   }
 
-  async function choose() {
-    const data = await send("/api/backups/pick-folder", "POST");
-    if (data?.directory) setForm((f) => ({ ...f, directory: data.directory }));
+  const [chooserOpen, setChooserOpen] = useState(false);
+  async function chosen(directory: string) {
+    setChooserOpen(false);
+    setForm((f) => ({ ...f, directory }));
+    // The folder is saved at once (only the folder; other changes on the screen still wait for Save settings)
+    await send("/api/backups/settings", "PUT", { directory }, `Backup folder saved: ${directory}`);
   }
 
   async function connectDrive() {
@@ -83,9 +95,11 @@ export default function BackupsClient({ status, drive, notice }: { status: Statu
           <div className="space-y-1 md:col-span-3">
             <Label>Backup folder</Label>
             <div className="flex gap-2">
-              <Input value={form.directory} placeholder="e.g. E:\CRM Backups (another drive or a USB disk is best)" onChange={(e) => setForm({ ...form, directory: e.target.value })} />
-              <Button type="button" variant="outline" disabled={busy} onClick={choose}><FolderOpen className="mr-1 h-4 w-4" />Choose folder…</Button>
+              <Input value={form.directory} aria-describedby="folder-help" placeholder="e.g. C:\PakistanCRM-Backups (a different disk from the data, or a USB disk)" onChange={(e) => setForm({ ...form, directory: e.target.value })} />
+              {canPickFolder && <Button type="button" variant="outline" disabled={busy} onClick={() => setChooserOpen(true)}><FolderOpen className="mr-1 h-4 w-4" />Choose folder…</Button>}
+              {canPickFolder && chooserOpen && <FolderChooser open={chooserOpen} onClose={() => setChooserOpen(false)} onChoose={(d) => void chosen(d)} start={form.directory || null} />}
             </div>
+            {!canPickFolder && <p id="folder-help" className="text-xs text-muted-foreground">Type the full folder path on the computer that runs Pakistan CRM, e.g. <span className="font-mono">C:\PakistanCRM-Backups</span>. The folder must already exist (create it in File Explorer first).</p>}
           </div>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} />Automatic backups on</label>
           <div className="space-y-1"><Label>Daily backup time</Label><Input type="time" value={form.dailyTime} onChange={(e) => setForm({ ...form, dailyTime: e.target.value })} /></div>
@@ -105,7 +119,10 @@ export default function BackupsClient({ status, drive, notice }: { status: Statu
         <CardContent className="grid gap-3 md:grid-cols-3">
           <Input type="password" placeholder="New passphrase (12+ characters)" value={pass.passphrase} onChange={(e) => setPass({ ...pass, passphrase: e.target.value })} />
           <Input type="password" placeholder="Repeat passphrase" value={pass.passphraseConfirm} onChange={(e) => setPass({ ...pass, passphraseConfirm: e.target.value })} />
-          <Button disabled={busy || pass.passphrase.length < 12} onClick={async () => { if (await send("/api/backups/settings", "PUT", pass, "Passphrase saved")) setPass({ passphrase: "", passphraseConfirm: "" }); }}>Save passphrase</Button>
+          <Button disabled={busy || !!passProblem} aria-describedby="pass-help" onClick={async () => { if (await send("/api/backups/settings", "PUT", pass, "Passphrase saved")) setPass({ passphrase: "", passphraseConfirm: "" }); }}>Save passphrase</Button>
+          <p id="pass-help" role="status" className={`text-xs md:col-span-3 ${passProblem && pass.passphrase ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground"}`}>
+            {passProblem ?? "Ready to save. Keep a written copy of this passphrase."}
+          </p>
         </CardContent>
       </Card>
 
