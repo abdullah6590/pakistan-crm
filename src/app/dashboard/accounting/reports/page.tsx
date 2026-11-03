@@ -17,9 +17,14 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { buttonVariants } from "@/components/ui/button";
 import PrintButton from "../print-button";
+import ExcelButton from "../excel-button";
+import PeriodLinks from "@/components/shared/period-links";
+import { balanceSheet, profitAndLoss, type StatementGroup } from "@/lib/accounting/statements";
 
 const REPORTS: Record<string, { title: string; resource: string }> = {
   "trial-balance": { title: "Trial balance", resource: "ledgers" },
+  "profit-loss": { title: "Profit & Loss", resource: "ledgers" },
+  "balance-sheet": { title: "Balance Sheet", resource: "ledgers" },
   stock: { title: "Stock position", resource: "inventory" },
   press: { title: "Press reconciliation", resource: "press" },
   approvals: { title: "Waiting for approval", resource: "stockApproval" },
@@ -59,6 +64,8 @@ function range(sp: Record<string, string | undefined>) {
 
 function RangeForm({ report, sp, extra }: { report: string; sp: Record<string, string | undefined>; extra?: React.ReactNode }) {
   return (
+    <>
+    <PeriodLinks path="/dashboard/accounting/reports" keep={{ report, by: sp.by, side: sp.side, view: sp.view }} from={sp.from} to={sp.to} />
     <form className="mb-3 flex flex-wrap gap-2 print:hidden">
       <input type="hidden" name="report" value={report} />
       <Input name="from" type="date" defaultValue={sp.from ?? ""} className="max-w-[11rem]" />
@@ -66,8 +73,12 @@ function RangeForm({ report, sp, extra }: { report: string; sp: Record<string, s
       {extra}
       <button className={buttonVariants({ variant: "outline" })} type="submit">Show</button>
     </form>
+    </>
   );
 }
+
+/** Reports that can be downloaded as Excel, with the choices that shape them. */
+const EXCEL = new Set(["trial-balance", "profit-loss", "balance-sheet", "daybook", "stock"]);
 
 const th = "px-2 py-1";
 const cell = "border-b border-dotted border-gray-400 px-2 py-1";
@@ -86,7 +97,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
 
   return (
     <div className="space-y-6">
-      <PageHeader title={report.title} icon={Scale} actions={<PrintButton />} />
+      <PageHeader title={report.title} icon={Scale} actions={<div className="flex gap-2"><PrintButton />{EXCEL.has(key) && <ExcelButton query={{ report: key, from: sp.from, to: sp.to, location: sp.location }} />}</div>} />
       <div className="flex flex-wrap gap-2 print:hidden">
         {tabs.map(([k, r]) => (
           <Link key={k} href={`/dashboard/accounting/reports?report=${k}`} className={buttonVariants({ size: "sm", variant: k === key ? "default" : "outline" })}>{r.title}</Link>
@@ -94,8 +105,10 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
       </div>
       <div className="rounded-lg border bg-white p-6 text-black print:border-0 print:p-0">
         <div className="mb-2 text-xs">{printDate()}</div>
-        {(key === "trial-balance" || key === "stock") && <ViewBanner report={key} sp={sp} />}
+        {(key === "trial-balance" || key === "stock" || key === "profit-loss" || key === "balance-sheet") && <ViewBanner report={key} sp={sp} />}
         {key === "trial-balance" && <TrialBalance to={sp.to} sp={sp} />}
+        {key === "profit-loss" && <ProfitLoss sp={sp} dateFormat={dateFormat} />}
+        {key === "balance-sheet" && <BalanceSheetView sp={sp} dateFormat={dateFormat} />}
         {key === "stock" && <Stock location={sp.location} sp={sp} />}
         {key === "reconcile" && <Reconcile />}
         {key === "numbering" && <Numbering />}
@@ -115,6 +128,7 @@ async function TrialBalance({ to, sp }: { to?: string; sp: Record<string, string
   const tb = await withView(sp, (db) => trialBalance(db, to ? new Date(`${to}T23:59:59.999Z`) : undefined));
   return (
     <>
+      <PeriodLinks path="/dashboard/accounting/reports" keep={{ report: "trial-balance", view: sp.view }} to={to} mode="asOf" />
       <form className="mb-3 flex gap-2 print:hidden">
         <input type="hidden" name="report" value="trial-balance" />
         <Input name="to" type="date" defaultValue={to ?? ""} className="max-w-xs" />
@@ -427,5 +441,110 @@ async function Numbering() {
         ))}
       </tbody>
     </table>
+  );
+}
+
+/** Link from a statement line to the account's ledger for the same dates (click-through, as in Tally). */
+function ledgerHref(accountId: string, from?: string, to?: string) {
+  const p = new URLSearchParams({ account: accountId });
+  if (from) p.set("from", from);
+  if (to) p.set("to", to);
+  return `/dashboard/accounting/ledger?${p.toString()}`;
+}
+
+function StatementRows({ group, from, to, indent = true }: { group: StatementGroup; from?: string; to?: string; indent?: boolean }) {
+  return (
+    <>
+      <tr><td className={`${cell} pt-3 font-semibold`} colSpan={2}>{group.title}</td></tr>
+      {group.lines.length === 0 && <tr><td className={`${cell} ${indent ? "pl-6" : ""} text-gray-500`} colSpan={2}>None in this period</td></tr>}
+      {group.lines.map((l) => (
+        <tr key={l.accountId}>
+          <td className={`${cell} ${indent ? "pl-6" : ""}`}><Link className="text-primary print:text-black" href={ledgerHref(l.accountId, from, to)}>{l.name}</Link></td>
+          <td className={num}>{money(l.amount)}</td>
+        </tr>
+      ))}
+      <tr><td className={`${cell} ${indent ? "pl-6" : ""} italic`}>Total {group.title.toLowerCase()}</td><td className={`${num} font-semibold`}>{money(group.total)}</td></tr>
+    </>
+  );
+}
+
+function ResultRow({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  const loss = value.startsWith("-");
+  return (
+    <tr className={`border-y border-black ${strong ? "text-base" : ""}`}>
+      <td className="px-2 py-2 font-bold">{label}{loss ? " (loss)" : ""}</td>
+      <td className={`px-2 py-2 text-right font-bold tabular-nums ${loss ? "text-red-700" : "text-emerald-700"} print:text-black`}>{money(loss ? value.slice(1) : value)}</td>
+    </tr>
+  );
+}
+
+async function ProfitLoss({ sp, dateFormat }: { sp: Record<string, string | undefined>; dateFormat: string }) {
+  const pl = await withView(sp, (db) => profitAndLoss(db, range(sp)));
+  return (
+    <>
+      <RangeForm report="profit-loss" sp={sp} />
+      <div className="mb-2 text-center font-semibold">
+        Profit &amp; Loss · {sp.from ? formatDate(sp.from, dateFormat) : "Beginning"} to {sp.to ? formatDate(sp.to, dateFormat) : "today"}
+      </div>
+      <table className="w-full max-w-3xl border-collapse text-sm">
+        <thead><tr className="border-y border-black"><th className={`${th} text-left`}>Account</th><th className={`${th} text-right`}>Amount</th></tr></thead>
+        <tbody>
+          <StatementRows group={pl.sales} from={sp.from} to={sp.to} />
+          <StatementRows group={pl.cogs} from={sp.from} to={sp.to} />
+          <ResultRow label="Gross profit" value={pl.grossProfit} />
+          <StatementRows group={pl.otherIncome} from={sp.from} to={sp.to} />
+          <StatementRows group={pl.expenses} from={sp.from} to={sp.to} />
+          <ResultRow label="Net profit" value={pl.netProfit} strong />
+        </tbody>
+      </table>
+      <p className="mt-3 text-xs text-gray-600 print:hidden">Click an account to see every entry behind its figure, then click an entry to open the bill or voucher.</p>
+    </>
+  );
+}
+
+async function BalanceSheetView({ sp, dateFormat }: { sp: Record<string, string | undefined>; dateFormat: string }) {
+  const bs = await withView(sp, (db) => balanceSheet(db, range(sp).to));
+  const side = (title: string, groups: StatementGroup[], total: string) => (
+    <table className="w-full border-collapse text-sm">
+      <thead><tr className="border-y border-black"><th className={`${th} text-left`}>{title}</th><th className={`${th} text-right`}>Amount</th></tr></thead>
+      <tbody>
+        {groups.length === 0 && <tr><td className={`${cell} text-gray-500`} colSpan={2}>None</td></tr>}
+        {groups.map((g) => <StatementRows key={g.key} group={g} to={sp.to} />)}
+      </tbody>
+      <tfoot><tr className="border-y border-black font-bold"><td className="px-2 py-2">Total {title.toLowerCase()}</td><td className="px-2 py-2 text-right tabular-nums">{money(total)}</td></tr></tfoot>
+    </table>
+  );
+  return (
+    <>
+      <PeriodLinks path="/dashboard/accounting/reports" keep={{ report: "balance-sheet", view: sp.view }} to={sp.to} mode="asOf" />
+      <form className="mb-3 flex gap-2 print:hidden">
+        <input type="hidden" name="report" value="balance-sheet" />
+        <Input name="to" type="date" defaultValue={sp.to ?? ""} className="max-w-xs" />
+        <button className={buttonVariants({ variant: "outline" })} type="submit">As on date</button>
+      </form>
+      <div className="mb-2 text-center font-semibold">
+        Balance Sheet as on {sp.to ? formatDate(sp.to, dateFormat) : "today"} {bs.balanced ? "" : "(NOT BALANCED: check the trial balance)"}
+      </div>
+      <div className="grid gap-6 md:grid-cols-2 print:grid-cols-2">
+        {side("Assets", bs.assets, bs.assetsTotal)}
+        <div className="space-y-4">
+          {side("Liabilities", bs.liabilities, bs.liabilitiesTotal)}
+          <table className="w-full border-collapse text-sm">
+            <thead><tr className="border-y border-black"><th className={`${th} text-left`}>Owner&apos;s equity</th><th className={`${th} text-right`}>Amount</th></tr></thead>
+            <tbody>
+              {bs.equity.lines.map((l) => (
+                <tr key={l.accountId}><td className={cell}><Link className="text-primary print:text-black" href={ledgerHref(l.accountId, undefined, sp.to)}>{l.name}</Link></td><td className={num}>{money(l.amount)}</td></tr>
+              ))}
+              <tr><td className={cell}><Link className="text-primary print:text-black" href={`/dashboard/accounting/reports?report=profit-loss${sp.to ? `&to=${sp.to}` : ""}`}>Profit to date</Link></td><td className={num}>{money(bs.profitToDate)}</td></tr>
+            </tbody>
+            <tfoot><tr className="border-y border-black font-bold"><td className="px-2 py-2">Total owner&apos;s equity</td><td className="px-2 py-2 text-right tabular-nums">{money(bs.equityTotal)}</td></tr></tfoot>
+          </table>
+          <div className="flex justify-between border-y-2 border-black px-2 py-2 font-bold">
+            <span>Liabilities + equity</span>
+            <span className="tabular-nums">{money(bs.liabilitiesAndEquityTotal)}</span>
+          </div>
+        </div>
+      </div>
+    </>
   );
 }

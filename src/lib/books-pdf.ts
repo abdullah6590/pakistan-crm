@@ -97,7 +97,7 @@ export interface InvoicePdf {
   customer: string;
   phone?: string | null;
   status: string;
-  lines: { description: string; sku?: string | null; quantity: string; unit?: string | null; loose?: string | null; unitPrice: string | null; amount: string | null }[];
+  lines: { description: string; spec?: string | null; sku?: string | null; quantity: string; unit?: string | null; loose?: string | null; unitPrice: string | null; amount: string | null }[];
   total: string;
   paid: string;
   remaining: string;
@@ -107,13 +107,18 @@ export interface InvoicePdf {
   printedBy: string;
 }
 
+/** The item column: name, size and grams ("20x39 · 200g"), then the SKU. */
+function itemText(l: { description: string; spec?: string | null; sku?: string | null }) {
+  return [l.description, l.spec || null, l.sku ? `(${l.sku})` : null].filter(Boolean).join("  ");
+}
+
 export function invoicePdf(b: InvoicePdf) {
   return render(`Bill ${b.docNo}`, (doc) => {
     let y = heading(doc, b.business, b.kind === "SALE_INVOICE" ? "Sale invoice" : "Cash sale", [b.revisionNote, b.cancelled ? "CANCELLED" : null].filter(Boolean).join(" · ") || null);
     y = facts(doc, y, [["Bill No", b.docNo], ["Date", formatDate(b.date)], ["Customer", `${b.customer}${b.phone ? ` (${b.phone})` : ""}`], ["Status", b.status]]);
     y = table(doc, y, [
       { title: "S.No", width: 30 }, { title: "Item", width: 215 }, { title: "Qty", width: 100, align: "right" }, { title: "Rate", width: 85, align: "right" }, { title: "Amount", width: 85, align: "right" },
-    ], b.lines.map((l, i) => [String(i + 1), l.sku ? `${l.description}  (${l.sku})` : l.description, quantityLabel(l.quantity, l.unit, l.loose), rs(l.unitPrice ?? 0), rs(l.amount ?? 0)]));
+    ], b.lines.map((l, i) => [String(i + 1), itemText(l), quantityLabel(l.quantity, l.unit, l.loose), rs(l.unitPrice ?? 0), rs(l.amount ?? 0)]));
     y = totalsBlock(doc, y, [["Invoice total", rs(b.total), true]]);
     if (b.payments.length) {
       doc.font("Helvetica-Bold").fontSize(10).text("Payments received", LEFT, y + 4);
@@ -214,7 +219,7 @@ export interface PurchaseBillPdf {
   dueDate?: string | Date | null;
   biltyNo?: string | null;
   status: string;
-  lines: { description: string; sku?: string | null; quantity: string; unit?: string | null; loose?: string | null; unitPrice: string | null; amount: string | null }[];
+  lines: { description: string; spec?: string | null; sku?: string | null; quantity: string; unit?: string | null; loose?: string | null; unitPrice: string | null; amount: string | null }[];
   total: string;
   paid: string;
   returned: string;
@@ -238,7 +243,7 @@ export function purchaseBillPdf(b: PurchaseBillPdf) {
     ]);
     y = table(doc, y, [
       { title: "S.No", width: 30 }, { title: "Item", width: 215 }, { title: "Qty", width: 100, align: "right" }, { title: "Rate", width: 85, align: "right" }, { title: "Amount", width: 85, align: "right" },
-    ], b.lines.map((l, i) => [String(i + 1), l.sku ? `${l.description}  (${l.sku})` : l.description, quantityLabel(l.quantity, l.unit, l.loose), rp(l.unitPrice ?? 0), rp(l.amount ?? 0)]));
+    ], b.lines.map((l, i) => [String(i + 1), itemText(l), quantityLabel(l.quantity, l.unit, l.loose), rp(l.unitPrice ?? 0), rp(l.amount ?? 0)]));
     y = totalsBlock(doc, y, [["Bill total", rp(b.total), true]]);
     if (b.payments.length) {
       doc.font("Helvetica-Bold").fontSize(10).text("Paid and returned against this bill", LEFT, y + 4);

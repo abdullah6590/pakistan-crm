@@ -13,9 +13,10 @@ import { Label } from "@/components/ui/label";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { quantityLabel } from "@/lib/domain/units";
+import { specLabel } from "@/lib/product-spec";
 import { BILL_STATUS } from "../bills-client";
 
-interface Line { id: string; lineNo: number; description: string; quantity: string; loose: string; baseQuantity: string; unit: string; unitPrice: string | null; amount: string | null; component: { sku: string } | null }
+interface Line { id: string; lineNo: number; description: string; quantity: string; loose: string; baseQuantity: string; unit: string; unitPrice: string | null; amount: string | null; component: { sku: string; size?: string | null; grams?: number | null } | null }
 interface Payment { allocationId: string; receiptId: string; receiptNo: string; date: string; method: string; amount: string; source: string }
 interface Version { id: string; docNo: string; total: string; status: string; date: string; current: boolean }
 interface Event { id: string; at: string; action: string; by: string; reason: string | null; documentId: string }
@@ -122,7 +123,7 @@ export default function BookBillClient({ bill, canEdit, canReceive, canCancel, p
               <TableBody>
                 {doc.lines.map((l) => (
                   <TableRow key={l.id}>
-                    <TableCell><div className="font-medium">{l.description}</div>{l.component?.sku && <div className="text-xs text-muted-foreground font-mono">{l.component.sku}</div>}</TableCell>
+                    <TableCell><div className="font-medium">{l.description}{specLabel(l.component) && <span className="ml-2 inline-block whitespace-nowrap rounded bg-muted px-1.5 py-0.5 text-xs font-normal">{specLabel(l.component)}</span>}</div>{l.component?.sku && <div className="text-xs text-muted-foreground font-mono">{l.component.sku}</div>}</TableCell>
                     <TableCell className="text-right tabular-nums">{quantityLabel(l.quantity, l.unit, l.loose)}</TableCell>
                     <TableCell className="text-right tabular-nums">{rs(l.unitPrice)}</TableCell>
                     <TableCell className="text-right tabular-nums font-medium">{rs(l.amount)}</TableCell>
@@ -202,7 +203,7 @@ export default function BookBillClient({ bill, canEdit, canReceive, canCancel, p
             {doc.lines.map((l) => (
               <tr key={l.id} className="break-inside-avoid">
                 <td className={cell}>{l.lineNo}</td>
-                <td className={cell}>{l.description}{l.component?.sku ? ` (${l.component.sku})` : ""}</td>
+                <td className={cell}>{l.description}{specLabel(l.component) ? `  ${specLabel(l.component)}` : ""}{l.component?.sku ? ` (${l.component.sku})` : ""}</td>
                 <td className={num}>{Number(l.baseQuantity)}</td>
                 <td className={num}>{rs(l.unitPrice)}</td>
                 <td className={num}>{rs(l.amount)}</td>

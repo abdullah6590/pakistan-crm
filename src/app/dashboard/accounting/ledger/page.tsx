@@ -13,6 +13,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { buttonVariants } from "@/components/ui/button";
 import PrintButton from "../print-button";
+import ExcelButton from "../excel-button";
+import PeriodLinks from "@/components/shared/period-links";
 
 const cell = "border-b border-dotted border-gray-400 px-2 py-1";
 const num = `${cell} text-right tabular-nums`;
@@ -32,9 +34,10 @@ export default async function LedgerPage({ searchParams }: { searchParams: Promi
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Account statement" description="Opening balance, every document with item lines, and the running balance" icon={BookOpen} actions={statement && <PrintButton />} />
+      <PageHeader title="Account statement" description="Opening balance, every document with item lines, and the running balance" icon={BookOpen} actions={statement && <div className="flex gap-2"><PrintButton /><ExcelButton query={{ report: "ledger", account: sp.account, from: sp.from, to: sp.to }} /></div>} />
       <Card className="print:hidden">
         <CardContent className="p-4">
+          {sp.account && <PeriodLinks path="/dashboard/accounting/ledger" keep={{ account: sp.account }} from={sp.from} to={sp.to} />}
           <form className="grid gap-2 md:grid-cols-5">
             <select name="account" defaultValue={sp.account ?? ""} className="flex h-10 w-full rounded-lg border border-input bg-background px-3 text-sm md:col-span-2" required>
               <option value="">Choose an account</option>

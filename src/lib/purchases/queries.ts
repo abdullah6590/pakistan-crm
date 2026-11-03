@@ -10,6 +10,7 @@ import { billPayments, openBills, supplierCredit, BillStatus, PAYMENT_SERIES, SU
 import { paymentStatus } from "@/lib/accounting/receivables";
 import { rupeesInWords } from "@/lib/sales/books-queries";
 import { UNIT_FIELDS } from "@/lib/sales/units";
+import { SPEC_FIELDS } from "@/lib/product-spec";
 
 export interface PurchaseFilters {
   search?: string;
@@ -94,7 +95,7 @@ export async function loadPurchaseBill(db: PrismaClient, id: string) {
   const doc = await db.accountingDocument.findUnique({
     where: { id },
     include: {
-      lines: { orderBy: { lineNo: "asc" }, include: { component: { select: { id: true, sku: true, name: true, quantity: true, unitCost: true, unitPrice: true, minQuantity: true, ...UNIT_FIELDS } } } },
+      lines: { orderBy: { lineNo: "asc" }, include: { component: { select: { id: true, sku: true, name: true, quantity: true, unitCost: true, unitPrice: true, minQuantity: true, ...SPEC_FIELDS, ...UNIT_FIELDS } } } },
       partyAccount: true,
       supersedes: { select: { id: true, docNo: true } }, supersededBy: { select: { id: true, docNo: true } },
       returns: { select: { id: true, docNo: true, date: true, total: true, status: true } },

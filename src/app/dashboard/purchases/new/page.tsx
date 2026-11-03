@@ -5,6 +5,7 @@ import { getAuthUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { PAYMENT_METHOD_ACCOUNTS } from "@/lib/sales/books-sales";
 import { UNIT_FIELDS, withSaleUnits } from "@/lib/sales/units";
+import { SPEC_FIELDS } from "@/lib/product-spec";
 import NewPurchaseClient from "./new-purchase-client";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +18,7 @@ export default async function NewPurchasePage({ searchParams }: { searchParams: 
   const [items, suppliers] = await Promise.all([
     prisma.component.findMany({
       where: { isActive: true }, orderBy: { totalPurchased: "desc" }, take: 15,
-      select: { id: true, name: true, sku: true, quantity: true, ...UNIT_FIELDS },
+      select: { id: true, name: true, sku: true, quantity: true, ...SPEC_FIELDS, ...UNIT_FIELDS },
     }),
     prisma.supplier.findMany({ where: { isActive: true }, select: { id: true, name: true, phone: true }, orderBy: { name: "asc" } }),
   ]);

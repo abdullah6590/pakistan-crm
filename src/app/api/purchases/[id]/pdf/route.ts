@@ -5,6 +5,7 @@ import { authorize } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { loadPurchaseBill } from "@/lib/purchases/queries";
 import { purchaseBillPdf } from "@/lib/books-pdf";
+import { specLabel } from "@/lib/product-spec";
 
 const STATUS: Record<string, string> = { UNPAID: "Unpaid", PARTIALLY_PAID: "Partially paid", PAID: "Paid", CANCELLED: "Cancelled", REPLACED: "Replaced by a newer version" };
 
@@ -23,7 +24,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     date: doc.date, supplier: b.supplierName, supplierCode: b.supplierCode, supplierPhone: b.supplier?.phone,
     vendorBillNo: doc.vendorBillNo, vendorBillDate: doc.vendorBillDate, dueDate: doc.dueDate, biltyNo: doc.biltyNo,
     status: STATUS[b.status] ?? b.status,
-    lines: doc.lines.map((l) => ({ description: l.description ?? "", sku: l.component?.sku, quantity: l.quantity, unit: l.unit, loose: l.loose, unitPrice: l.unitPrice, amount: l.amount })),
+    lines: doc.lines.map((l) => ({ description: l.description ?? "", spec: specLabel(l.component), sku: l.component?.sku, quantity: l.quantity, unit: l.unit, loose: l.loose, unitPrice: l.unitPrice, amount: l.amount })),
     total: b.total, paid: b.paid, returned: b.returned, remaining: b.remaining,
     payments: b.payments.map((p) => ({ date: p.date, docNo: p.docNo, method: p.method, reference: p.reference, amount: p.amount })),
     charges: b.charges, words: b.words, notes: doc.remarks, printedBy: auth.user.name,
