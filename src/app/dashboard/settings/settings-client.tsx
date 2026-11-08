@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Settings, User, Shield, Palette, Key, Loader2 } from "lucide-react";
+import { Settings, User, Shield, Palette, Key, Loader2, Keyboard } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -63,6 +64,17 @@ export default function SettingsClient({ user }: Props) {
         description="Manage your account settings and preferences"
         icon={Settings}
       />
+
+      {/* Keyboard shortcuts */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-lg"><Keyboard className="h-5 w-5" /> Keyboard shortcuts</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">Open New Sale, New Purchase, Books and the other main sections with a key combination. Press Alt and / together on any page to see them.</p>
+          <Link href="/dashboard/settings/shortcuts" className="inline-flex h-9 items-center rounded-md border px-3 text-sm font-medium hover:bg-muted">Set up shortcuts</Link>
+        </CardContent>
+      </Card>
 
       {/* Profile Settings */}
       <Card>
