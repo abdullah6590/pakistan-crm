@@ -10,7 +10,7 @@ describe("keyboard shortcuts", () => {
     for (const a of SHORTCUT_ACTIONS) {
       expect(comboProblem(a.defaultKey), a.id).toBeNull();
       expect(normalizeCombo(a.defaultKey)).toBe(a.defaultKey);
-      expect(a.href.startsWith("/dashboard") || a.href === "#help").toBe(true);
+      expect(a.href.startsWith("/dashboard") || ["#help", "#search"].includes(a.href)).toBe(true);
     }
     expect(conflicts(defaults)).toEqual({});
   });

@@ -6,6 +6,7 @@ export interface ShortcutAction { id: string; label: string; group: string; href
 /** The main sections a key can open. Defaults use Alt + a letter and avoid the keys the browser keeps for itself. */
 export const SHORTCUT_ACTIONS: ShortcutAction[] = [
   { id: "dashboard", label: "Dashboard", group: "General", href: "/dashboard", defaultKey: "Alt+H" },
+  { id: "search", label: "Search everything", group: "General", href: "#search", defaultKey: "Ctrl+K" },
   { id: "help", label: "Show the list of shortcuts", group: "General", href: "#help", defaultKey: "Alt+/" },
   { id: "new-sale", label: "New sale", group: "Sales", href: "/dashboard/sales/new", defaultKey: "Alt+S" },
   { id: "sales", label: "Sales bills", group: "Sales", href: "/dashboard/sales", defaultKey: "Alt+Shift+S" },
