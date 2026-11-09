@@ -13,8 +13,10 @@ import { screenSaleSchema, receivePaymentSchema } from "@/lib/sales/schemas";
  */
 // 2 (Report 30): bills and payments from the Sales and Purchases screens, customers and suppliers copied to computers,
 // and new document columns. A version 1 computer must be updated first; its entries wait on it until then.
-export const SYNC_PROTOCOL = 2;
-export const MIN_SYNC_PROTOCOL = 2;
+// 3 (2026-11-09): paper details on bill lines (size, GSM, kg per unit, rate per kg). A version 2 computer would fail
+// to store the new columns it is sent, so it is asked to update first; its entries wait on it until then.
+export const SYNC_PROTOCOL = 3;
+export const MIN_SYNC_PROTOCOL = 3;
 
 /** Compatibility of a computer's protocol header with this server; a missing header is version 1 (Phase 3 clients). */
 export function checkProtocol(header: string | null): { status: number; code: string; error: string } | null {

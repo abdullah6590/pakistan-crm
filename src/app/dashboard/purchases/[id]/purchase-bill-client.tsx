@@ -13,10 +13,11 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { formatDate, formatPaisa } from "@/lib/utils";
 import { quantityLabel } from "@/lib/domain/units";
-import { specLabel } from "@/lib/product-spec";
+import { paperLineText, paperLineWeight, specLabel } from "@/lib/product-spec";
 import { PURCHASE_STATUS } from "../purchase-bills-client";
 
-interface Line { id: string; lineNo: number; description: string; quantity: string; unit: string; loose: string; baseQuantity: string; unitPrice: string | null; amount: string | null; component: { sku: string; name: string; size?: string | null; grams?: number | null } | null }
+interface Line { id: string; lineNo: number; description: string; quantity: string; unit: string; loose: string; baseQuantity: string; unitPrice: string | null; amount: string | null; component: { sku: string; name: string; size?: string | null; grams?: number | null } | null;
+  paperX?: string | null; paperY?: string | null; paperGsm?: string | null; paperDivisor?: string | null; kgPerUnit?: string | null; ratePerKg?: string | null }
 interface Payment { allocationId: string; sourceId: string; docNo: string; date: string; kind: "PAYMENT" | "RETURN"; method: string; reference: string | null; amount: string; source: string }
 export interface PurchaseBill {
   doc: {
@@ -170,12 +171,19 @@ export default function PurchaseBillClient({ bill, canEdit, canPay, canReturn, c
             <TableBody>
               {doc.lines.map((l) => (
                 <TableRow key={l.id}>
-                  <TableCell><div className="font-medium">{l.description}{specLabel(l.component) && <span className="ml-2 inline-block whitespace-nowrap rounded bg-muted px-1.5 py-0.5 text-xs font-normal">{specLabel(l.component)}</span>}</div>{l.component?.sku && <div className="text-xs text-muted-foreground font-mono">{l.component.sku}</div>}</TableCell>
-                  <TableCell className="text-right tabular-nums">{quantityLabel(l.quantity, l.unit, l.loose)}</TableCell>
+                  <TableCell><div className="font-medium">{l.description}{specLabel(l.component) && <span className="ml-2 inline-block whitespace-nowrap rounded bg-muted px-1.5 py-0.5 text-xs font-normal">{specLabel(l.component)}</span>}</div>{l.component?.sku && <div className="text-xs text-muted-foreground font-mono">{l.component.sku}</div>}{paperLineText(l) && <div className="text-xs text-muted-foreground">{paperLineText(l)}</div>}</TableCell>
+                  <TableCell className="text-right tabular-nums">{quantityLabel(l.quantity, l.unit, l.loose)}{paperLineWeight(l) > 0 && <div className="text-xs text-muted-foreground">{paperLineWeight(l).toLocaleString("en-PK", { maximumFractionDigits: 2 })} kg</div>}</TableCell>
                   <TableCell className="text-right tabular-nums">{rs(l.unitPrice)}</TableCell>
                   <TableCell className="text-right tabular-nums font-medium">{rs(l.amount)}</TableCell>
                 </TableRow>
               ))}
+              {doc.lines.some((l) => paperLineWeight(l) > 0) && (
+                <TableRow>
+                  <TableCell className="text-sm text-muted-foreground">Total sheets {doc.lines.filter((l) => paperLineWeight(l) > 0).reduce((t, l) => t + Number(l.baseQuantity), 0).toLocaleString("en-PK")}</TableCell>
+                  <TableCell className="text-right text-sm font-medium tabular-nums">Net weight {doc.lines.reduce((t, l) => t + paperLineWeight(l), 0).toLocaleString("en-PK", { maximumFractionDigits: 2 })} kg</TableCell>
+                  <TableCell /><TableCell />
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </CardContent>

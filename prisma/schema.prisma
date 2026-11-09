@@ -913,6 +913,14 @@ model AccountingDocumentLine {
   consumedQuantity    String?     // base units of that material
   returnOfLineNo      Int?        // return: line number on the original document
   bookQuantity        String?     // stock count: book quantity when the count was approved
+  // Paper details (as on the old Supplier Invoice): size and GSM the weight came from, the weight of one unit of this
+  // line (kg per rim, packet or sheet) and the rate per kg; empty for items that are not priced by weight
+  paperX              String?
+  paperY              String?
+  paperGsm            String?
+  paperDivisor        String?
+  kgPerUnit           String?
+  ratePerKg           String?
 
   @@unique([documentId, lineNo])
   @@index([componentId])

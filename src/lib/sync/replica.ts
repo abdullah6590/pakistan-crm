@@ -5,10 +5,25 @@ import type { Tx } from "@/lib/accounting/posting";
 import { Change } from "./server";
 import { REPLICATED_TABLES, TABLE_BY_NAME, WireValue, decodeValue } from "./tables";
 
+/** The columns this computer's copy of a table has (it does not change while the app runs). */
+const knownColumns = new Map<string, Set<string>>();
+async function columnsOf(tx: Tx, table: string) {
+  let cols = knownColumns.get(table);
+  if (!cols) {
+    const info = (await tx.$queryRawUnsafe(`PRAGMA table_info("${table}")`)) as { name: string }[];
+    cols = new Set(info.map((c) => c.name));
+    if (cols.size) knownColumns.set(table, cols);
+  }
+  return cols;
+}
+
 async function upsert(tx: Tx, table: string, row: Record<string, WireValue>) {
   const t = TABLE_BY_NAME.get(table);
   if (!t) return;
-  const cols = Object.keys(row);
+  // Columns a newer server sends that this computer does not have yet are left out, so a later additive change can
+  // never stop a computer from syncing (the values arrive once it is updated)
+  const have = await columnsOf(tx, t.name);
+  const cols = Object.keys(row).filter((c) => have.size === 0 || have.has(c));
   const values = cols.map((c) => decodeValue(row[c]));
   const quoted = cols.map((c) => `"${c}"`).join(", ");
   const marks = cols.map(() => "?").join(", ");

@@ -38,7 +38,10 @@ export default async function EditPurchasePage({ params }: { params: Promise<{ i
       editing={JSON.parse(JSON.stringify({
         id: doc.id, docNo: doc.docNo, date: doc.date.toISOString(), supplier: { id: bill.supplier.id, name: bill.supplier.name, phone: bill.supplier.phone },
         vendorBillNo: doc.vendorBillNo, vendorBillDate: toDay(doc.vendorBillDate), dueDate: toDay(doc.dueDate), biltyNo: doc.biltyNo, biltyDate: toDay(doc.biltyDate), notes: doc.remarks,
-        lines: doc.lines.filter((l) => l.component).map((l) => ({ quantity: l.quantity, unit: l.unit, loose: l.loose, unitPrice: l.unitPrice ?? "0", item: withSaleUnits(l.component!) })),
+        lines: doc.lines.filter((l) => l.component).map((l) => ({
+          quantity: l.quantity, unit: l.unit, loose: l.loose, unitPrice: l.unitPrice ?? "0", item: withSaleUnits(l.component!),
+          paperX: l.paperX, paperY: l.paperY, paperGsm: l.paperGsm, paperDivisor: l.paperDivisor, ratePerKg: l.ratePerKg,
+        })),
       }))}
     />
   );
