@@ -4,7 +4,7 @@
 // stay record-only. Suppliers from the Suppliers list get their Books account on first use.
 import type { AccountingDocument, LedgerAccount } from "@prisma/client";
 import { Dec, ZERO, add, dec, cmp, isZero, sub, toPlain } from "@/lib/domain/decimal";
-import { Actor, ChargeInput, ItemLineInput, PostingError, Tx, amendDocument, createPurchaseInvoice, money, run } from "@/lib/accounting/posting";
+import { Actor, ChargeInput, ItemLineInput, PaperDetails, PostingError, Tx, amendDocument, createPurchaseInvoice, money, run } from "@/lib/accounting/posting";
 import { Db } from "@/lib/accounting/setup";
 import { paySupplier } from "@/lib/accounting/payables";
 import { accountForPayment, mayEditBill } from "@/lib/sales/books-sales";
@@ -45,6 +45,8 @@ export interface PurchaseLine {
   loose?: number | string;
   /** Price of one `unit`; paisa allowed. */
   unitPrice: number | string;
+  /** Paper bought by weight: size, GSM and rate per kg, kept on the bill (the price above stays as entered). */
+  paper?: PaperDetails;
 }
 
 export interface ScreenPurchaseInput {
@@ -67,7 +69,7 @@ export interface ScreenPurchaseInput {
 
 function linesFor(items: PurchaseLine[]): ItemLineInput[] {
   if (!Array.isArray(items) || items.length === 0) throw new PostingError("Add at least one item");
-  return items.map((i) => ({ componentId: i.componentId, quantity: i.quantity, unit: i.unit || undefined, loose: i.loose || undefined, unitPrice: i.unitPrice }));
+  return items.map((i) => ({ componentId: i.componentId, quantity: i.quantity, unit: i.unit || undefined, loose: i.loose || undefined, unitPrice: i.unitPrice, paper: i.paper || undefined }));
 }
 
 const today = () => new Date().toISOString().slice(0, 10);

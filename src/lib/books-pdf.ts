@@ -220,6 +220,9 @@ export interface PurchaseBillPdf {
   biltyNo?: string | null;
   status: string;
   lines: { description: string; spec?: string | null; sku?: string | null; quantity: string; unit?: string | null; loose?: string | null; unitPrice: string | null; amount: string | null }[];
+  /** Paper lines: total sheets and net weight (old "T-Sheet" and "Net Wait") */
+  sheets?: number | null;
+  weightKg?: number | null;
   total: string;
   paid: string;
   returned: string;
@@ -244,7 +247,11 @@ export function purchaseBillPdf(b: PurchaseBillPdf) {
     y = table(doc, y, [
       { title: "S.No", width: 30 }, { title: "Item", width: 215 }, { title: "Qty", width: 100, align: "right" }, { title: "Rate", width: 85, align: "right" }, { title: "Amount", width: 85, align: "right" },
     ], b.lines.map((l, i) => [String(i + 1), itemText(l), quantityLabel(l.quantity, l.unit, l.loose), rp(l.unitPrice ?? 0), rp(l.amount ?? 0)]));
-    y = totalsBlock(doc, y, [["Bill total", rp(b.total), true]]);
+    y = totalsBlock(doc, y, [
+      ...(b.sheets ? [["Total sheets", b.sheets.toLocaleString("en-PK")] as [string, string]] : []),
+      ...(b.weightKg ? [["Net weight", `${b.weightKg.toLocaleString("en-PK", { maximumFractionDigits: 2 })} kg`] as [string, string]] : []),
+      ["Bill total", rp(b.total), true],
+    ]);
     if (b.payments.length) {
       doc.font("Helvetica-Bold").fontSize(10).text("Paid and returned against this bill", LEFT, y + 4);
       y = table(doc, doc.y + 4, [

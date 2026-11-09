@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ArrowLeft, Calculator, Package, Plus, Search, Trash2, Truck, UserPlus } from "lucide-react";
+import { ArrowLeft, Package, Plus, RotateCcw, Scale, Search, Trash2, Truck, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,7 +11,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import PriceCalculator, { type PriceCalcValues, defaultCalcValues } from "@/components/shared/price-calculator";
 import { formatPaisa } from "@/lib/utils";
 import { specLabel, type ProductSpec } from "@/lib/product-spec";
 
@@ -20,13 +19,23 @@ export interface ItemOption extends ProductSpec {
   baseUnit?: string; purchaseUnit?: string; units?: { code: string; factor: number }[];
 }
 export interface SupplierOption { id: string; name: string; phone: string | null }
-interface Line { componentId: string; name: string; sku: string; item: ItemOption; quantity: string; unit: string; loose: string; price: string }
+/** Paper bought by weight, as on the old Supplier Invoice: size, GSM, divisor and rate per kg (all as typed). */
+interface Paper { x: string; y: string; gsm: string; divisor: string; rate: string }
+interface Line {
+  componentId: string; name: string; sku: string; item: ItemOption; quantity: string; unit: string; loose: string; price: string;
+  paper: Paper | null;
+  /** The price was typed over the calculated one */
+  priceTyped: boolean;
+}
 interface Charge { kind: string; amount: string; description: string }
 
 export interface EditPurchase {
   id: string; docNo: string; date: string; supplier: SupplierOption;
   vendorBillNo: string | null; vendorBillDate: string | null; dueDate: string | null; biltyNo: string | null; biltyDate: string | null; notes: string | null;
-  lines: { quantity: string; unit: string; loose: string; unitPrice: string; item: ItemOption }[];
+  lines: {
+    quantity: string; unit: string; loose: string; unitPrice: string; item: ItemOption;
+    paperX: string | null; paperY: string | null; paperGsm: string | null; paperDivisor: string | null; ratePerKg: string | null;
+  }[];
 }
 
 const CHARGE_LABEL: Record<string, string> = { FREIGHT: "Freight", LOADING: "Loading", BILTY: "Bilty", OTHER_PURCHASE: "Other purchase charge" };
@@ -39,6 +48,33 @@ const decimal = (t: string, dp = 2) => {
 };
 const factorOf = (l: Pick<Line, "item" | "unit">) => l.item.units?.find((u) => u.code === l.unit)?.factor ?? 1;
 const isPack = (l: Pick<Line, "item" | "unit">) => !!l.item.baseUnit && l.unit !== l.item.baseUnit;
+/** Sheets (stock units) in one unit of the line: 100 for a rim of 100, 1 for a sheet. */
+const sheetsPer = (l: Pick<Line, "item" | "unit">) => factorOf(l);
+/** Paper from the product: offered when it has a size and GSM. */
+const paperFromItem = (it: ItemOption): Paper | null =>
+  it.dimensionX && it.dimensionY && it.gsm
+    ? { x: String(it.dimensionX), y: String(it.dimensionY), gsm: String(it.gsm), divisor: String(it.divisor || 15500), rate: it.ratePerKg ? String(it.ratePerKg) : "" }
+    : null;
+/** Kg of 100 sheets = X x Y x GSM / divisor (old "Kg"); null until the size is complete. */
+const kgPer100 = (p: Paper | null) => {
+  if (!p) return null;
+  const [x, y, g, d] = [p.x, p.y, p.gsm, p.divisor || "15500"].map(Number);
+  return x > 0 && y > 0 && g > 0 && d > 0 ? (x * y * g) / d : null;
+};
+/** Kg of one unit of the line: a rim of 100 sheets weighs the "Kg", a ream of 500 five times that (OD-02). */
+const kgPerUnit = (l: Pick<Line, "item" | "unit" | "paper">) => {
+  const k = kgPer100(l.paper);
+  return k === null ? null : (k * sheetsPer(l)) / 100;
+};
+/** Price of one unit from the weight and the rate per kg (old "P-Price"), kept to 4 decimals like the old screen. */
+const calculatedPrice = (l: Pick<Line, "item" | "unit" | "paper">) => {
+  const kg = kgPerUnit(l);
+  const rate = Number(l.paper?.rate);
+  return kg !== null && rate > 0 ? String(Math.round(kg * rate * 10000) / 10000) : null;
+};
+const totalSheets = (l: Line) => (Number(l.quantity) || 0) * sheetsPer(l) + (isPack(l) ? Number(l.loose) || 0 : 0);
+const fmt = (n: number, dp = 2) => n.toLocaleString("en-PK", { maximumFractionDigits: dp });
+
 /** As Books prices it: whole units at their price, loose stock units at the price divided by the pack size; paisa kept. */
 const lineAmount = (l: Line) => {
   const q = Number(l.quantity) || 0;
@@ -63,6 +99,8 @@ export default function NewPurchaseClient({ suppliers: initialSuppliers, initial
   const [notes, setNotes] = useState(editing?.notes ?? "");
   const [lines, setLines] = useState<Line[]>(() => (editing?.lines ?? []).map((l) => ({
     componentId: l.item.id, name: l.item.name, sku: l.item.sku, item: l.item, quantity: String(Number(l.quantity)), unit: l.unit, loose: Number(l.loose) ? String(Number(l.loose)) : "", price: String(Number(l.unitPrice)),
+    paper: l.paperX && l.paperY && l.paperGsm ? { x: l.paperX, y: l.paperY, gsm: l.paperGsm, divisor: l.paperDivisor ?? "15500", rate: l.ratePerKg ?? "" } : null,
+    priceTyped: true,
   })));
   const [charges, setCharges] = useState<Charge[]>([]);
   const [paid, setPaid] = useState({ amount: "", method: "CASH", reference: "" });
@@ -109,28 +147,37 @@ export default function NewPurchaseClient({ suppliers: initialSuppliers, initial
   const supplierMatches = supplierQuery.trim() ? suppliers.filter((s) => `${s.name} ${s.phone ?? ""}`.toLowerCase().includes(supplierQuery.trim().toLowerCase())).slice(0, 8) : [];
   const total = useMemo(() => Math.round(lines.reduce((t, l) => t + lineAmount(l), 0) * 100) / 100, [lines]);
   const paidNow = Number(paid.amount) || 0;
-  const set = (i: number, patch: Partial<Line>) => setLines(lines.map((l, j) => (j === i ? { ...l, ...patch } : l)));
+  const paperLines = lines.filter((l) => l.paper);
+  const weight = paperLines.reduce((t, l) => t + ((kgPer100(l.paper) ?? 0) * totalSheets(l)) / 100, 0);
+  const sheetsTotal = paperLines.reduce((t, l) => t + totalSheets(l), 0);
+  const unitsTotal = Object.entries(lines.reduce<Record<string, number>>((t, l) => (isPack(l) ? { ...t, [l.unit]: (t[l.unit] ?? 0) + (Number(l.quantity) || 0) } : t), {}));
 
-  // Price calculator per line (the same formula as Inventory and New Sale): weight from size, GSM and divisor, times
-  // the rate per kg, gives the purchase price for the line
-  const [calcOpen, setCalcOpen] = useState<string | null>(null);
-  const [calc, setCalc] = useState<Record<string, PriceCalcValues>>({});
-  const toggleCalc = (l: Line) => {
-    if (calcOpen === l.componentId) { setCalcOpen(null); return; }
-    setCalcOpen(l.componentId);
-    if (!calc[l.componentId]) {
-      const it = l.item;
-      setCalc((prev) => ({ ...prev, [l.componentId]: {
-        dimensionX: it.dimensionX || 0, dimensionY: it.dimensionY || 0, gsm: it.gsm || 0, divisor: it.divisor || 15500,
-        weightKg: it.weightKg || 0, rimInSheet: it.rimInSheet || 100, ratePerKg: it.ratePerKg || 0,
-        purchasePrice: Number(l.price) || 0, salePrice: 0,
-      } }));
-    }
-  };
+  // The supplier's balance, as on the old screen (what you owe them before this bill)
+  const [balance, setBalance] = useState<{ id: string; balance: number } | null>(null);
+  useEffect(() => {
+    if (!supplier) return;
+    const controller = new AbortController();
+    fetch(`/api/suppliers/${supplier.id}?summary=1`, { signal: controller.signal })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => { if (data) setBalance({ id: supplier.id, balance: Number(data.balance) }); })
+      .catch(() => { /* changed supplier or offline: no balance shown */ });
+    return () => controller.abort();
+  }, [supplier]);
+
+  /** Changes a line; while the price has not been typed over, it follows size, GSM, rate per kg and unit. */
+  const setLine = (i: number, patch: Partial<Line>) => setLines(lines.map((l, j) => {
+    if (j !== i) return l;
+    const next = { ...l, ...patch };
+    if (!next.priceTyped) next.price = calculatedPrice(next) ?? next.price;
+    return next;
+  }));
+  const setPaper = (i: number, patch: Partial<Paper>) => setLine(i, { paper: { ...(lines[i].paper ?? { x: "", y: "", gsm: "", divisor: "15500", rate: "" }), ...patch } });
   const add = (item: ItemOption) => {
     setItemQuery("");
     if (lines.some((l) => l.componentId === item.id)) { toast.info(`${item.name} is already on the bill`); return; }
-    setLines([...lines, { componentId: item.id, name: item.name, sku: item.sku, item, quantity: "1", unit: item.purchaseUnit ?? item.baseUnit ?? "", loose: "", price: "" }]);
+    const line: Line = { componentId: item.id, name: item.name, sku: item.sku, item, quantity: "1", unit: item.purchaseUnit ?? item.baseUnit ?? "", loose: "", price: "", paper: paperFromItem(item), priceTyped: false };
+    line.price = calculatedPrice(line) ?? "";
+    setLines([...lines, line]);
   };
 
   const problem = (() => {
@@ -140,6 +187,7 @@ export default function NewPurchaseClient({ suppliers: initialSuppliers, initial
       if (!(Number(l.quantity) > 0) && !(isPack(l) && Number(l.loose) > 0)) return `${l.name}: enter the quantity`;
       if (!(Number(l.price) > 0)) return `${l.name}: enter the purchase price`;
       if (isPack(l) && Number(l.loose) >= factorOf(l)) return `${l.name}: loose ${l.item.baseUnit} must be fewer than one ${l.unit}`;
+      if (l.paper && kgPer100(l.paper) === null) return `${l.name}: fill in X, Y and GSM, or remove the weight details`;
     }
     if (dueDate && dueDate < date) return "The due date cannot be before the bill date";
     if (paidNow > total) return "Paid now is more than the bill total; pay the extra as an advance from Pay supplier";
@@ -155,7 +203,10 @@ export default function NewPurchaseClient({ suppliers: initialSuppliers, initial
       const body = {
         date, supplierId: supplier!.id, vendorBillNo: vendorBillNo.trim() || null, vendorBillDate: vendorBillDate || null, dueDate: dueDate || null,
         biltyNo: biltyNo.trim() || null, biltyDate: biltyDate || null, notes: notes.trim() || null,
-        items: lines.map((l) => ({ componentId: l.componentId, quantity: l.quantity || "0", unit: l.unit || undefined, loose: isPack(l) && Number(l.loose) > 0 ? l.loose : undefined, unitPrice: l.price })),
+        items: lines.map((l) => ({
+          componentId: l.componentId, quantity: l.quantity || "0", unit: l.unit || undefined, loose: isPack(l) && Number(l.loose) > 0 ? l.loose : undefined, unitPrice: l.price,
+          paper: l.paper ? { x: l.paper.x, y: l.paper.y, gsm: l.paper.gsm, divisor: l.paper.divisor || null, ratePerKg: l.paper.rate || null } : undefined,
+        })),
         ...(editing ? { reason: reason.trim() } : {
           requestId,
           charges: charges.map((c) => ({ kind: c.kind, amount: c.amount, description: c.description.trim() })),
@@ -201,6 +252,14 @@ export default function NewPurchaseClient({ suppliers: initialSuppliers, initial
               {supplier ? (
                 <div className="flex items-center justify-between rounded-md border bg-muted/20 p-3">
                   <div><p className="font-medium">{supplier.name}</p>{supplier.phone && <p className="text-xs text-muted-foreground">{supplier.phone}</p>}</div>
+                  {balance?.id === supplier.id && (
+                    <div className="ml-auto mr-2 text-right">
+                      <p className="text-xs text-muted-foreground">Balance before this bill</p>
+                      <p className={`text-sm font-semibold tabular-nums ${balance.balance > 0 ? "text-amber-700 dark:text-amber-400" : ""}`}>
+                        {balance.balance > 0 ? `You owe ${formatPaisa(balance.balance)}` : balance.balance < 0 ? `Advance ${formatPaisa(-balance.balance)}` : "Nothing owed"}
+                      </p>
+                    </div>
+                  )}
                   {!editing && <Button variant="ghost" size="sm" onClick={() => setSupplier(null)}>Change</Button>}
                 </div>
               ) : (
@@ -255,54 +314,84 @@ export default function NewPurchaseClient({ suppliers: initialSuppliers, initial
               </div>
               {lines.length === 0 ? <p className="py-6 text-center text-sm text-muted-foreground">Search above to add items.</p> : (
                 <div className="space-y-2">
-                  {lines.map((l, i) => (
-                    <div key={l.componentId}>
-                    <div className="flex flex-wrap items-end gap-2 rounded-lg border bg-muted/30 p-3">
-                      <div className="min-w-[10rem] flex-1">
-                        <p className="text-sm font-medium">
-                          {l.name}
-                          {specLabel(l.item) && <span className="ml-2 inline-block whitespace-nowrap rounded bg-muted px-1.5 py-0.5 text-xs font-normal">{specLabel(l.item)}</span>}
-                        </p>
-                        <p className="text-xs text-muted-foreground">{l.sku}{isPack(l) ? ` · 1 ${l.unit} = ${factorOf(l)} ${l.item.baseUnit}` : ""}</p>
+                  {lines.map((l, i) => {
+                    const kg = kgPerUnit(l);
+                    const calc = calculatedPrice(l);
+                    const sheets = totalSheets(l);
+                    const field = (id: string, label: string, input: React.ReactNode, wide = false) => (
+                      <div className={`space-y-1 ${wide ? "min-w-[7.5rem]" : "min-w-[4.5rem]"}`}><Label htmlFor={id} className="whitespace-nowrap text-xs">{label}</Label>{input}</div>
+                    );
+                    const shown = (label: string, value: string, strong = false) => (
+                      <div className="min-w-[5rem] space-y-1"><p className="whitespace-nowrap text-xs text-muted-foreground">{label}</p><p className={`flex h-8 items-center tabular-nums ${strong ? "text-sm font-semibold" : "text-sm"}`}>{value}</p></div>
+                    );
+                    const qty = (
+                      <div className="flex items-end gap-1">
+                        {field(`q-${i}`, isPack(l) ? `${l.unit}s` : "Qty", <Input id={`q-${i}`} className="h-8 w-20" inputMode="decimal" value={l.quantity} onFocus={(e) => e.target.select()} onChange={(e) => setLine(i, { quantity: decimal(e.target.value, 3) })} />)}
+                        {(l.item.units?.length ?? 0) > 1 ? (
+                          field(`u-${i}`, "Unit", (
+                            <select id={`u-${i}`} className="h-8 rounded-md border border-input bg-background px-1 text-xs" value={l.unit} onChange={(e) => setLine(i, { unit: e.target.value, loose: "" })}>
+                              {l.item.units!.map((u) => <option key={u.code} value={u.code}>{u.code}</option>)}
+                            </select>
+                          ))
+                        ) : <span className="pb-2 text-xs text-muted-foreground">{l.unit}</span>}
+                        {isPack(l) && field(`l-${i}`, `+ loose ${l.item.baseUnit}s`, <Input id={`l-${i}`} className="h-8 w-20" inputMode="decimal" value={l.loose} onChange={(e) => setLine(i, { loose: decimal(e.target.value, 3) })} />)}
                       </div>
-                      <div className="space-y-1"><Label htmlFor={`q-${i}`} className="text-xs">Qty</Label><Input id={`q-${i}`} className="h-8 w-20" inputMode="decimal" value={l.quantity} onFocus={(e) => e.target.select()} onChange={(e) => set(i, { quantity: decimal(e.target.value, 3) })} /></div>
-                      {(l.item.units?.length ?? 0) > 1 ? (
-                        <div className="space-y-1">
-                          <Label htmlFor={`u-${i}`} className="text-xs">Unit</Label>
-                          <select id={`u-${i}`} className="h-8 rounded-md border border-input bg-background px-1 text-xs" value={l.unit} onChange={(e) => set(i, { unit: e.target.value, loose: "" })}>
-                            {l.item.units!.map((u) => <option key={u.code} value={u.code}>{u.code}</option>)}
-                          </select>
+                    );
+                    const price = field(`p-${i}`, `Price per ${l.unit || "unit"}`, (
+                      <div className="flex items-center gap-1">
+                        <Input id={`p-${i}`} className="h-8 w-28" inputMode="decimal" value={l.price} placeholder="0.00" onFocus={(e) => e.target.select()} onChange={(e) => setLine(i, { price: decimal(e.target.value, l.paper ? 4 : 2), priceTyped: true })} />
+                        {l.paper && l.priceTyped && calc && calc !== l.price && (
+                          <Button type="button" variant="ghost" size="icon" className="h-8 w-8" title={`Use the calculated price (Rs ${calc})`} aria-label={`Use the calculated price for ${l.name}`} onClick={() => setLine(i, { priceTyped: false })}><RotateCcw className="h-3.5 w-3.5" aria-hidden /></Button>
+                        )}
+                      </div>
+                    ), true);
+                    return (
+                      <div key={l.componentId} className="rounded-lg border bg-muted/30 p-3">
+                        <div className="mb-2 flex items-start gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium">
+                              {l.name}
+                              {specLabel(l.item) && <span className="ml-2 inline-block whitespace-nowrap rounded bg-muted px-1.5 py-0.5 text-xs font-normal">{specLabel(l.item)}</span>}
+                            </p>
+                            <p className="text-xs text-muted-foreground">{l.sku}{isPack(l) ? ` · 1 ${l.unit} = ${factorOf(l)} ${l.item.baseUnit}s` : ""}</p>
+                          </div>
+                          {!l.paper && (
+                            <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => setLine(i, { paper: paperFromItem(l.item) ?? { x: "", y: "", gsm: "", divisor: "15500", rate: "" }, priceTyped: !!l.price })}>
+                              <Scale className="mr-1 h-3.5 w-3.5" aria-hidden />Weight &amp; size
+                            </Button>
+                          )}
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" aria-label={`Remove ${l.name}`} onClick={() => setLines(lines.filter((_, j) => j !== i))}><Trash2 className="h-4 w-4" aria-hidden /></Button>
                         </div>
-                      ) : <span className="pb-2 text-xs text-muted-foreground">{l.unit}</span>}
-                      {isPack(l) && <div className="space-y-1"><Label htmlFor={`l-${i}`} className="text-xs">+ loose {l.item.baseUnit}</Label><Input id={`l-${i}`} className="h-8 w-20" inputMode="decimal" value={l.loose} onChange={(e) => set(i, { loose: decimal(e.target.value, 3) })} /></div>}
-                      <div className="space-y-1"><Label htmlFor={`p-${i}`} className="text-xs">Price per {l.unit || "unit"} (Rs)</Label><Input id={`p-${i}`} className="h-8 w-28" inputMode="decimal" value={l.price} placeholder="0.00" onFocus={(e) => e.target.select()} onChange={(e) => set(i, { price: decimal(e.target.value) })} /></div>
-                      <p className="w-28 pb-1.5 text-right text-sm font-semibold tabular-nums">{formatPaisa(lineAmount(l))}</p>
-                      <div className="flex items-center">
-                      <Button
-                        variant="ghost" size="icon"
-                        className={`h-8 w-8 ${calcOpen === l.componentId ? "bg-indigo-50 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-300" : "text-muted-foreground"}`}
-                        title="Price calculator" aria-label={`Price calculator for ${l.name}`} aria-expanded={calcOpen === l.componentId}
-                        onClick={() => toggleCalc(l)}
-                      ><Calculator className="h-4 w-4" aria-hidden /></Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" aria-label={`Remove ${l.name}`} onClick={() => { setLines(lines.filter((_, j) => j !== i)); if (calcOpen === l.componentId) setCalcOpen(null); }}><Trash2 className="h-4 w-4" aria-hidden /></Button>
+                        {l.paper ? (
+                          <div className="space-y-2">
+                            <div className="flex flex-wrap items-end gap-2 rounded-md bg-background/60 p-2">
+                              {field(`x-${i}`, "X (in)", <Input id={`x-${i}`} className="h-8 w-16" inputMode="decimal" value={l.paper.x} onFocus={(e) => e.target.select()} onChange={(e) => setPaper(i, { x: decimal(e.target.value, 3) })} />)}
+                              {field(`y-${i}`, "Y (in)", <Input id={`y-${i}`} className="h-8 w-16" inputMode="decimal" value={l.paper.y} onFocus={(e) => e.target.select()} onChange={(e) => setPaper(i, { y: decimal(e.target.value, 3) })} />)}
+                              {field(`g-${i}`, "gm (GSM)", <Input id={`g-${i}`} className="h-8 w-16" inputMode="decimal" value={l.paper.gsm} onFocus={(e) => e.target.select()} onChange={(e) => setPaper(i, { gsm: decimal(e.target.value, 2) })} />)}
+                              {shown(`Kg per ${l.unit || "unit"}`, kg === null ? "-" : fmt(kg, 4))}
+                              {field(`r-${i}`, "Rate per kg (Rs)", <Input id={`r-${i}`} className="h-8 w-24" inputMode="decimal" value={l.paper.rate} placeholder="0.00" onFocus={(e) => e.target.select()} onChange={(e) => setPaper(i, { rate: decimal(e.target.value, 4) })} />, true)}
+                              <button type="button" className="ml-auto self-center text-xs text-muted-foreground underline" onClick={() => setLine(i, { paper: null })}>Remove weight details</button>
+                            </div>
+                            <div className="flex flex-wrap items-end gap-3">
+                              {price}
+                              {qty}
+                              {isPack(l) && shown(`Per ${l.item.baseUnit}`, Number(l.price) > 0 ? `Rs ${fmt(Number(l.price) / sheetsPer(l), 4)}` : "-")}
+                              {shown(`Total ${l.item.baseUnit ?? "sheet"}s`, fmt(sheets, 3))}
+                              {shown("Weight (kg)", kg === null ? "-" : fmt(((kgPer100(l.paper) ?? 0) * sheets) / 100, 2))}
+                              <div className="ml-auto text-right"><p className="text-xs text-muted-foreground">Amount</p><p className="flex h-8 items-center justify-end text-sm font-semibold tabular-nums">{formatPaisa(lineAmount(l))}</p></div>
+                            </div>
+                            {l.paper && !l.paper.rate && <p className="text-xs text-muted-foreground">Type the rate per kg to work out the price, or type the price per {l.unit || "unit"} directly.</p>}
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap items-end gap-3">
+                            {qty}
+                            {price}
+                            <div className="ml-auto text-right"><p className="text-xs text-muted-foreground">Amount</p><p className="flex h-8 items-center justify-end text-sm font-semibold tabular-nums">{formatPaisa(lineAmount(l))}</p></div>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                    {calcOpen === l.componentId && (
-                      <div className="mt-1 mb-2">
-                        <PriceCalculator
-                          values={calc[l.componentId] || defaultCalcValues}
-                          onChange={(v) => {
-                            setCalc((prev) => ({ ...prev, [l.componentId]: v }));
-                            if (v.purchasePrice > 0) set(i, { price: String(Math.round(v.purchasePrice * 100) / 100) });
-                          }}
-                          compact
-                          showSalePrice={false}
-                        />
-                        <p className="mt-1 px-1 text-xs text-muted-foreground">The calculated price goes into &quot;Price per {l.unit || "unit"}&quot; above; you can still type over it.</p>
-                      </div>
-                    )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
@@ -333,6 +422,13 @@ export default function NewPurchaseClient({ suppliers: initialSuppliers, initial
           <Card>
             <CardHeader><CardTitle className="text-base">Total</CardTitle></CardHeader>
             <CardContent className="space-y-3">
+              {(unitsTotal.length > 0 || paperLines.length > 0) && (
+                <dl className="space-y-1 border-b pb-3 text-sm">
+                  {unitsTotal.map(([unit, n]) => <div key={unit} className="flex justify-between"><dt className="text-muted-foreground">Total {unit}s</dt><dd className="tabular-nums">{fmt(n, 3)}</dd></div>)}
+                  {paperLines.length > 0 && <div className="flex justify-between"><dt className="text-muted-foreground">Total sheets</dt><dd className="tabular-nums">{fmt(sheetsTotal, 3)}</dd></div>}
+                  {paperLines.length > 0 && <div className="flex justify-between"><dt className="text-muted-foreground">Net weight</dt><dd className="font-medium tabular-nums">{fmt(weight, 2)} kg</dd></div>}
+                </dl>
+              )}
               <div className="flex justify-between text-lg font-bold"><span>Bill total</span><span className="tabular-nums">{formatPaisa(total)}</span></div>
               {!editing && canPay && (
                 <div className="space-y-2 border-t pt-3">

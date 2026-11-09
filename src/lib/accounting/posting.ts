@@ -67,6 +67,41 @@ export interface ItemLineInput {
   /** Price per `unit`; required on sale and purchase documents. */
   unitPrice?: number | string;
   description?: string;
+  /** Paper bought or sold by weight: kept on the line (size, GSM, kg per unit, rate per kg), as the old Supplier Invoice did. */
+  paper?: PaperDetails;
+}
+
+export interface PaperDetails {
+  /** Length and width in inches, grams per square metre */
+  x: number | string;
+  y: number | string;
+  gsm: number | string;
+  /** 15500 unless the item uses another divisor */
+  divisor?: number | string | null;
+  ratePerKg?: number | string | null;
+}
+
+/**
+ * The paper columns of a line: the weight of ONE unit of the line (a rim of 100 sheets weighs X x Y x GSM / divisor;
+ * a ream of 500 weighs five times that: OD-02) and the rate per kg it was bought or sold at. The line's price stays as
+ * entered; these record how it was worked out.
+ */
+function paperFields(item: ItemContext, l: ItemLineInput): Partial<Prisma.AccountingDocumentLineUncheckedCreateInput> {
+  const p = l.paper;
+  if (!p) return {};
+  const num = (v: unknown, what: string) => {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n <= 0) throw new PostingError(`${item.name}: ${what} must be more than 0`);
+    return n;
+  };
+  const x = num(p.x, "length (X)");
+  const y = num(p.y, "width (Y)");
+  const gsm = num(p.gsm, "GSM");
+  const divisor = p.divisor === undefined || p.divisor === null || p.divisor === "" ? 15500 : num(p.divisor, "divisor");
+  const rate = p.ratePerKg === undefined || p.ratePerKg === null || p.ratePerKg === "" ? null : Number(p.ratePerKg);
+  if (rate !== null && (!Number.isFinite(rate) || rate < 0)) throw new PostingError(`${item.name}: rate per kg cannot be negative`);
+  const kg = weightPerPacket({ x, y, gsm, divisor }, Number(s(unitFactor(item.cfg, l.unit ?? item.cfg.baseUnit))));
+  return { paperX: String(x), paperY: String(y), paperGsm: String(gsm), paperDivisor: String(divisor), kgPerUnit: s(kg), ratePerKg: rate === null ? null : String(rate) };
 }
 
 export interface SaleInvoiceInput {
@@ -636,6 +671,7 @@ function lineRecord(documentId: string, lineNo: number, item: ItemContext, l: It
     documentId, lineNo, componentId: item.componentId, description: l.description ?? item.name,
     quantity: s(dec(l.quantity)), unit: l.unit ?? item.cfg.baseUnit,
     loose: l.loose === undefined || l.loose === "" ? "0" : s(dec(l.loose)), baseQuantity: s(baseQuantity),
+    ...paperFields(item, l),
     ...extra,
   };
 }

@@ -254,13 +254,16 @@ export async function negativeStockExceptions(db: PrismaClient) {
 export async function kgReport(db: PrismaClient, range: { from?: Date; to?: Date } = {}, side: "sale" | "purchase" = "sale") {
   const types = side === "sale" ? SALE_TYPES : ["PURCHASE_INVOICE"];
   const lines = await db.accountingDocumentLine.findMany({
-    where: { document: { type: { in: types }, status: "POSTED", ...dateRange(range) }, component: { unitProfile: { kind: "PAPER" } } },
+    where: { document: { type: { in: types }, status: "POSTED", ...dateRange(range) }, OR: [{ component: { unitProfile: { kind: "PAPER" } } }, { paperX: { not: null } }] },
     include: { document: { select: { partyAccount: { select: { name: true } } } }, component: true },
   });
   const groups = new Map<string, { item: string; party: string; sheets: Dec; kg: Dec; amount: Dec }>();
   for (const l of lines) {
     const c = l.component!;
-    const per100 = weightPer100Sheets({ x: c.dimensionX ?? 0, y: c.dimensionY ?? 0, gsm: c.gsm ?? 0, divisor: c.divisor ?? undefined });
+    // The size kept on the bill line when there is one (a supplier's sheets can differ from the product card)
+    const per100 = l.paperX && l.paperY && l.paperGsm
+      ? weightPer100Sheets({ x: Number(l.paperX), y: Number(l.paperY), gsm: Number(l.paperGsm), divisor: l.paperDivisor ? Number(l.paperDivisor) : undefined })
+      : weightPer100Sheets({ x: c.dimensionX ?? 0, y: c.dimensionY ?? 0, gsm: c.gsm ?? 0, divisor: c.divisor ?? undefined });
     const party = l.document.partyAccount?.name ?? "Cash sale";
     const key = `${c.id}|${party}`;
     const g = groups.get(key) ?? { item: c.name, party, sheets: ZERO, kg: ZERO, amount: ZERO };

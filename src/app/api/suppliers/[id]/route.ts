@@ -15,6 +15,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   await accountingReady();
   const account = await supplierAccount(prisma, id);
   if (!account) return NextResponse.json({ error: "Supplier not found" }, { status: 404 });
+  // Just the balance (New purchase shows it next to the supplier, as the old Supplier Invoice did)
+  if (request.nextUrl.searchParams.get("summary") === "1") {
+    return NextResponse.json({ balance: account.balance, payable: account.payable, openBills: account.bills.length });
+  }
   const [bills, payments, returns, history] = await Promise.all([
     listPurchaseBills(prisma, { supplierId: id }, 200),
     supplierPayments(prisma, { supplierId: id, includeCancelled: true }),
