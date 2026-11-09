@@ -73,7 +73,8 @@ No passwords, keys, passphrases or customer data are written here.
 - [x] ~~Sign in once to the migrated real `crm.db`~~: done by the owner 2026-10-30; a copy shows a session created 18:20 UTC, 13/13 migrations, integrity ok.
 - [x] ~~Rotate the Google API key seen in an MCP connector's command line~~: done by the owner 2026-10-30 (outside this repository).
 - [x] ~~Decide on the commit plan~~: owner chose to keep the repo public for now (private when product-ready) and push. Commit `949f5c8` on branch `phase0-security-and-books-2026-10-30`, **PR #2** open (not merged).
-- [ ] **Merge PR #7 (global search) and then PR #8 (paper details on purchase lines).** PR #6 was merged before the search commit was pushed, so the search is not on `main` yet. After merging, switch the local folder to `main` and pull.
+- [x] ~~Merge PR #7 (global search)~~: merged 2026-11-09.
+- [ ] **Merge PR #8 (paper details on purchase lines)**, only together with the `crm.db` update below. After merging, switch the local folder to `main` and pull.
 - [ ] **Approve applying migration `20261109100000_paper_line_details` to `crm.db`** (adds six empty columns to bill lines; nothing existing changes). Procedure: `scripts/migrate-db.ts --apply` (backup, rehearsal on a copy, apply, check). Until it is applied, the website must run the `main` code without PR #8.
 - [x] ~~Review and merge PR #2~~: merged 2026-10-31.
 - [x] ~~`debug-auth.ts`~~: deleted with the owner's approval (commit `1c11fef`, part of PR #2); it would have written a session into `test.db` if run.
