@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { Keyboard } from "lucide-react";
 import { Dialog, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { comboFromEvent, defaultShortcuts, SHORTCUT_ACTIONS, type ShortcutMap } from "@/lib/shortcuts";
+import { OPEN_SEARCH } from "./global-search";
 
 /** Fired by the settings page after saving, so the new keys work at once. */
 export const SHORTCUTS_CHANGED = "crm-shortcuts-changed";
@@ -50,6 +51,7 @@ export default function ShortcutKeys() {
       e.preventDefault();
       e.stopPropagation();
       if (action.href === "#help") setHelpOpen((open) => !open);
+      else if (action.href === "#search") { setHelpOpen(false); window.dispatchEvent(new Event(OPEN_SEARCH)); }
       else { setHelpOpen(false); router.push(action.href); }
     };
     window.addEventListener("keydown", onKey, true);

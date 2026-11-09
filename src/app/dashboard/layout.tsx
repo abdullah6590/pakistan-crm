@@ -4,6 +4,7 @@ import { getUnreadCount } from "@/lib/notifications";
 import { Shell } from "@/components/layout/shell";
 import VoiceAssistant from "@/components/ai/voice-assistant";
 import ShortcutKeys from "@/components/layout/shortcut-keys";
+import GlobalSearch from "@/components/layout/global-search";
 import { redirect } from "next/navigation";
 
 export default async function DashboardLayout({
@@ -31,6 +32,7 @@ export default async function DashboardLayout({
       {children}
       <VoiceAssistant />
       <ShortcutKeys />
+      <GlobalSearch />
     </Shell>
   );
 }

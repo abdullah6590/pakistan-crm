@@ -1,7 +1,6 @@
 // src/components/layout/header.tsx
 "use client";
 
-import { useState } from "react";
 import { useTheme } from "next-themes";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -14,7 +13,7 @@ import {
   User,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { OPEN_SEARCH } from "./global-search";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,7 +35,6 @@ interface HeaderProps {
 export function Header({ userName, userEmail, userRole, unreadNotifications }: HeaderProps) {
   const router = useRouter();
   const { theme, setTheme } = useTheme();
-  const [searchOpen, setSearchOpen] = useState(false);
 
   const initials = userName
     .split(" ")
@@ -49,30 +47,19 @@ export function Header({ userName, userEmail, userRole, unreadNotifications }: H
     <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-4 lg:px-6 print:hidden">
       {/* Search */}
       <div className="flex-1 lg:flex-none lg:w-72">
-        {searchOpen ? (
-          <div className="relative">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search..."
-              className="pl-9 h-9"
-              autoFocus
-              onBlur={() => setSearchOpen(false)}
-            />
-          </div>
-        ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-9 w-9 lg:w-full lg:justify-start lg:px-3 lg:gap-2 text-muted-foreground"
-            onClick={() => setSearchOpen(true)}
-          >
-            <Search className="h-4 w-4" />
-            <span className="hidden lg:inline text-xs">Search projects, components, sales...</span>
-            <kbd className="hidden lg:inline-flex ml-auto h-5 items-center gap-0.5 rounded border bg-muted px-1.5 font-mono text-[10px] text-muted-foreground">
-              ⌘K
-            </kbd>
-          </Button>
-        )}
+        <Button
+          variant="outline"
+          size="sm"
+          aria-label="Search everything"
+          className="h-9 w-9 lg:w-full lg:justify-start lg:px-3 lg:gap-2 text-muted-foreground"
+          onClick={() => window.dispatchEvent(new Event(OPEN_SEARCH))}
+        >
+          <Search className="h-4 w-4" />
+          <span className="hidden lg:inline text-xs">Search customers, suppliers, products, bills...</span>
+          <kbd className="hidden lg:inline-flex ml-auto h-5 items-center gap-0.5 rounded border bg-muted px-1.5 font-mono text-[10px] text-muted-foreground">
+            Ctrl K
+          </kbd>
+        </Button>
       </div>
 
       <div className="flex-1" />
