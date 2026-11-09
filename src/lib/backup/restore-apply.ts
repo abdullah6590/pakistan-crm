@@ -5,8 +5,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { createClient } from "@libsql/client";
 
-export const recoveryRoot = (dbFile: string) => path.join(path.dirname(dbFile), "recovery");
-const logFile = (dbFile: string) => path.join(recoveryRoot(dbFile), "restore-log.jsonl");
+export const recoveryRoot = (dbFile: string) => path.join(/* turbopackIgnore: true */ path.dirname(dbFile), "recovery");
+const logFile = (dbFile: string) => path.join(/* turbopackIgnore: true */ recoveryRoot(dbFile), "restore-log.jsonl");
 
 export function logRestore(dbFile: string, entry: Record<string, unknown>) {
   fs.mkdirSync(recoveryRoot(dbFile), { recursive: true });
@@ -20,7 +20,7 @@ export function readRestoreLog(dbFile: string): Record<string, unknown>[] {
 
 /** The staged restore, if an administrator confirmed one that has not been applied yet. */
 export function pendingRestore(dbFile: string): Record<string, string> | null {
-  const f = path.join(recoveryRoot(dbFile), "restore-pending.json");
+  const f = path.join(/* turbopackIgnore: true */ recoveryRoot(dbFile), "restore-pending.json");
   return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, "utf8")) : null;
 }
 

@@ -1,7 +1,8 @@
 // desktop/device-upgrade-test.mjs - A syncing desktop upgraded from an older version to the new one, on the real
 // installed builds (owner instructions 2026-10-29 and 2026-10-30). Usage: node device-upgrade-test.mjs <old-setup> <new-setup>
-// From 0.1.3 (sync protocol 1) the upgraded main server refuses the old desktop until it is upgraded too; from 0.1.4
-// (protocol 2) the entries made offline are checked to be still waiting right after the in-place upgrade.
+// When the new release raises the lowest sync protocol it accepts (0.1.4: 2, 0.1.6: 3), the upgraded main server refuses
+// the old desktop until it is upgraded too; from 0.1.4 the entries made offline are also checked to be still waiting
+// right after the in-place upgrade.
 //
 // Two throw-away installations of the old version: one runs as the main server ("cloud", started without the window),
 // the other is the desktop app working as a syncing device. The device works offline, both are upgraded, and its
@@ -23,6 +24,13 @@ const NEW_VERSION = JSON.parse(fs.readFileSync(path.join(here, "src-tauri", "tau
 const OLD_VERSION = path.basename(oldSetup).match(/_(\d+\.\d+\.\d+)_/)?.[1];
 if (!OLD_VERSION) throw new Error(`cannot read the old version from the installer name: ${path.basename(oldSetup)}`);
 const OLD_PROTOCOL_1 = OLD_VERSION === "0.1.3" || OLD_VERSION.startsWith("0.1.0") || OLD_VERSION === "0.1.1" || OLD_VERSION === "0.1.2";
+// Sync protocol of the old release (0.1.0-0.1.3: 1; 0.1.4-0.1.5: 2; later: 3) and the lowest one the new server accepts
+const OLD_PROTOCOL = OLD_PROTOCOL_1 ? 1 : ["0.1.4", "0.1.5"].includes(OLD_VERSION) ? 2 : 3;
+const NEW_MIN_PROTOCOL = Number(fs.readFileSync(path.join(here, "..", "src", "lib", "sync", "commands.ts"), "utf8").match(/MIN_SYNC_PROTOCOL = (\d+)/)[1]);
+const OLD_REFUSED = OLD_PROTOCOL < NEW_MIN_PROTOCOL;
+// Server-side sessions came in 0.1.5: an upgrade from an older release signs everyone out once, later upgrades keep
+// the sessions valid
+const OLD_HAS_SESSIONS = !OLD_PROTOCOL_1 && OLD_VERSION !== "0.1.4";
 const work = fs.mkdtempSync(path.join(os.tmpdir(), "crm-device-upgrade-"));
 const results = [];
 const check = (id, title, pass, evidence) => { results.push({ id, title, pass: !!pass, evidence }); console.log(`${pass ? "PASS" : "FAIL"} ${id} ${title}\n     ${evidence}`); };
@@ -183,7 +191,7 @@ try {
   const A2 = await loginAs(CLOUD, EMAIL, pw);
   const cloudHealth = (await call(CLOUD, "GET", "/api/health")).json;
   const cloudStock = (await call(CLOUD, "GET", "/api/accounting/reports?report=stock", { cookie: A2 })).json?.rows?.find((x) => x.componentId === item.id)?.onHand;
-  if (OLD_PROTOCOL_1) {
+  if (OLD_REFUSED) {
     D = await startDevice();
     dc = await loginAs(D, EMAIL, pw);
     const refused = await syncNow(D, dc);
@@ -218,23 +226,27 @@ try {
     return all.length === 2 && all.every((e) => e.status === "SYNCED") ? all : null;
   }, 90_000, 2000);
   const officials = (synced ?? []).map((e) => JSON.parse(e.result ?? "{}").docNo).sort();
-  check("D-04", `The desktop upgraded in place to ${NEW_VERSION}: same account (old sign-in refused, sign in again), its 2 waiting entries kept and then posted once with official numbers`,
-    !!dc && oldTokenAnswer === 401 && keptAfterUpgrade === 2 && (OLD_PROTOCOL_1 || waitingRightAfter === 2) && officials.join() === "CRV-0001,SI-0001" && fs.existsSync(devDb),
-    `old ${OLD_VERSION} sign-in ${oldTokenAnswer}; signs in again ${!!dc}; still waiting right after the upgrade ${OLD_PROTOCOL_1 ? "n/a" : waitingRightAfter}; the 2 entries from ${OLD_VERSION} on the desktop ${keptAfterUpgrade}; official numbers ${officials.join(", ")}`);
+  check("D-04", `The desktop upgraded in place to ${NEW_VERSION}: same account (${OLD_HAS_SESSIONS ? "still signed in" : "old sign-in refused, sign in again"}), its 2 waiting entries kept and then posted once with official numbers`,
+    !!dc && oldTokenAnswer === (OLD_HAS_SESSIONS ? 200 : 401) && keptAfterUpgrade === 2 && (OLD_PROTOCOL_1 || waitingRightAfter === 2) && officials.join() === "CRV-0001,SI-0001" && fs.existsSync(devDb),
+    `old ${OLD_VERSION} sign-in ${oldTokenAnswer} (expected ${OLD_HAS_SESSIONS ? "200, sessions kept" : "401, signed out once"}); signs in again ${!!dc}; still waiting right after the upgrade ${OLD_PROTOCOL_1 ? "n/a" : waitingRightAfter}; the 2 entries from ${OLD_VERSION} on the desktop ${keptAfterUpgrade}; official numbers ${officials.join(", ")}`);
 
   // D-05 the new screens: a supplier, a customer, an unpaid purchase bill and an unpaid sale on the server reach the desktop
   const A3 = await loginAs(CLOUD, EMAIL, pw);
   const sup = (await call(CLOUD, "POST", "/api/suppliers", { cookie: A3, body: { name: "TEST Mill", phone: "0300-1112223" } })).json.supplier;
   const cust = (await call(CLOUD, "POST", "/api/customers", { cookie: A3, body: { name: "TEST Customer", phone: "0300-4445556" } })).json.customer;
-  const cloudBill = (await call(CLOUD, "POST", "/api/purchases", { cookie: A3, body: { date: "2026-10-28", supplierId: sup.id, items: [{ componentId: item.id, quantity: 100, unitPrice: "50.25" }], requestId: rid() } })).json.purchase;
+  const cloudBill = (await call(CLOUD, "POST", "/api/purchases", { cookie: A3, body: { date: "2026-10-28", supplierId: sup.id, items: [{ componentId: item.id, quantity: 100, unitPrice: "50.25", ...(NEW_MIN_PROTOCOL >= 3 ? { paper: { x: 18, y: 25, gsm: 300, ratePerKg: 135.5 } } : {}) }], requestId: rid() } })).json.purchase;
   const cloudSale = (await call(CLOUD, "POST", "/api/sales", { cookie: A3, body: { date: "2026-10-28", customerId: cust.id, items: [{ componentId: item.id, quantity: 20, unitPrice: 100 }], paidNow: { amount: "0", method: "CASH" }, requestId: rid() } })).json.sale;
   await syncNow(D, dc);
   const arrived = await until(async () => {
     const s = await call(D, "GET", `/api/purchases/payments?supplierId=${sup.id}`, { cookie: dc });
     return s.json?.account?.bills?.some((b) => b.id === cloudBill.id) ? s : null;
   }, 60_000, 2000);
-  check("D-05", "Suppliers, customers, purchase bills and sales made on the server arrive on the desktop",
-    !!cloudBill && !!cloudSale && !!arrived, `bill ${cloudBill?.docNo} and sale ${cloudSale?.docNo} on the server; the desktop shows the supplier's open bill ${!!arrived}`);
+  // From protocol 3 the bill's paper details (size, GSM, kg per unit, rate per kg) come down with it
+  const billLine = NEW_MIN_PROTOCOL >= 3 ? (await call(D, "GET", `/api/purchases/${cloudBill?.id}`, { cookie: dc })).json?.bill?.doc?.lines?.[0] : null;
+  const paperArrived = NEW_MIN_PROTOCOL < 3 || (billLine?.paperX === "18" && billLine?.paperGsm === "300" && billLine?.ratePerKg === "135.5" && !!billLine?.kgPerUnit);
+  check("D-05", "Suppliers, customers, purchase bills (with their paper details) and sales made on the server arrive on the desktop",
+    !!cloudBill && !!cloudSale && !!arrived && paperArrived,
+    `bill ${cloudBill?.docNo} and sale ${cloudSale?.docNo} on the server; the desktop shows the supplier's open bill ${!!arrived}; paper details there ${NEW_MIN_PROTOCOL < 3 ? "n/a" : JSON.stringify(billLine ? { x: billLine.paperX, gsm: billLine.paperGsm, kg: billLine.kgPerUnit, rate: billLine.ratePerKg } : null)}`);
 
   // D-06 offline on the new version: a sale with part paid now, a customer payment, a purchase with part paid now and a
   // supplier payment; each clicked twice
@@ -303,21 +315,26 @@ try {
     await win.send("Runtime.enable");
     await win.send("Page.enable");
     await win.send("Page.navigate", { url: `${D}/login` });
-    ui.hydrated = await until(async () => (await win.evaluate("typeof window.next?.version === 'string' && !!document.querySelector('input[type=email]')")) || null, 30_000, 500);
-    await win.evaluate(`(() => {
+    // Wait until React has attached the form's handlers (its props are on the input), not only for Next's scripts:
+    // values typed before that are lost and the empty required fields stop the form silently
+    ui.hydrated = await until(async () => (await win.evaluate("typeof window.next?.version === 'string' && !!document.querySelector('input[type=email]') && Object.keys(document.querySelector('input[type=email]')).some((k) => k.startsWith('__reactProps'))")) || null, 30_000, 500);
+    ui.filled = await win.evaluate(`(() => {
       const set = (el, v) => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, v); el.dispatchEvent(new Event("input", { bubbles: true })); };
       set(document.querySelector("input[type=email]"), ${JSON.stringify(EMAIL)});
       set(document.querySelector("input[type=password]"), ${JSON.stringify(pw)});
-      document.querySelector("button[type=submit]").click();
+      return document.querySelector("input[type=email]").value === ${JSON.stringify(EMAIL)} && document.querySelector("input[type=password]").value.length > 0;
     })()`);
+    await sleep(300);
+    await win.evaluate(`document.querySelector("button[type=submit]").click()`);
     ui.dashboard = await until(async () => (await win.evaluate("location.pathname")).startsWith("/dashboard") || null, 45_000, 500);
+    if (!ui.dashboard) ui.said = String(await win.evaluate("location.pathname + ' | ' + document.body.innerText") ?? "").replace(/\s+/g, " ").slice(0, 300);
     await sleep(3000);
     ui.blocked = blocked(win.events);
     win.close();
   }
   check("D-10", "In the desktop window the login page runs under its security policy with nothing blocked, and signing in through the form reaches the dashboard",
     ui.found && ui.hydrated && ui.dashboard && ui.blocked.length === 0,
-    `window found ${ui.found}; page scripts running ${!!ui.hydrated}; dashboard reached ${!!ui.dashboard}; blocked or failed: ${ui.blocked?.length ? ui.blocked.join(" | ").slice(0, 300) : "none"}`);
+    `window found ${ui.found}; page scripts running ${!!ui.hydrated}; form filled ${!!ui.filled}; dashboard reached ${!!ui.dashboard}${ui.said ? ` (page: ${ui.said})` : ""}; blocked or failed: ${ui.blocked?.length ? ui.blocked.join(" | ").slice(0, 300) : "none"}`);
 
   // D-11 sign-in, sessions and the page security policy on the installed desktop (Phase 0). Last, because the wrong
   // passwords below block this account for new browsers for 15 minutes.
