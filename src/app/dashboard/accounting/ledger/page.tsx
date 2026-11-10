@@ -49,7 +49,7 @@ export default async function LedgerPage({ searchParams }: { searchParams: Promi
       </Card>
 
       {statement && (
-        <div className="rounded-lg border bg-white p-6 text-black print:border-0 print:p-0">
+        <div className="paper rounded-lg border bg-white p-6 text-black print:border-0 print:p-0">
           <div className="text-xs">{printDate()}</div>
           {businessName && <div className="text-center text-lg font-bold">{businessName}</div>}
           <div className="text-center font-semibold">

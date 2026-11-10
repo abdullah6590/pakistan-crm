@@ -29,7 +29,7 @@ export default function StatementClient({ statement: st, businessName }: { state
   const pdfQuery = new URLSearchParams({ ...(st.from ? { from: st.from } : {}), ...(st.to ? { to: st.to } : {}) }).toString();
 
   return (
-    <div className="bg-white text-black min-h-screen p-8 print:p-0">
+    <div className="paper bg-white text-black min-h-screen p-8 print:p-0">
       <div className="max-w-4xl mx-auto border print:border-0 rounded-lg p-8 print:p-0">
         <div className="flex flex-wrap justify-between items-start gap-4 mb-6">
           <div>

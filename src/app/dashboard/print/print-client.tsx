@@ -171,7 +171,7 @@ export default function PrintClient({ moduleName, data, params }: Props) {
   };
 
   return (
-    <div className="bg-white text-black min-h-screen p-8">
+    <div className="paper bg-white text-black min-h-screen p-8">
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="flex items-center justify-between print:hidden mb-6">
           <h1 className="text-2xl font-bold capitalize">{moduleName} Print View</h1>

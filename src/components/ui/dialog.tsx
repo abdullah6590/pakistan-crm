@@ -9,6 +9,10 @@ interface DialogProps {
   open: boolean;
   onClose: () => void;
   children: React.ReactNode;
+  /** false for a choice that must be made: no close button, and Esc or a click outside does nothing */
+  dismissible?: boolean;
+  /** Extra classes for the panel, e.g. a wider max-w-2xl */
+  className?: string;
 }
 
 /** The dialog's title id, so screen readers announce "Cancel SI-0001?" when it opens. */
@@ -16,11 +20,11 @@ const TitleContext = React.createContext<string | undefined>(undefined);
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-export function Dialog({ open, onClose, children }: DialogProps) {
+export function Dialog({ open, onClose, children, dismissible = true, className }: DialogProps) {
   const panel = React.useRef<HTMLDivElement>(null);
   const titleId = React.useId();
   const close = React.useRef(onClose);
-  React.useEffect(() => { close.current = onClose; }, [onClose]);
+  React.useEffect(() => { close.current = dismissible ? onClose : () => {}; }, [onClose, dismissible]);
 
   React.useEffect(() => {
     if (open) {
@@ -40,9 +44,12 @@ export function Dialog({ open, onClose, children }: DialogProps) {
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") { close.current(); return; }
       if (e.key !== "Tab" || !panel.current) return;
-      const items = Array.from(panel.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.offsetParent !== null);
+      // Only what Tab can reach (a radio group keeps one tab stop; the others have tabindex -1)
+      const items = Array.from(panel.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.offsetParent !== null && el.tabIndex >= 0);
       if (!items.length) return;
       const [head, tail] = [items[0], items[items.length - 1]];
+      // Focus somewhere behind the dialog comes straight back into it
+      if (!panel.current.contains(document.activeElement)) { e.preventDefault(); (e.shiftKey ? tail : head).focus(); return; }
       if (e.shiftKey && document.activeElement === head) { e.preventDefault(); tail.focus(); }
       else if (!e.shiftKey && document.activeElement === tail) { e.preventDefault(); head.focus(); }
     }
@@ -60,7 +67,9 @@ export function Dialog({ open, onClose, children }: DialogProps) {
       {/* Overlay */}
       <div
         className="fixed inset-0 bg-black/50 backdrop-blur-sm animate-in fade-in-0"
-        onClick={onClose}
+        onClick={dismissible ? onClose : undefined}
+        // A click on the backdrop must not move the keyboard focus out of the dialog
+        onMouseDown={(e) => e.preventDefault()}
         aria-hidden
       />
       {/* Content */}
@@ -70,17 +79,19 @@ export function Dialog({ open, onClose, children }: DialogProps) {
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="relative z-50 w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-xl border bg-background p-6 shadow-lg mx-4 outline-none animate-in fade-in-0 zoom-in-95 slide-in-from-top-2"
+        className={cn("relative z-50 w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-xl border bg-background p-6 shadow-lg mx-4 outline-none animate-in fade-in-0 zoom-in-95 slide-in-from-top-2", className)}
       >
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          data-dialog-close="true"
-          className="absolute right-3 top-3 flex h-8 w-8 cursor-pointer items-center justify-center rounded-md opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-        >
-          <X className="h-4 w-4" aria-hidden />
-        </button>
+        {dismissible && (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            data-dialog-close="true"
+            className="absolute right-3 top-3 flex h-8 w-8 cursor-pointer items-center justify-center rounded-md opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+          >
+            <X className="h-4 w-4" aria-hidden />
+          </button>
+        )}
         <TitleContext.Provider value={titleId}>{children}</TitleContext.Provider>
       </div>
     </div>
