@@ -119,9 +119,10 @@ export default function SettingsClient(props: { settings: Record<string, string>
           )}
           <div className="grid gap-1 text-sm md:grid-cols-2">
             {props.accounts.map((a) => (
-              <div key={a.id} className="flex items-center gap-2 border-b py-1">
-                <span className="w-24 font-mono text-xs">{a.code}</span>
-                <span className="flex-1">{a.name}</span>
+              <div key={a.id} className="flex min-w-0 items-center gap-2 border-b py-1">
+                {/* Codes such as OPENING_BALANCE_EQUITY are long: the column fits them and cuts anything longer with "..." */}
+                <span className="w-44 shrink-0 truncate font-mono text-xs text-muted-foreground" title={a.code}>{a.code}</span>
+                <span className="min-w-0 flex-1 truncate" title={a.name}>{a.name}</span>
                 <Badge variant="outline">{(a.subType ?? a.kind).toLowerCase()}</Badge>
                 {a.isSystem && <Badge variant="secondary">system</Badge>}
               </div>

@@ -1,14 +1,13 @@
-// src/app/api/cash-sales/route.ts - Cash Sale (Counter Sale) management API
+// src/app/api/cash-sales/route.ts - The old Cash Sales screen's records (read-only since 2026-11-10). It saved to the old
+// cash-sale and Finance tables, outside Books: no stock movement, not in the ledgers, daybook or Profit & Loss. Cash
+// sales are now entered on New sale with the walk-in customer, so new entries here are refused.
 import { NextRequest, NextResponse } from "next/server";
 import { authorize } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
-import { getAuthUser } from "@/lib/auth";
-import { cashSaleSchema } from "@/lib/validations";
 
 export async function GET(request: NextRequest) {
   const auth = await authorize("cashSales", "read");
   if (auth.response) return auth.response;
-  const user = auth.user;
 
   const { searchParams } = new URL(request.url);
   const search = searchParams.get("search") || "";
@@ -59,49 +58,11 @@ export async function GET(request: NextRequest) {
   });
 }
 
-export async function POST(request: NextRequest) {
+const OLD_CASH_SALES_CLOSED =
+  "Cash sales are now entered on New sale with the walk-in customer, so they count in stock, the ledgers and Profit & Loss. The old Cash Sales screen is read-only.";
+
+export async function POST() {
   const auth = await authorize("cashSales", "write");
   if (auth.response) return auth.response;
-  const user = auth.user;
-
-  const body = await request.json();
-  const validation = cashSaleSchema.safeParse(body);
-  if (!validation.success) {
-    return NextResponse.json({ error: "Validation error" }, { status: 400 });
-  }
-
-  const data = validation.data;
-
-  // Generate receipt number
-  const count = await prisma.cashSale.count();
-  const receiptNo = `CS-${String(count + 1).padStart(4, "0")}`;
-
-  const sale = await prisma.cashSale.create({
-    data: {
-      receiptNo,
-      customerName: data.customerName || null,
-      date: data.date || new Date(),
-      amount: data.amount,
-      remarks: data.remarks || null,
-      paymentMethod: (data.paymentMethod as any) || "CASH",
-      userId: user.id,
-    },
-  });
-
-  // Create finance record
-  await prisma.finance.create({
-    data: {
-      transactionRef: `TXN-CS-${Date.now()}`,
-      type: "INCOME",
-      category: "COMPONENT_SALE",
-      amount: data.amount,
-      description: `Cash Sale ${receiptNo}${data.customerName ? ` - ${data.customerName}` : ""}`,
-      paymentMethod: data.paymentMethod || "CASH",
-      reference: receiptNo,
-      referenceId: sale.id,
-      userId: user.id,
-    },
-  });
-
-  return NextResponse.json({ success: true, sale }, { status: 201 });
+  return NextResponse.json({ error: OLD_CASH_SALES_CLOSED }, { status: 409 });
 }

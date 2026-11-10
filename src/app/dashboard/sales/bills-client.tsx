@@ -25,6 +25,7 @@ interface Props {
   pagination: { page: number; totalPages: number; totalRecords: number };
   customers: { id: string; name: string }[];
   olderCount: number;
+  olderCashCount: number;
   canReceive: boolean;
 }
 
@@ -37,7 +38,7 @@ export const BILL_STATUS: Record<string, { label: string; variant: "success" | "
 
 const rs = (v: string) => formatCurrency(Number(v));
 
-export default function BillsClient({ rows, stats, pagination, customers, olderCount, canReceive }: Props) {
+export default function BillsClient({ rows, stats, pagination, customers, olderCount, olderCashCount, canReceive }: Props) {
   const router = useRouter();
   const go = (page: number) => {
     const params = new URLSearchParams(window.location.search);
@@ -140,11 +141,18 @@ export default function BillsClient({ rows, stats, pagination, customers, olderC
       </Card>
 
       <div className="flex flex-wrap items-center justify-between gap-2">
-        {olderCount > 0 ? (
-          <Button variant="ghost" size="sm" onClick={() => router.push("/dashboard/sales/older")}>
-            <History className="h-4 w-4 mr-1" /> Older bills ({olderCount})
-          </Button>
-        ) : <span />}
+        <div className="flex flex-wrap items-center gap-1">
+          {olderCount > 0 && (
+            <Button variant="ghost" size="sm" onClick={() => router.push("/dashboard/sales/older")}>
+              <History className="h-4 w-4 mr-1" /> Older bills ({olderCount})
+            </Button>
+          )}
+          {olderCashCount > 0 && (
+            <Button variant="ghost" size="sm" onClick={() => router.push("/dashboard/cash-sales")}>
+              <History className="h-4 w-4 mr-1" /> Older cash sales ({olderCashCount})
+            </Button>
+          )}
+        </div>
         {pagination.totalPages > 1 && (
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">Page {pagination.page} of {pagination.totalPages} ({pagination.totalRecords} bills)</span>

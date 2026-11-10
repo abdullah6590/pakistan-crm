@@ -41,7 +41,8 @@ export function Sidebar({ userRole, userName, userEmail }: SidebarProps) {
     setExpandedItems(next);
   };
 
-  const isActive = (href: string) => pathname === href || pathname.startsWith(href + "/");
+  // The dashboard is the parent of every page, so it is marked only on itself
+  const isActive = (href: string) => pathname === href || (href !== "/dashboard" && pathname.startsWith(href + "/"));
 
   const NavLink = ({ item, depth = 0 }: { item: NavItem; depth?: number }) => {
     const hasChildren = item.children && item.children.length > 0;
@@ -77,6 +78,7 @@ export function Sidebar({ userRole, userName, userEmail }: SidebarProps) {
           <Link
             href={item.href}
             onClick={() => setMobileOpen(false)}
+            aria-current={active ? "page" : undefined}
             className={cn(
               "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all",
               "hover:bg-accent hover:text-accent-foreground",
