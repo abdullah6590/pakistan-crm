@@ -31,6 +31,9 @@ const OLD_REFUSED = OLD_PROTOCOL < NEW_MIN_PROTOCOL;
 // Server-side sessions came in 0.1.5: an upgrade from an older release signs everyone out once, later upgrades keep
 // the sessions valid
 const OLD_HAS_SESSIONS = !OLD_PROTOCOL_1 && OLD_VERSION !== "0.1.4";
+// "Choose your layout" came in 0.1.7: users of an older release have no layout stored and are asked once
+const newer = (a, b) => { const [x, y] = [a, b].map((v) => v.split(".").map(Number)); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i]; return true; };
+const NEW_ASKS_LAYOUT = newer(NEW_VERSION, "0.1.7") && !newer(OLD_VERSION, "0.1.7");
 const work = fs.mkdtempSync(path.join(os.tmpdir(), "crm-device-upgrade-"));
 const results = [];
 const check = (id, title, pass, evidence) => { results.push({ id, title, pass: !!pass, evidence }); console.log(`${pass ? "PASS" : "FAIL"} ${id} ${title}\n     ${evidence}`); };
@@ -328,6 +331,23 @@ try {
     await win.evaluate(`document.querySelector("button[type=submit]").click()`);
     ui.dashboard = await until(async () => (await win.evaluate("location.pathname")).startsWith("/dashboard") || null, 45_000, 500);
     if (!ui.dashboard) ui.said = String(await win.evaluate("location.pathname + ' | ' + document.body.innerText") ?? "").replace(/\s+/g, " ").slice(0, 300);
+    // D-13: a user from the older release is asked to choose a layout; Classic is picked in the window
+    if (ui.dashboard && NEW_ASKS_LAYOUT) {
+      const cardReady = "(() => { const b = document.querySelector('[data-layout=\"classic\"]'); return !!b && Object.keys(b).some((k) => k.startsWith('__reactProps')); })()";
+      ui.asked = await until(async () => (await win.evaluate(cardReady)) || null, 30_000, 500);
+      if (ui.asked) {
+        await win.evaluate(`document.querySelector('[data-layout="classic"]').click()`);
+        await sleep(300);
+        ui.button = await win.evaluate(`document.querySelector('[data-layout-save]')?.textContent.trim()`);
+        await win.evaluate(`document.querySelector('[data-layout-save]').click()`);
+        ui.classic = await until(async () => (await win.evaluate("document.querySelector('[data-interface]')?.dataset.interface === 'classic' && !document.querySelector('[data-layout-chooser]')")) || null, 30_000, 500);
+        await win.send("Page.navigate", { url: `${D}/dashboard` });
+        await until(async () => (await win.evaluate("!!document.querySelector('[data-interface]')")) || null, 30_000, 500);
+        await sleep(2000);
+        ui.again = await win.evaluate("!!document.querySelector('[data-layout-chooser]')");
+        ui.after = await win.evaluate("document.querySelector('[data-interface]')?.dataset.interface ?? null");
+      }
+    }
     await sleep(3000);
     ui.blocked = blocked(win.events);
     win.close();
@@ -335,6 +355,11 @@ try {
   check("D-10", "In the desktop window the login page runs under its security policy with nothing blocked, and signing in through the form reaches the dashboard",
     ui.found && ui.hydrated && ui.dashboard && ui.blocked.length === 0,
     `window found ${ui.found}; page scripts running ${!!ui.hydrated}; form filled ${!!ui.filled}; dashboard reached ${!!ui.dashboard}${ui.said ? ` (page: ${ui.said})` : ""}; blocked or failed: ${ui.blocked?.length ? ui.blocked.join(" | ").slice(0, 300) : "none"}`);
+  if (NEW_ASKS_LAYOUT) {
+    check("D-13", `After updating from ${OLD_VERSION}, signing in asks "Choose your layout"; picking Classic in the window turns the menu bar on, and it is not asked again`,
+      ui.asked && ui.button === "Use Classic" && ui.classic && ui.again === false && ui.after === "classic",
+      `asked ${!!ui.asked}; button "${ui.button}"; classic on ${!!ui.classic}; asked again ${ui.again}; layout after reopening ${ui.after}`);
+  }
 
   // D-11 sign-in, sessions and the page security policy on the installed desktop (Phase 0). Last, because the wrong
   // passwords below block this account for new browsers for 15 minutes.

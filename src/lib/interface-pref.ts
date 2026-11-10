@@ -6,5 +6,8 @@ export const UI_LAYOUTS: UiLayout[] = ["modern", "classic"];
 
 export const interfaceKey = (userId: string) => `interface:${userId}`;
 
+/** No choice stored yet (a new user, or one coming from a release before the Classic interface): ask once. */
+export const needsLayoutChoice = (stored: string | null | undefined) => stored !== "modern" && stored !== "classic";
+
 /** Anything stored or sent that is not "classic" means the modern interface. */
 export const parseLayout = (value: unknown): UiLayout => (value === "classic" ? "classic" : "modern");

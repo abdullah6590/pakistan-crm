@@ -9,7 +9,8 @@ import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { can } from "@/lib/permissions";
 import { visibleMenus } from "@/lib/classic-menu";
-import { interfaceKey, parseLayout } from "@/lib/interface-pref";
+import { interfaceKey, needsLayoutChoice, parseLayout } from "@/lib/interface-pref";
+import { LayoutChooser } from "@/components/layout/layout-chooser";
 
 export default async function DashboardLayout({
   children,
@@ -27,6 +28,8 @@ export default async function DashboardLayout({
     prisma.setting.findUnique({ where: { key: interfaceKey(user.id) } }),
   ]);
   const layout = parseLayout(pref?.value);
+  // Asked once: users who have never chosen (new, or updated from 0.1.6 or older) pick Modern or Classic first
+  const askLayout = needsLayoutChoice(pref?.value);
   // The Classic menus hold only what this role may open (the pages check again)
   const menus = layout === "classic" ? visibleMenus((a) => can(user.role, a.resource, a.action)) : [];
 
@@ -45,6 +48,7 @@ export default async function DashboardLayout({
       <VoiceAssistant />
       <ShortcutKeys />
       <GlobalSearch />
+      {askLayout && <LayoutChooser />}
     </Shell>
   );
 }

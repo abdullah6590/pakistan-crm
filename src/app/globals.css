@@ -4,7 +4,8 @@
 
 @custom-variant dark (&:is(.dark *));
 
-@theme {
+/* inline: each colour reads the tokens where it is used, so a .paper sheet can switch them back to light */
+@theme inline {
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
   --color-card: hsl(var(--card));
@@ -45,7 +46,9 @@
   --radius-sm: calc(var(--radius) - 4px);
 }
 @layer base {
-  :root {
+  /* .paper: a white report sheet (reports, ledger, bills, statements). It keeps the light colours even in the dark
+     theme, so the buttons and date boxes on it stay readable, as on printed paper. */
+  :root, .paper {
     --background: 210 20% 99%; /* Very subtle cool white */
     --foreground: 230 40% 12%; /* Deep rich navy-slate */
     --card: 0 0% 100%;
@@ -202,4 +205,9 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* Date boxes and other built-in controls on a .paper sheet are drawn light too */
+@layer base {
+  .paper { color-scheme: light; }
 }

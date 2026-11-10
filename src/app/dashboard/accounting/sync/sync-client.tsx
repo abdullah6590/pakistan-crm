@@ -69,7 +69,7 @@ export default function SyncClient(props: {
           <Button variant="outline" onClick={() => setPrinting(null)}>Back</Button>
           <Button onClick={() => window.print()}><Printer className="mr-1 h-4 w-4" />Print</Button>
         </div>
-        <div className="rounded-lg border bg-white p-6 text-black">
+        <div className="paper rounded-lg border bg-white p-6 text-black">
           <div className="text-center text-lg font-bold">{describe(printing)}</div>
           <div className="text-center text-sm font-bold text-red-700">PROVISIONAL — NOT YET SYNCHRONISED · {printing.provisionalRef}</div>
           <div className="mt-1 text-center text-xs">The official number is given when the main server accepts this entry. Amounts are final; cost figures are provisional.</div>

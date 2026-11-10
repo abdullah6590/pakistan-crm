@@ -42,7 +42,8 @@ export default function ShortcutKeys() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.repeat || e.isComposing || document.body.dataset.shortcutRecording) return;
+      // Paused while a key is being recorded and while "Choose your layout" is open
+      if (e.repeat || e.isComposing || document.body.dataset.shortcutRecording || document.body.dataset.layoutChoice) return;
       const combo = comboFromEvent(e);
       if (!combo) return;
       const id = Object.entries(map).find(([, c]) => c && c === combo)?.[0];

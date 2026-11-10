@@ -106,7 +106,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
           <Link key={k} href={`/dashboard/accounting/reports?report=${k}`} className={buttonVariants({ size: "sm", variant: k === key ? "default" : "outline" })}>{r.title}</Link>
         ))}
       </div>
-      <div className="rounded-lg border bg-white p-6 text-black print:border-0 print:p-0">
+      <div className="paper rounded-lg border bg-white p-6 text-black print:border-0 print:p-0">
         <div className="mb-2 text-xs">{printDate()}</div>
         {(key === "trial-balance" || key === "stock" || key === "profit-loss" || key === "balance-sheet") && <ViewBanner report={key} sp={sp} />}
         {key === "trial-balance" && <TrialBalance to={sp.to} sp={sp} />}

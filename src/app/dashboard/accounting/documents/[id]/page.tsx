@@ -81,7 +81,7 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
       />
 
       {/* ─── Printable document ───────────────────────────────── */}
-      <div className="rounded-lg border bg-white p-6 text-black print:border-0 print:p-0">
+      <div className="paper rounded-lg border bg-white p-6 text-black print:border-0 print:p-0">
         <div className="flex items-start justify-between text-xs">
           <span>{printDate()}</span>
           {doc.printCount > 0 && <span>Reprint #{doc.printCount}</span>}
