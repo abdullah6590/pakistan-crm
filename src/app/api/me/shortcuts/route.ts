@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getAuthSession } from "@/lib/auth";
-import { comboProblem, conflicts, defaultShortcuts, mergeShortcuts, normalizeCombo, SHORTCUT_ACTIONS, type ShortcutMap } from "@/lib/shortcuts";
+import { comboProblem, conflicts, defaultShortcuts, mergeShortcuts, normalizeCombo, savedShortcuts, SHORTCUT_ACTIONS, type ShortcutMap } from "@/lib/shortcuts";
 
 const keyOf = (userId: string) => `shortcuts:${userId}`;
 
@@ -39,6 +39,7 @@ export async function PUT(request: Request) {
     const names = clash[1].map((id) => SHORTCUT_ACTIONS.find((a) => a.id === id)?.label ?? id).join(" and ");
     return NextResponse.json({ error: `${clash[0]} is given to both ${names}` }, { status: 400 });
   }
-  await prisma.setting.upsert({ where: { key: keyOf(auth.user.id) }, create: { key: keyOf(auth.user.id), value: JSON.stringify(next) }, update: { value: JSON.stringify(next) } });
+  const value = JSON.stringify(savedShortcuts(next));
+  await prisma.setting.upsert({ where: { key: keyOf(auth.user.id) }, create: { key: keyOf(auth.user.id), value }, update: { value } });
   return NextResponse.json({ shortcuts: next });
 }

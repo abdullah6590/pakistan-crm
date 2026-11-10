@@ -25,7 +25,7 @@ const roleRouteMap: Record<string, string[]> = {
   "/dashboard/expenditures": ["ADMIN", "ACCOUNTANT"],
   "/dashboard/daybook": ["ADMIN", "ACCOUNTANT", "PARTNER"],
   "/dashboard/backup": ["ADMIN"],
-  "/dashboard/cash-sales": ["ADMIN", "EMPLOYEE"],
+  "/dashboard/cash-sales": ["ADMIN", "EMPLOYEE", "ACCOUNTANT"],
 };
 
 export async function proxy(request: NextRequest) {

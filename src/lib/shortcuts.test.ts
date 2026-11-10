@@ -51,6 +51,44 @@ describe("keyboard shortcuts", () => {
     expect(mergeShortcuts("garbage")).toEqual(defaultShortcuts());
   });
 
+  it("uses the old program's keys: Ctrl+B customer invoice, Alt+C cash received, Ctrl+Alt+B stock invoice, Ctrl+Alt+C cash paid", () => {
+    const d = defaultShortcuts();
+    expect(d["new-sale"]).toBe("Ctrl+B");
+    expect(d["receive-payment"]).toBe("Alt+C");
+    expect(d["new-purchase"]).toBe("Ctrl+Alt+B");
+    expect(d["pay-supplier"]).toBe("Ctrl+Alt+C");
+    expect(d.customers).toBe("Alt+Shift+C");
+    expect(press("KeyB", { ctrl: true })).toBe("Ctrl+B");
+    expect(press("KeyC", { ctrl: true, alt: true })).toBe("Ctrl+Alt+C");
+  });
+
+  it("a list saved before the new keys: keys left at the old defaults move to the new ones, chosen keys stay", () => {
+    // Saving used to store every key, changed or not
+    const old = { ...defaultShortcuts(), "new-sale": "Alt+S", "receive-payment": "Alt+R", "new-purchase": "Alt+P", "pay-supplier": "Alt+Y", customers: "Alt+C", books: "F8" };
+    const m = mergeShortcuts(old);
+    expect(m["new-sale"]).toBe("Ctrl+B");
+    expect(m["receive-payment"]).toBe("Alt+C");
+    expect(m["new-purchase"]).toBe("Ctrl+Alt+B");
+    expect(m["pay-supplier"]).toBe("Ctrl+Alt+C");
+    expect(m.customers).toBe("Alt+Shift+C");
+    expect(m.books).toBe("F8");
+    expect(conflicts(m)).toEqual({});
+  });
+
+  it("a key the user chose wins over a new default that would clash with it; that default is turned off", () => {
+    const m = mergeShortcuts({ books: "Ctrl+B" });
+    expect(m.books).toBe("Ctrl+B");
+    expect(m["new-sale"]).toBe("");
+    expect(conflicts(m)).toEqual({});
+  });
+
+  it("a list saved with the new keys is taken as it is (version 2)", () => {
+    const m = mergeShortcuts({ version: 2, keys: { ...defaultShortcuts(), customers: "Alt+C", "receive-payment": "Alt+R" } });
+    expect(m.customers).toBe("Alt+C");
+    expect(m["receive-payment"]).toBe("Alt+R");
+    expect(m["new-sale"]).toBe("Ctrl+B");
+  });
+
   it("finds two sections given the same keys", () => {
     expect(conflicts({ a: "Alt+S", b: "Alt+S", c: "Alt+P", d: "" })).toEqual({ "Alt+S": ["a", "b"] });
   });

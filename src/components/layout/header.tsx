@@ -11,9 +11,13 @@ import {
   Search,
   Settings,
   User,
+  PanelLeft,
+  PanelTop,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { OPEN_SEARCH } from "./global-search";
+import { useInterfaceSwitch } from "./interface-switch";
+import type { UiLayout } from "@/lib/interface-pref";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,11 +34,19 @@ interface HeaderProps {
   userEmail: string;
   userRole: string;
   unreadNotifications: number;
+  /** The interface in use; the header offers the other one */
+  layout?: UiLayout;
+  /** Shown at the left of the bar (the Classic interface has no sidebar to carry the name) */
+  brand?: React.ReactNode;
 }
 
-export function Header({ userName, userEmail, userRole, unreadNotifications }: HeaderProps) {
+export function Header({ userName, userEmail, userRole, unreadNotifications, layout = "modern", brand }: HeaderProps) {
   const router = useRouter();
   const { theme, setTheme } = useTheme();
+  const { switchTo, busy } = useInterfaceSwitch();
+  const other: UiLayout = layout === "classic" ? "modern" : "classic";
+  const switchLabel = other === "classic" ? "Switch to the Classic menu (like the old program)" : "Switch to the Modern sidebar";
+  const SwitchIcon = other === "classic" ? PanelTop : PanelLeft;
 
   const initials = userName
     .split(" ")
@@ -45,6 +57,7 @@ export function Header({ userName, userEmail, userRole, unreadNotifications }: H
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-4 lg:px-6 print:hidden">
+      {brand}
       {/* Search */}
       <div className="flex-1 lg:flex-none lg:w-72">
         <Button
@@ -66,6 +79,20 @@ export function Header({ userName, userEmail, userRole, unreadNotifications }: H
 
       {/* Actions */}
       <div className="flex items-center gap-1">
+        {/* Modern sidebar <-> Classic menu bar */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-9 w-9"
+          onClick={() => switchTo(other)}
+          disabled={busy}
+          title={switchLabel}
+          aria-label={switchLabel}
+          data-interface-switch={other}
+        >
+          <SwitchIcon className="h-4 w-4" />
+        </Button>
+
         {/* Theme Toggle */}
         <Button
           variant="ghost"
@@ -156,6 +183,18 @@ export function Header({ userName, userEmail, userRole, unreadNotifications }: H
                 Profile
               </Link>
             </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => switchTo(other)} disabled={busy} className="cursor-pointer">
+              <SwitchIcon className="mr-2 h-4 w-4" />
+              {other === "classic" ? "Classic menu" : "Modern sidebar"}
+            </DropdownMenuItem>
+            {userRole === "ADMIN" && (
+              <DropdownMenuItem asChild>
+                <Link href="/dashboard/users" className="cursor-pointer">
+                  <User className="mr-2 h-4 w-4" />
+                  Users
+                </Link>
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={async () => {
               await fetch("/api/auth/logout", { method: "POST" });

@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Settings, User, Shield, Palette, Key, Loader2, Keyboard } from "lucide-react";
+import { Settings, User, Shield, Palette, Key, Loader2, Keyboard, LayoutTemplate } from "lucide-react";
+import { InterfaceChoice } from "@/components/layout/interface-switch";
+import type { UiLayout } from "@/lib/interface-pref";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,9 +12,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/shared/page-header";
 import { toast } from "sonner";
 
-interface Props { user: { id: string; name: string; email: string; role: string }; }
+interface Props { user: { id: string; name: string; email: string; role: string }; layout: UiLayout }
 
-export default function SettingsClient({ user }: Props) {
+export default function SettingsClient({ user, layout }: Props) {
   const [name, setName] = useState(user.name);
   const [email, setEmail] = useState(user.email);
   const [currentPassword, setCurrentPassword] = useState("");
@@ -64,6 +66,17 @@ export default function SettingsClient({ user }: Props) {
         description="Manage your account settings and preferences"
         icon={Settings}
       />
+
+      {/* Interface: modern sidebar or the old program's menu bar */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-lg"><LayoutTemplate className="h-5 w-5" aria-hidden /> Interface</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">Choose how you move around the system. It is your own choice; other users keep theirs. The same button is in the top bar.</p>
+          <InterfaceChoice current={layout} />
+        </CardContent>
+      </Card>
 
       {/* Keyboard shortcuts */}
       <Card>

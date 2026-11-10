@@ -100,6 +100,8 @@ interface Props {
   initialComponents: ComponentOption[];
   initialCustomers: CustomerOption[];
   editSale?: EditSaleData;
+  /** Open on a walk-in cash sale (Classic menu: Cash Sale) */
+  startWalkIn?: boolean;
 }
 
 const PAYMENT_ICONS: Record<string, React.ElementType> = {
@@ -108,7 +110,7 @@ const PAYMENT_ICONS: Record<string, React.ElementType> = {
   NAYAPAY: Smartphone, SADAPAY: Smartphone,
 };
 
-export default function NewSaleClient({ initialComponents, initialCustomers, editSale }: Props) {
+export default function NewSaleClient({ initialComponents, initialCustomers, editSale, startWalkIn = false }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const editing = !!editSale;
@@ -122,7 +124,7 @@ export default function NewSaleClient({ initialComponents, initialCustomers, edi
   const available = (comp: ComponentOption) => comp.quantity + (onBill.get(comp.id) ?? 0);
 
   // Form state
-  const [customerType, setCustomerType] = useState<"existing" | "walkin">(editSale && !editSale.customer ? "walkin" : "existing");
+  const [customerType, setCustomerType] = useState<"existing" | "walkin">(editSale ? (editSale.customer ? "existing" : "walkin") : startWalkIn ? "walkin" : "existing");
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerOption | null>(editSale?.customer ?? null);
 
   const [walkInName, setWalkInName] = useState(editSale?.walkInName ?? "");

@@ -92,4 +92,13 @@ describe("global search", () => {
     expect(second.hasMore).toBe(false);
     expect(new Set([...first.hits, ...second.hits].map((h) => h.id)).size).toBe(9);
   });
+
+  it("with nothing typed, one group is listed from the top by name, page by page (the ledger pickers)", async () => {
+    const first = await searchGroup(db, "customers", "", 0, 8);
+    expect(first.hits.map((h) => h.title)).toEqual(["Ali Traders", ...Array.from({ length: 7 }, (_, i) => `Customer ${i} Karachi`)]);
+    expect(first.hasMore).toBe(true);
+    const rest = await searchGroup(db, "customers", "", 8, 8);
+    expect(rest.hits.map((h) => h.title)).toEqual(["Customer 7 Karachi", "Customer 8 Karachi", "Sana Ali Store"]);
+    expect((await searchGroup(db, "suppliers", "", 0, 8)).hits.map((h) => h.title)).toEqual(["Ali Paper Mill"]);
+  });
 });

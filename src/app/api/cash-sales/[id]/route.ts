@@ -1,13 +1,11 @@
-// src/app/api/cash-sales/[id]/route.ts - Individual cash sale CRUD
+// src/app/api/cash-sales/[id]/route.ts - One record from the old Cash Sales screen (read-only since 2026-11-10)
 import { NextRequest, NextResponse } from "next/server";
 import { authorize } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
-import { getAuthUser } from "@/lib/auth";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await authorize("cashSales", "read");
   if (auth.response) return auth.response;
-  const user = auth.user;
 
   const { id } = await params;
   const sale = await prisma.cashSale.findUnique({ where: { id } });
@@ -15,15 +13,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   return NextResponse.json({ sale });
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+// Deleting used to remove the record but leave its Finance income behind; old records are now kept as they are
+export async function DELETE() {
   const auth = await authorize("cashSales", "delete");
   if (auth.response) return auth.response;
-  const user = auth.user;
-
-  const { id } = await params;
-  const sale = await prisma.cashSale.findUnique({ where: { id } });
-  if (!sale) return NextResponse.json({ error: "Cash sale not found" }, { status: 404 });
-
-  await prisma.cashSale.delete({ where: { id } });
-  return NextResponse.json({ success: true });
+  return NextResponse.json({ error: "Cash sales from the old screen are kept as they are and cannot be deleted." }, { status: 409 });
 }

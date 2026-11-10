@@ -100,10 +100,11 @@ export const SIDEBAR_NAV: NavItem[] = [
     roles: ['ADMIN', 'PARTNER', 'EMPLOYEE', 'INVENTORY_MANAGER', 'ACCOUNTANT'],
   },
   {
+    // A cash sale is a Books sale to the walk-in customer (2026-11-10); the old Cash Sales screen is read-only
     title: 'Cash Sales',
-    href: '/dashboard/cash-sales',
+    href: '/dashboard/sales/new?walkin=1',
     icon: Receipt,
-    roles: ['ADMIN', 'EMPLOYEE'],
+    roles: ['ADMIN', 'EMPLOYEE', 'ACCOUNTANT'],
   },
   {
     title: 'Accounts',

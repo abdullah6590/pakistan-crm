@@ -71,7 +71,7 @@ function preview(item: ItemOption | undefined, l: Line, priced: boolean): { amou
   }
 }
 
-export default function DocumentForm({ type, items, accounts, today }: { type: string; items: ItemOption[]; accounts: AccountOption[]; today: string }) {
+export default function DocumentForm({ type, items, accounts, today, series }: { type: string; items: ItemOption[]; accounts: AccountOption[]; today: string; series?: string }) {
   const meta = DOCUMENT_TYPES[type];
   const router = useRouter();
   const [saving, setSaving] = useState(false);
@@ -82,7 +82,7 @@ export default function DocumentForm({ type, items, accounts, today }: { type: s
   const [charges, setCharges] = useState<ChargeLine[]>([]);
   const chargePayload = () =>
     charges.filter((c) => c.amount).map((c) => ({ kind: c.kind, amount: c.amount, description: c.description, reference: c.reference || undefined }));
-  const [f, setF] = useState<Record<string, string>>({ series: "CRV", reason: type === "PRESS_LOSS" ? "WASTE" : "INTERNAL_CONSUMPTION" });
+  const [f, setF] = useState<Record<string, string>>({ series: series ?? "CRV", reason: type === "PRESS_LOSS" ? "WASTE" : "INTERNAL_CONSUMPTION" });
   const set = (k: string, v: string) => setF((x) => ({ ...x, [k]: v }));
   const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
 

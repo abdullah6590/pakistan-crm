@@ -98,12 +98,13 @@ export default function SettingsClient(props: { settings: Record<string, string>
         </Card>
       )}
 
-      <Card>
+      {/* #add-account: the Classic menu's "Account Add" lands here (scroll margin clears the sticky menu bar) */}
+      <Card id="add-account" className="scroll-mt-40">
         <CardHeader className="pb-2"><CardTitle className="text-base">Accounts</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           {props.canAccounts && (
             <div className="grid gap-2 md:grid-cols-5">
-              <Input placeholder="Account name" value={account.name} onChange={(e) => setAccount({ ...account, name: e.target.value })} />
+              <Input placeholder="Account name" aria-label="New account name" value={account.name} onChange={(e) => setAccount({ ...account, name: e.target.value })} />
               <select className={selectClass} value={account.kind} onChange={(e) => setAccount({ ...account, kind: e.target.value, subType: e.target.value === "PARTY" ? "CUSTOMER" : e.target.value === "CASH_BANK" ? "CASH" : "EXPENSE" })}>
                 <option value="PARTY">Party</option><option value="CASH_BANK">Cash / bank</option><option value="GL">General ledger</option>
               </select>
@@ -118,9 +119,10 @@ export default function SettingsClient(props: { settings: Record<string, string>
           )}
           <div className="grid gap-1 text-sm md:grid-cols-2">
             {props.accounts.map((a) => (
-              <div key={a.id} className="flex items-center gap-2 border-b py-1">
-                <span className="w-24 font-mono text-xs">{a.code}</span>
-                <span className="flex-1">{a.name}</span>
+              <div key={a.id} className="flex min-w-0 items-center gap-2 border-b py-1">
+                {/* Codes such as OPENING_BALANCE_EQUITY are long: the column fits them and cuts anything longer with "..." */}
+                <span className="w-44 shrink-0 truncate font-mono text-xs text-muted-foreground" title={a.code}>{a.code}</span>
+                <span className="min-w-0 flex-1 truncate" title={a.name}>{a.name}</span>
                 <Badge variant="outline">{(a.subType ?? a.kind).toLowerCase()}</Badge>
                 {a.isSystem && <Badge variant="secondary">system</Badge>}
               </div>

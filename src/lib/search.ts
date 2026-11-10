@@ -89,7 +89,7 @@ async function queryGroup(db: PrismaClient, group: SearchGroupId, q: string, ski
   const sql = `SELECT ${spec.select},
       CASE WHEN lower(${spec.primary}) = lower(?) THEN 0 WHEN ${spec.primary} LIKE ? ESCAPE '\\' THEN 1 WHEN ${spec.primary} LIKE ? ESCAPE '\\' THEN 2 ELSE 3 END AS rank
     FROM ${spec.from}
-    WHERE ${[spec.extraWhere, ...wordClauses].filter(Boolean).join(" AND ")}
+    WHERE ${[spec.extraWhere, ...wordClauses].filter(Boolean).join(" AND ") || "1 = 1"}
     ORDER BY rank, ${spec.order}
     LIMIT ? OFFSET ?`;
   const rows = await db.$queryRawUnsafe<Row[]>(sql, ...rankArgs, ...whereArgs, take + 1, skip);

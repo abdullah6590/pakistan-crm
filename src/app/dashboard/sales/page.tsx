@@ -1,5 +1,6 @@
 // src/app/dashboard/sales/page.tsx - Sales list on Books (Report 28): every current bill with what it has received
-// and still owes. Bills from before the move are under Sales → Older bills.
+// and still owes. Bills from before the move are under Sales → Older bills; the old Cash Sales screen's records under
+// Older cash sales.
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
@@ -14,10 +15,12 @@ export default async function SalesPage({ searchParams }: { searchParams: Promis
   if (!user) redirect("/login");
   if (!can(user.role, "sales", "read")) redirect("/dashboard");
   const p = await searchParams;
-  const [result, customers, olderCount] = await Promise.all([
+  const canOldCash = can(user.role, "cashSales", "read");
+  const [result, customers, olderCount, olderCashCount] = await Promise.all([
     listBills(prisma, { search: p.search, customerId: p.customerId, status: p.status, from: p.from, to: p.to, page: Number(p.page) || 1 }),
     prisma.customer.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     prisma.sale.count(),
+    canOldCash ? prisma.cashSale.count() : 0,
   ]);
   return (
     <BillsClient
@@ -26,6 +29,7 @@ export default async function SalesPage({ searchParams }: { searchParams: Promis
       pagination={result.pagination}
       customers={customers}
       olderCount={olderCount}
+      olderCashCount={olderCashCount}
       canReceive={can(user.role, "customerPayments", "write")}
     />
   );

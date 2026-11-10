@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Plus, Search, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +22,10 @@ export default function SuppliersClient({ suppliers, canEdit, filters }: { suppl
   const router = useRouter();
   const [search, setSearch] = useState(filters.search);
   const [adding, setAdding] = useState(false);
+  // ?new=1 (Classic menu: Add New Supplier) opens the form; closing it takes ?new=1 off the address
+  const pathname = usePathname();
+  const askedNew = useSearchParams().get("new") === "1" && canEdit;
+  const closeAdding = () => { setAdding(false); if (askedNew) router.replace(pathname); };
   const go = (patch: Record<string, string | null>) => {
     const params = new URLSearchParams(window.location.search);
     for (const [k, v] of Object.entries(patch)) {
@@ -86,7 +90,7 @@ export default function SuppliersClient({ suppliers, canEdit, filters }: { suppl
         </CardContent>
       </Card>
 
-      {adding && <SupplierForm open onClose={() => setAdding(false)} onSaved={(s) => { setAdding(false); router.push(`/dashboard/suppliers/${s.id}`); }} />}
+      {(adding || askedNew) && <SupplierForm open onClose={closeAdding} onSaved={(s) => { setAdding(false); router.push(`/dashboard/suppliers/${s.id}`); }} />}
     </div>
   );
 }
