@@ -3,19 +3,23 @@
 
 export interface ShortcutAction { id: string; label: string; group: string; href: string; defaultKey: string }
 
-/** The main sections a key can open. Defaults use Alt + a letter and avoid the keys the browser keeps for itself. */
+/**
+ * The main sections a key can open. Defaults avoid the keys the browser keeps for itself; the four daily entries use
+ * the old program's keys (owner, 2026-11-10): Ctrl+B customer invoice, Alt+C cash received, Ctrl+Alt+B stock invoice,
+ * Ctrl+Alt+C cash paid.
+ */
 export const SHORTCUT_ACTIONS: ShortcutAction[] = [
   { id: "dashboard", label: "Dashboard", group: "General", href: "/dashboard", defaultKey: "Alt+H" },
   { id: "search", label: "Search everything", group: "General", href: "#search", defaultKey: "Ctrl+K" },
   { id: "help", label: "Show the list of shortcuts", group: "General", href: "#help", defaultKey: "Alt+/" },
-  { id: "new-sale", label: "New sale", group: "Sales", href: "/dashboard/sales/new", defaultKey: "Alt+S" },
+  { id: "new-sale", label: "Customer invoice (new sale)", group: "Sales", href: "/dashboard/sales/new", defaultKey: "Ctrl+B" },
   { id: "sales", label: "Sales bills", group: "Sales", href: "/dashboard/sales", defaultKey: "Alt+Shift+S" },
-  { id: "receive-payment", label: "Receive payment", group: "Sales", href: "/dashboard/sales/payments", defaultKey: "Alt+R" },
+  { id: "receive-payment", label: "Cash received (receive payment)", group: "Sales", href: "/dashboard/sales/payments", defaultKey: "Alt+C" },
   { id: "receivables", label: "Outstanding (customers owe)", group: "Sales", href: "/dashboard/sales/receivables", defaultKey: "Alt+Shift+R" },
-  { id: "customers", label: "Customers", group: "Sales", href: "/dashboard/customers", defaultKey: "Alt+C" },
-  { id: "new-purchase", label: "New purchase", group: "Purchases", href: "/dashboard/purchases/new", defaultKey: "Alt+P" },
+  { id: "customers", label: "Customers", group: "Sales", href: "/dashboard/customers", defaultKey: "Alt+Shift+C" },
+  { id: "new-purchase", label: "Stock invoice (new purchase)", group: "Purchases", href: "/dashboard/purchases/new", defaultKey: "Ctrl+Alt+B" },
   { id: "purchases", label: "Purchase bills", group: "Purchases", href: "/dashboard/purchases", defaultKey: "Alt+Shift+P" },
-  { id: "pay-supplier", label: "Pay supplier", group: "Purchases", href: "/dashboard/purchases/pay", defaultKey: "Alt+Y" },
+  { id: "pay-supplier", label: "Cash paid (pay supplier)", group: "Purchases", href: "/dashboard/purchases/pay", defaultKey: "Ctrl+Alt+C" },
   { id: "payables", label: "Payables (you owe)", group: "Purchases", href: "/dashboard/purchases/payables", defaultKey: "Alt+Shift+Y" },
   { id: "suppliers", label: "Suppliers", group: "Purchases", href: "/dashboard/suppliers", defaultKey: "Alt+U" },
   { id: "inventory", label: "Inventory", group: "Stock", href: "/dashboard/inventory", defaultKey: "Alt+I" },
@@ -87,16 +91,37 @@ export function comboProblem(combo: string): string | null {
   return reserved[combo] ? `The browser or Windows uses ${combo} (${reserved[combo]})` : null;
 }
 
-/** The user's saved keys over the defaults; unknown actions and unusable keys are dropped (back to the default). */
+/** Saved lists carry this version; lists saved before it hold every key, changed or not, under the old defaults. */
+export const SHORTCUTS_VERSION = 2;
+const OLD_DEFAULTS: Record<string, string> = { "new-sale": "Alt+S", "receive-payment": "Alt+R", "new-purchase": "Alt+P", "pay-supplier": "Alt+Y", customers: "Alt+C" };
+
+/** What is stored for a user: the whole list with the version, so later default changes can tell chosen keys apart. */
+export const savedShortcuts = (keys: ShortcutMap) => ({ version: SHORTCUTS_VERSION, keys });
+
+/**
+ * The user's saved keys over the defaults; unknown actions and unusable keys are dropped (back to the default). In a
+ * list saved before version 2 a key equal to the old default was never chosen, so it takes the new default. A key the
+ * user chose wins over a default that would clash with it, and that default is turned off.
+ */
 export function mergeShortcuts(saved: unknown): ShortcutMap {
-  const result = defaultShortcuts();
+  const defaults = defaultShortcuts();
+  const result = { ...defaults };
   if (!saved || typeof saved !== "object") return result;
-  for (const [id, value] of Object.entries(saved as Record<string, unknown>)) {
-    if (!(id in result)) continue;
-    if (value === "") { result[id] = ""; continue; } // turned off
+  const s = saved as Record<string, unknown>;
+  const versioned = typeof s.version === "number" && !!s.keys && typeof s.keys === "object";
+  const entries = Object.entries((versioned ? s.keys : s) as Record<string, unknown>);
+  const chosen = new Set<string>();
+  for (const [id, value] of entries) {
+    if (!(id in defaults)) continue;
+    if (!versioned && OLD_DEFAULTS[id] === value) continue; // left at the old default
+    if (value === "") { result[id] = ""; chosen.add(id); continue; } // turned off
     const combo = typeof value === "string" ? normalizeCombo(value) : null;
-    if (combo && !comboProblem(combo)) result[id] = combo;
+    if (!combo || comboProblem(combo)) continue;
+    result[id] = combo;
+    if (combo !== defaults[id]) chosen.add(id);
   }
+  const taken = new Set([...chosen].map((id) => result[id]).filter(Boolean));
+  for (const id of Object.keys(result)) if (!chosen.has(id) && result[id] && taken.has(result[id])) result[id] = "";
   return result;
 }
 

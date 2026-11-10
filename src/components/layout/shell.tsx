@@ -4,6 +4,9 @@
 import { Toaster } from "sonner";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
+import { ClassicShell } from "./classic-shell";
+import type { ClassicMenu } from "@/lib/classic-menu";
+import type { UiLayout } from "@/lib/interface-pref";
 
 interface ShellProps {
   children: React.ReactNode;
@@ -13,12 +16,35 @@ interface ShellProps {
     role: string;
   };
   unreadNotifications?: number;
+  /** The user's interface: the sidebar (modern) or the old program's menu bar (classic) */
+  layout?: UiLayout;
+  /** The Classic menus this user may open */
+  menus?: ClassicMenu[];
 }
 
-export function Shell({ children, user, unreadNotifications = 0 }: ShellProps) {
+const toaster = (
+  <Toaster
+    position="top-right"
+    richColors
+    closeButton
+    toastOptions={{
+      style: { borderRadius: "12px", padding: "12px 16px" },
+    }}
+  />
+);
+
+export function Shell({ children, user, unreadNotifications = 0, layout = "modern", menus = [] }: ShellProps) {
+  if (layout === "classic") {
+    return (
+      <>
+        <ClassicShell user={user} unreadNotifications={unreadNotifications} menus={menus}>{children}</ClassicShell>
+        {toaster}
+      </>
+    );
+  }
   return (
     <>
-      <div className="flex min-h-screen bg-background">
+      <div className="flex min-h-screen bg-background" data-interface="modern">
         <Sidebar
           userRole={user.role}
           userName={user.name}
@@ -30,6 +56,7 @@ export function Shell({ children, user, unreadNotifications = 0 }: ShellProps) {
             userEmail={user.email}
             userRole={user.role}
             unreadNotifications={unreadNotifications}
+            layout="modern"
           />
           <main className="flex-1 p-4 md:p-6 lg:p-8 print:p-0">
             {children}
@@ -42,14 +69,7 @@ export function Shell({ children, user, unreadNotifications = 0 }: ShellProps) {
           </footer>
         </div>
       </div>
-      <Toaster
-        position="top-right"
-        richColors
-        closeButton
-        toastOptions={{
-          style: { borderRadius: "12px", padding: "12px 16px" },
-        }}
-      />
+      {toaster}
     </>
   );
 }

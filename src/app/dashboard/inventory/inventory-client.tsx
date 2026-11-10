@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Search, Plus, Package, PackageOpen, AlertTriangle, TrendingDown,
   BarChart3, Edit, Trash2, Filter, ChevronDown, ChevronLeft, ChevronRight, Box, Printer, Sparkles, TrendingUp, Weight,
@@ -58,6 +58,10 @@ interface InventoryClientProps {
 export default function InventoryClient({ components, categories, suppliers, stats, pagination }: InventoryClientProps) {
   const router = useRouter();
   const [showAdd, setShowAdd] = useState(false);
+  // ?new=1 (Classic menu: Add New Product) opens the form; closing it takes ?new=1 off the address
+  const pathname = usePathname();
+  const askedNew = useSearchParams().get("new") === "1";
+  const closeAdd = () => { setShowAdd(false); if (askedNew) router.replace(pathname); };
   const [editing, setEditing] = useState<ComponentItem | null>(null);
   // Changing an existing item's quantity is a stock count in Books (approved by someone else; owner override with a reason)
   const [countReason, setCountReason] = useState("");
@@ -219,7 +223,7 @@ export default function InventoryClient({ components, categories, suppliers, sta
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to create");
-      setShowAdd(false);
+      closeAdd();
       resetForm();
       toast.success("Product added");
       router.refresh();
@@ -563,7 +567,7 @@ export default function InventoryClient({ components, categories, suppliers, sta
       </div>
 
       {/* Add / Edit Dialog */}
-      <Dialog open={showAdd || !!editing} onClose={() => { setShowAdd(false); setEditing(null); }}>
+      <Dialog open={showAdd || !!editing || askedNew} onClose={() => { closeAdd(); setEditing(null); }}>
         <DialogHeader>
           <DialogTitle>{editing ? "Edit Product" : "Add Product"}</DialogTitle>
         </DialogHeader>
@@ -844,7 +848,7 @@ export default function InventoryClient({ components, categories, suppliers, sta
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => { setShowAdd(false); setEditing(null); }}>Cancel</Button>
+          <Button variant="outline" onClick={() => { closeAdd(); setEditing(null); }}>Cancel</Button>
           <Button onClick={editing ? handleUpdate : handleCreate} disabled={loading}>
             {loading ? "Saving..." : editing ? "Save Changes" : "Add Product"}
           </Button>

@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { Plus, Users, Search, Trash2, Edit, Phone, Mail, MapPin, AlertTriangle, Wallet, FileText, MoreHorizontal } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { SortableTableHead } from "@/components/shared/sortable-table-head";
 import { Input } from "@/components/ui/input";
@@ -45,6 +45,10 @@ export default function CustomersClient({ customers: initialCustomers, paginatio
   const router = useRouter();
   const [search, setSearch] = useState(typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("search") || "" : "");
   const [showAdd, setShowAdd] = useState(false);
+  // ?new=1 (Classic menu: Add New Customer) opens the form; closing it takes ?new=1 off the address
+  const pathname = usePathname();
+  const askedNew = useSearchParams().get("new") === "1";
+  const closeAdd = () => { setShowAdd(false); if (askedNew) router.replace(pathname); };
   const [editing, setEditing] = useState<CustomerItem | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [submitting, setSubmitting] = useState(false);
@@ -85,7 +89,7 @@ export default function CustomersClient({ customers: initialCustomers, paginatio
       });
       if (!res.ok) { const d = await res.json(); throw new Error(d.error); }
       toast.success("Customer added");
-      setShowAdd(false);
+      closeAdd();
       window.location.reload();
     } catch (err: any) { toast.error(err.message); }
     finally { setSubmitting(false); }
@@ -263,7 +267,7 @@ export default function CustomersClient({ customers: initialCustomers, paginatio
         </div>
       )}
 
-      <Dialog open={showAdd || isEditing} onClose={() => { setShowAdd(false); setEditing(null); }}>
+      <Dialog open={showAdd || isEditing || askedNew} onClose={() => { closeAdd(); setEditing(null); }}>
         <DialogHeader><DialogTitle>{isEditing ? "Edit Customer" : "Add Customer"}</DialogTitle></DialogHeader>
         <div className="space-y-4">
           <div className="space-y-1">
@@ -317,7 +321,7 @@ export default function CustomersClient({ customers: initialCustomers, paginatio
           )}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => { setShowAdd(false); setEditing(null); }}>Cancel</Button>
+          <Button variant="outline" onClick={() => { closeAdd(); setEditing(null); }}>Cancel</Button>
           <Button onClick={isEditing ? handleUpdate : handleCreate} disabled={submitting}>
             {submitting ? "Saving..." : isEditing ? "Update" : "Add Customer"}
           </Button>

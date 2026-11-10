@@ -98,12 +98,13 @@ export default function SettingsClient(props: { settings: Record<string, string>
         </Card>
       )}
 
-      <Card>
+      {/* #add-account: the Classic menu's "Account Add" lands here (scroll margin clears the sticky menu bar) */}
+      <Card id="add-account" className="scroll-mt-40">
         <CardHeader className="pb-2"><CardTitle className="text-base">Accounts</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           {props.canAccounts && (
             <div className="grid gap-2 md:grid-cols-5">
-              <Input placeholder="Account name" value={account.name} onChange={(e) => setAccount({ ...account, name: e.target.value })} />
+              <Input placeholder="Account name" aria-label="New account name" value={account.name} onChange={(e) => setAccount({ ...account, name: e.target.value })} />
               <select className={selectClass} value={account.kind} onChange={(e) => setAccount({ ...account, kind: e.target.value, subType: e.target.value === "PARTY" ? "CUSTOMER" : e.target.value === "CASH_BANK" ? "CASH" : "EXPENSE" })}>
                 <option value="PARTY">Party</option><option value="CASH_BANK">Cash / bank</option><option value="GL">General ledger</option>
               </select>

@@ -11,10 +11,15 @@ import DocumentForm from "./document-form";
 import ReturnForm, { ReturnSource } from "./return-form";
 import { dec, sub, toPlain } from "@/lib/domain/decimal";
 
-export default async function NewDocumentPage({ params }: { params: Promise<{ type: string }> }) {
+// A voucher can open on its kind (Classic menu: Receipt / Paid / Journal Voucher)
+const VOUCHER_SERIES: Record<string, string> = { CRV: "Receipt voucher", BRV: "Bank receipt voucher", CPV: "Paid voucher", BPV: "Bank payment voucher", JV: "Journal voucher" };
+
+export default async function NewDocumentPage({ params, searchParams }: { params: Promise<{ type: string }>; searchParams: Promise<{ series?: string }> }) {
   const user = await getAuthUser();
   if (!user) redirect("/login");
   const { type } = await params;
+  const askedSeries = (await searchParams).series ?? "";
+  const series = type === "VOUCHER" && VOUCHER_SERIES[askedSeries] ? askedSeries : undefined;
   const meta = DOCUMENT_TYPES[type];
   // Expense postings of charges are created only by "Post as expense" on the Charges screen
   if (!meta || type === "CHARGE_EXPENSE") notFound();
@@ -59,9 +64,11 @@ export default async function NewDocumentPage({ params }: { params: Promise<{ ty
 
   return (
     <div className="space-y-6">
-      <PageHeader title={`New ${meta.title.toLowerCase()}`} description={meta.description} />
+      <PageHeader title={series ? `New ${VOUCHER_SERIES[series].toLowerCase()} (${series})` : `New ${meta.title.toLowerCase()}`} description={meta.description} />
       <DocumentForm
+        key={series ?? type}
         type={type}
+        series={series}
         items={items}
         accounts={accounts.map((a) => ({ id: a.id, code: a.code, name: a.name, kind: a.kind, subType: a.subType }))}
         today={new Date().toISOString().slice(0, 10)}

@@ -6,9 +6,11 @@ import { UNIT_FIELDS, withSaleUnits } from "@/lib/sales/units";
 import { SPEC_FIELDS } from "@/lib/product-spec";
 import NewSaleClient from "./new-sale-client";
 
-export default async function NewSalePage() {
+// ?walkin=1 starts on a walk-in cash sale (Classic menu: Cash Sale)
+export default async function NewSalePage({ searchParams }: { searchParams: Promise<{ walkin?: string }> }) {
   const user = await getAuthUser();
   if (!user) redirect("/login");
+  const walkIn = (await searchParams).walkin === "1";
 
   const [initialComponents, initialCustomers] = await Promise.all([
     prisma.component.findMany({
@@ -30,6 +32,8 @@ export default async function NewSalePage() {
 
   return (
     <NewSaleClient
+      key={walkIn ? "walk-in" : "customer"}
+      startWalkIn={walkIn}
       initialComponents={JSON.parse(JSON.stringify(initialComponents.map(withSaleUnits)))}
       initialCustomers={JSON.parse(JSON.stringify(initialCustomers))}
     />
