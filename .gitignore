@@ -72,3 +72,6 @@ recovery/
 
 # Old software and its data (the owner's reference copy for analysis). Never committed: the repository is public
 /Anjum/
+
+# Owner's screen recordings of the old program (customer names and balances): never in Git
+*.mp4

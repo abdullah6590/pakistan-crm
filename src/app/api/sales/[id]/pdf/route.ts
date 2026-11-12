@@ -8,7 +8,7 @@ import { generateSaleBillPDF } from "@/lib/pdf-generator";
 import { formatDate } from "@/lib/utils";
 import { loadBooksBill } from "@/lib/sales/books-queries";
 import { invoicePdf } from "@/lib/books-pdf";
-import { specLabel } from "@/lib/product-spec";
+import { paperLineText, paperLineWeight, specLabel } from "@/lib/product-spec";
 
 const STATUS_LABEL: Record<string, string> = { PAID: "Paid", PARTIALLY_PAID: "Partially paid", UNPAID: "Unpaid", CANCELLED: "Cancelled" };
 
@@ -41,7 +41,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       customer: books.customerName,
       phone: books.customerPhone,
       status: STATUS_LABEL[books.status] ?? books.status,
-      lines: doc.lines.map((l) => ({ description: l.description ?? "", spec: specLabel(l.component), sku: l.component?.sku, quantity: l.quantity, unit: l.unit, loose: l.loose, unitPrice: l.unitPrice, amount: l.amount })),
+      // A paper line shows the size, gm, kg per packet and rate per kg it was sold at (as on the purchase bill)
+      lines: doc.lines.map((l) => ({ description: l.description ?? "", spec: paperLineText(l) || specLabel(l.component) || null, sku: l.component?.sku, quantity: l.quantity, unit: l.unit, loose: l.loose, unitPrice: l.unitPrice, amount: l.amount })),
+      weightKg: doc.lines.reduce((t, l) => t + paperLineWeight(l), 0) || null,
+      sheets: doc.lines.filter((l) => paperLineWeight(l) > 0).reduce((t, l) => t + Number(l.baseQuantity), 0) || null,
       total: books.total, paid: books.paid, remaining: books.remaining,
       payments: books.payments.map((p) => ({ date: p.date, receiptNo: p.receiptNo, method: p.method, amount: p.amount })),
       words: books.words, notes: books.notes, printedBy: auth.user.name,

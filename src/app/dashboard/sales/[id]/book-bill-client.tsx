@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ArrowLeft, Download, Pencil, Printer, Wallet, Ban, History, Receipt } from "lucide-react";
+import { ArrowLeft, Download, Pencil, Printer, Wallet, Ban, History, Receipt, ChevronFirst, ChevronLeft, ChevronRight, ChevronLast } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,10 +13,15 @@ import { Label } from "@/components/ui/label";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { quantityLabel } from "@/lib/domain/units";
-import { specLabel } from "@/lib/product-spec";
+import { specLabel, paperLineWeight } from "@/lib/product-spec";
 import { BILL_STATUS } from "../bills-client";
 
-interface Line { id: string; lineNo: number; description: string; quantity: string; loose: string; baseQuantity: string; unit: string; unitPrice: string | null; amount: string | null; component: { sku: string; size?: string | null; grams?: number | null } | null }
+interface Line {
+  id: string; lineNo: number; description: string; quantity: string; loose: string; baseQuantity: string; unit: string; unitPrice: string | null; amount: string | null;
+  component: { sku: string; size?: string | null; grams?: number | null } | null;
+  /** Paper sold by weight (the sale screen keeps these on the line, as the old Customer Invoice did) */
+  paperX?: string | null; paperY?: string | null; paperGsm?: string | null; paperDivisor?: string | null; kgPerUnit?: string | null; ratePerKg?: string | null;
+}
 interface Payment { allocationId: string; receiptId: string; receiptNo: string; date: string; method: string; amount: string; source: string }
 interface Version { id: string; docNo: string; total: string; status: string; date: string; current: boolean }
 interface Event { id: string; at: string; action: string; by: string; reason: string | null; documentId: string }
@@ -34,6 +39,9 @@ const ACTION_LABEL: Record<string, string> = {
   POST: "Saved", AMEND: "Corrected (new revision made)", CANCEL: "Cancelled", ALLOCATIONS_MOVED: "Payments moved to the new revision", PRINT: "Printed",
 };
 const cell = "border-b border-dotted border-gray-400 px-2 py-1";
+const short = (v: string | number | null | undefined, dp = 4) => (v === null || v === undefined || v === "" ? "" : Number(v).toLocaleString("en-PK", { maximumFractionDigits: dp }));
+const isPaper = (l: Line) => !!(l.paperX && l.paperY && l.paperGsm);
+const sizeText = (l: Line) => (isPaper(l) ? `${short(l.paperX, 3)}x${short(l.paperY, 3)}x${short(l.paperGsm, 2)}` : "");
 const num = `${cell} text-right tabular-nums`;
 
 export default function BookBillClient({ bill, canEdit, canReceive, canCancel, printedBy }: { bill: BookBill; canEdit: boolean; canReceive: boolean; canCancel: boolean; printedBy: string }) {
@@ -46,6 +54,18 @@ export default function BookBillClient({ bill, canEdit, canReceive, canCancel, p
   const isInvoice = doc.type === "SALE_INVOICE";
   const current = bill.versions.find((v) => v.current);
   const revisionNote = doc.revision > 0 ? `Revision R${doc.revision} of ${doc.docNo.split("/")[0]}` : null;
+  // Paper lines: total sheets and net weight, as the old invoice's T-Sheet and Net Wait
+  const paper = doc.lines.some(isPaper);
+  const sheets = doc.lines.filter(isPaper).reduce((s, l) => s + Number(l.baseQuantity), 0);
+  const weight = doc.lines.reduce((s, l) => s + paperLineWeight(l), 0);
+  // The old screens' << < > >> buttons: the bill before or after this one, of the same kind
+  const step = async (dir: "first" | "prev" | "next" | "last") => {
+    const res = await fetch(`/api/sales/step?type=${doc.type}&dir=${dir}&from=${doc.id}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { toast.error(data.error || "Could not open the bill"); return; }
+    if (!data.bill) { toast.info(dir === "next" || dir === "last" ? "This is the last bill" : "This is the first bill"); return; }
+    if (data.bill.id !== doc.id) router.push(`/dashboard/sales/${data.bill.id}`);
+  };
 
   const cancel = async () => {
     setBusy(true);
@@ -80,6 +100,11 @@ export default function BookBillClient({ bill, canEdit, canReceive, canCancel, p
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
+            <div className="flex gap-1" role="group" aria-label="Step through bills">
+              {([["first", ChevronFirst, "First bill"], ["prev", ChevronLeft, "Previous bill"], ["next", ChevronRight, "Next bill"], ["last", ChevronLast, "Last bill"]] as const).map(([d, Icon, label]) => (
+                <Button key={d} variant="outline" size="icon" aria-label={label} title={label} onClick={() => step(d)}><Icon className="h-4 w-4" aria-hidden /></Button>
+              ))}
+            </div>
             {canReceive && bill.status !== "PAID" && (
               <Button className="gap-2" onClick={() => router.push(`/dashboard/sales/payments?customerId=${bill.customerId}&invoice=${doc.id}`)}>
                 <Wallet className="h-4 w-4" /> Receive payment
@@ -119,18 +144,29 @@ export default function BookBillClient({ bill, canEdit, canReceive, canCancel, p
           <CardHeader><CardTitle className="text-base">Items</CardTitle></CardHeader>
           <CardContent className="p-0">
             <Table>
-              <TableHeader><TableRow><TableHead>Item</TableHead><TableHead className="text-right">Qty</TableHead><TableHead className="text-right">Rate</TableHead><TableHead className="text-right">Amount</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow>
+                <TableHead>Item</TableHead>
+                {paper && <><TableHead className="text-right">Size (X x Y x gm)</TableHead><TableHead className="text-right">Kg / unit</TableHead><TableHead className="text-right">Rate / kg</TableHead></>}
+                <TableHead className="text-right">Qty</TableHead>
+                {paper && <TableHead className="text-right">Total sheets</TableHead>}
+                <TableHead className="text-right">Price</TableHead><TableHead className="text-right">Amount</TableHead>
+              </TableRow></TableHeader>
               <TableBody>
                 {doc.lines.map((l) => (
                   <TableRow key={l.id}>
-                    <TableCell><div className="font-medium">{l.description}{specLabel(l.component) && <span className="ml-2 inline-block whitespace-nowrap rounded bg-muted px-1.5 py-0.5 text-xs font-normal">{specLabel(l.component)}</span>}</div>{l.component?.sku && <div className="text-xs text-muted-foreground font-mono">{l.component.sku}</div>}</TableCell>
+                    <TableCell><div className="font-medium">{l.description}{!isPaper(l) && specLabel(l.component) && <span className="ml-2 inline-block whitespace-nowrap rounded bg-muted px-1.5 py-0.5 text-xs font-normal">{specLabel(l.component)}</span>}</div>{l.component?.sku && <div className="text-xs text-muted-foreground font-mono">{l.component.sku}</div>}</TableCell>
+                    {paper && <><TableCell className="text-right tabular-nums">{sizeText(l)}</TableCell><TableCell className="text-right tabular-nums">{short(l.kgPerUnit)}</TableCell><TableCell className="text-right tabular-nums">{l.ratePerKg ? rs(l.ratePerKg) : ""}</TableCell></>}
                     <TableCell className="text-right tabular-nums">{quantityLabel(l.quantity, l.unit, l.loose)}</TableCell>
+                    {paper && <TableCell className="text-right tabular-nums">{isPaper(l) ? short(l.baseQuantity, 3) : ""}</TableCell>}
                     <TableCell className="text-right tabular-nums">{rs(l.unitPrice)}</TableCell>
                     <TableCell className="text-right tabular-nums font-medium">{rs(l.amount)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
+            {paper && (
+              <p className="border-t px-4 py-2 text-sm text-muted-foreground tabular-nums">Total sheets <b className="text-foreground">{short(sheets, 3)}</b> · Net weight <b className="text-foreground">{short(weight, 2)} kg</b></p>
+            )}
             {bill.notes && <p className="border-t p-4 text-sm text-muted-foreground italic">{bill.notes}</p>}
           </CardContent>
         </Card>
@@ -198,19 +234,28 @@ export default function BookBillClient({ bill, canEdit, canReceive, canCancel, p
           <div className="text-right"><b>Status:</b> {st.label}</div>
         </div>
         <table className="mt-4 w-full border-collapse">
-          <thead><tr className="border-y border-black"><th className="px-2 py-1 text-left">S.No</th><th className="px-2 py-1 text-left">Item</th><th className="px-2 py-1 text-right">Qty</th><th className="px-2 py-1 text-right">Rate</th><th className="px-2 py-1 text-right">Amount</th></tr></thead>
+          <thead><tr className="border-y border-black">
+            <th className="px-2 py-1 text-left">S.No</th><th className="px-2 py-1 text-left">Item</th>
+            {paper && <><th className="px-2 py-1 text-right">Size</th><th className="px-2 py-1 text-right">Kg</th><th className="px-2 py-1 text-right">Rate/kg</th></>}
+            <th className="px-2 py-1 text-right">Qty</th>
+            {paper && <th className="px-2 py-1 text-right">Sheets</th>}
+            <th className="px-2 py-1 text-right">Price</th><th className="px-2 py-1 text-right">Amount</th>
+          </tr></thead>
           <tbody>
             {doc.lines.map((l) => (
               <tr key={l.id} className="break-inside-avoid">
                 <td className={cell}>{l.lineNo}</td>
-                <td className={cell}>{l.description}{specLabel(l.component) ? `  ${specLabel(l.component)}` : ""}{l.component?.sku ? ` (${l.component.sku})` : ""}</td>
-                <td className={num}>{Number(l.baseQuantity)}</td>
+                <td className={cell}>{l.description}{!isPaper(l) && specLabel(l.component) ? `  ${specLabel(l.component)}` : ""}{l.component?.sku ? ` (${l.component.sku})` : ""}</td>
+                {paper && <><td className={num}>{sizeText(l)}</td><td className={num}>{short(l.kgPerUnit)}</td><td className={num}>{short(l.ratePerKg, 2)}</td></>}
+                <td className={num}>{quantityLabel(l.quantity, l.unit, l.loose)}</td>
+                {paper && <td className={num}>{isPaper(l) ? short(l.baseQuantity, 3) : ""}</td>}
                 <td className={num}>{rs(l.unitPrice)}</td>
                 <td className={num}>{rs(l.amount)}</td>
               </tr>
             ))}
           </tbody>
         </table>
+        {paper && <div className="mt-1 text-right tabular-nums">Total sheets <b>{short(sheets, 3)}</b> · Net weight <b>{short(weight, 2)} kg</b></div>}
         <div className="mt-4 grid grid-cols-2 gap-6">
           <div className="space-y-1">
             <div><b>Amount in words:</b> {bill.words}</div>

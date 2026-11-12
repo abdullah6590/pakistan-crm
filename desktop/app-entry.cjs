@@ -31,6 +31,24 @@ const unprotect = (b64) => Buffer.from(dpapi("unprotect", b64), "base64").toStri
 
 const data = process.env.CRM_DESKTOP_DATA;
 if (!data) throw new Error("CRM_DESKTOP_DATA is not set (the desktop shell sets it)");
+
+// The database engine is loaded before anything else. If Windows cannot load it (on a tester's laptop in 2026-11-10
+// the Microsoft Visual C++ Runtime was missing), the server would start, fail every request and fill the log, and the
+// window would wait 2 minutes. Instead one plain message is written for the shell, which shows it at once.
+const engine = path.join(__dirname, "node_modules", "@libsql", "win32-x64-msvc", "index.node");
+try {
+  require(engine);
+} catch (e) {
+  const logs = path.join(data, "logs");
+  fs.mkdirSync(logs, { recursive: true });
+  fs.writeFileSync(path.join(logs, "startup-problem.txt"), [
+    "Pakistan CRM's database engine could not load on this computer, so the program cannot start.",
+    "This usually means the Microsoft Visual C++ Runtime is missing. Install it from https://aka.ms/vs/17/release/vc_redist.x64.exe (free, from Microsoft), then open Pakistan CRM again.",
+    `Details: ${String(e && e.message ? e.message : e).split("\n")[0]}`,
+    `Log: ${path.join(logs, "server.log")}`,
+  ].join("\n"));
+  process.exit(3);
+}
 const configFile = path.join(data, "desktop.json");
 let config = fs.existsSync(configFile) ? JSON.parse(fs.readFileSync(configFile, "utf8")) : { role: "cloud" };
 config.protected ??= {};

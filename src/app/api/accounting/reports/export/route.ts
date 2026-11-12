@@ -126,9 +126,9 @@ export async function GET(request: NextRequest) {
     name = `Daybook-${from ?? "start"}-to-${to ?? "today"}`;
   } else if (report === "stock") {
     const st = await stockReport(prisma, { locationCode: sp.get("location") ?? undefined });
-    const ws = sheet("Stock position", `On ${new Date().toISOString().slice(0, 10)}`, [{ header: "SKU", width: 18 }, { header: "Item", width: 36 }, { header: "On hand", width: 14 }, { header: "Unit", width: 10 }, { header: "Average cost", width: 16, money: true }, { header: "Value", width: 18, money: true }]);
-    for (const r of st.rows) ws.addRow([r.sku, r.name, n(r.onHand), r.baseUnit, n(r.averageCost), n(r.value)]);
-    bold(ws.addRow(["", "Total value", null, "", null, n(st.totalValue)]));
+    const ws = sheet("Stock position", `On ${new Date().toISOString().slice(0, 10)}`, [{ header: "SKU", width: 18 }, { header: "Item", width: 36 }, { header: "Packs", width: 10 }, { header: "Pack", width: 10 }, { header: "Loose", width: 10 }, { header: "On hand", width: 14 }, { header: "Unit", width: 10 }, { header: "Total kg", width: 12 }, { header: "Average cost", width: 16, money: true }, { header: "Value", width: 18, money: true }]);
+    for (const r of st.rows) ws.addRow([r.sku, r.name, r.packs ? n(r.packs.packs) : null, r.packs?.unit ?? "", r.packs ? n(r.packs.loose) : null, n(r.onHand), r.baseUnit, r.weightKg, n(r.averageCost), n(r.value)]);
+    bold(ws.addRow(["", "Total value", null, "", null, null, "", null, null, n(st.totalValue)]));
     name = "Stock-position";
   } else {
     const accountId = sp.get("account");

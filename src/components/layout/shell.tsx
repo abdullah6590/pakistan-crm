@@ -50,7 +50,7 @@ export function Shell({ children, user, unreadNotifications = 0, layout = "moder
           userName={user.name}
           userEmail={user.email}
         />
-        <div className="flex flex-1 flex-col lg:pl-[260px] print:pl-0 transition-all duration-300">
+        <div className="flex min-w-0 flex-1 flex-col lg:pl-[260px] print:pl-0 transition-all duration-300">
           <Header
             userName={user.name}
             userEmail={user.email}
@@ -58,7 +58,8 @@ export function Shell({ children, user, unreadNotifications = 0, layout = "moder
             unreadNotifications={unreadNotifications}
             layout="modern"
           />
-          <main className="flex-1 p-4 md:p-6 lg:p-8 print:p-0">
+          {/* min-w-0: a wide table (the sale grid) scrolls inside its own box instead of widening the whole page */}
+          <main className="min-w-0 flex-1 p-4 md:p-6 lg:p-8 print:p-0">
             {children}
           </main>
           <footer className="border-t py-3 px-6 print:hidden">

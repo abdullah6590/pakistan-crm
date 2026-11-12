@@ -286,11 +286,17 @@ try {
   const tbDev = (await call(D, "GET", "/api/accounting/reports?report=trial-balance", { cookie: dc })).json;
   const tbCloud = (await call(CLOUD, "GET", "/api/accounting/reports?report=trial-balance", { cookie: await loginAs(CLOUD, EMAIL, pw) })).json;
   const c = createClient({ url: `file:${cloudDb.replace(/\\/g, "/")}` });
-  const one = async (sql, args) => Number((await c.execute({ sql, args })).rows[0].n);
+  // The running server may be writing at this moment: a locked file is waited for, not taken as a failure
+  const q = async (sql, args) => {
+    for (let i = 0; ; i++) {
+      try { return await c.execute({ sql, args }); } catch (e) { if (!/SQLITE_BUSY/.test(String(e)) || i >= 40) throw e; await sleep(250); }
+    }
+  };
+  const one = async (sql, args) => Number((await q(sql, args)).rows[0].n);
   const docs = await one(`SELECT COUNT(*) n FROM accounting_documents WHERE commandId IN (${[...ids, `${ids[0]}:paid`, `${ids[2]}:paid`].map(() => "?").join(",")})`, [...ids, `${ids[0]}:paid`, `${ids[2]}:paid`]);
   const inbox = await one(`SELECT COUNT(*) n FROM sync_inbox WHERE commandId IN (${ids.map(() => "?").join(",")})`, ids);
-  const paidOn = async (docId) => (await c.execute({ sql: "SELECT COALESCE(SUM(CAST(amount AS REAL)),0) s FROM payment_allocations WHERE debitDocId = ? AND releasedAt IS NULL", args: [docId] })).rows[0].s;
-  const offlineBill = (await c.execute({ sql: "SELECT id, total FROM accounting_documents WHERE commandId = ?", args: [ids[2]] })).rows[0];
+  const paidOn = async (docId) => (await q("SELECT COALESCE(SUM(CAST(amount AS REAL)),0) s FROM payment_allocations WHERE debitDocId = ? AND releasedAt IS NULL", [docId])).rows[0].s;
+  const offlineBill = (await q("SELECT id, total FROM accounting_documents WHERE commandId = ?", [ids[2]])).rows[0];
   const facts = { cloudBillPaid: await paidOn(cloudBill.id), cloudSalePaid: await paidOn(cloudSale.id), offlineBillTotal: offlineBill?.total, offlineBillPaid: offlineBill ? await paidOn(offlineBill.id) : null };
   c.close();
   check("D-07", "Killed during the sync and reopened: all 4 entries posted exactly once (6 documents incl. the two paid-now payments), payments land on the right bills, desktop and server agree",

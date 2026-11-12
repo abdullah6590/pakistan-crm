@@ -8,7 +8,7 @@ import { loadBooksBill } from "@/lib/sales/books-queries";
 import { mayEditBill } from "@/lib/sales/books-sales";
 import { UNIT_FIELDS, withSaleUnits } from "@/lib/sales/units";
 import { SPEC_FIELDS } from "@/lib/product-spec";
-import NewSaleClient from "../../new/new-sale-client";
+import PaperSaleClient from "../../new/paper-sale-client";
 
 export const dynamic = "force-dynamic";
 
@@ -40,13 +40,14 @@ export default async function EditSalePage({ params }: { params: Promise<{ id: s
   ]);
 
   return (
-    <NewSaleClient
-      initialComponents={JSON.parse(JSON.stringify(initialComponents.map(withSaleUnits)))}
-      initialCustomers={JSON.parse(JSON.stringify(initialCustomers))}
-      editSale={JSON.parse(JSON.stringify({
+    <PaperSaleClient
+      initialItems={JSON.parse(JSON.stringify(initialComponents.map(withSaleUnits)))}
+      initialCustomers={JSON.parse(JSON.stringify(initialCustomers.map((c) => ({ ...c, phone: c.phone ?? "" }))))}
+      editBill={JSON.parse(JSON.stringify({
         id: doc.id,
         invoiceNumber: doc.docNo,
         type: doc.type,
+        date: doc.date.toISOString().slice(0, 10),
         customer: customer ? { id: customer.id, name: customer.name, phone: customer.phone ?? "" } : null,
         walkInName: doc.type === "CASH_SALE" ? bill.customerName : null,
         amountReceived: doc.type === "CASH_SALE" ? doc.amountReceived : null,
@@ -58,8 +59,9 @@ export default async function EditSalePage({ params }: { params: Promise<{ id: s
           loose: Number(l.loose ?? 0),
           baseQuantity: Number(l.baseQuantity),
           unitPrice: Number(l.unitPrice ?? 0),
-          unitCost: l.component!.unitCost,
           component: withSaleUnits(l.component!),
+          // The size, gm and rate per kg the line was priced with (as saved, not the item's current values)
+          paper: l.paperX && l.paperY && l.paperGsm ? { x: l.paperX, y: l.paperY, gsm: l.paperGsm, divisor: l.paperDivisor, rate: l.ratePerKg } : null,
         })),
       }))}
     />

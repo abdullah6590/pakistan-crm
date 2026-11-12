@@ -9,6 +9,8 @@ export const UNIT_FIELDS = {
 } as const;
 
 export interface SaleUnits {
+  /** PAPER, PIECE, WEIGHT, ROLL or SERVICE (a service such as Labour holds no stock) */
+  kind: string;
   baseUnit: string;
   /** Unit offered first on a bill (the item's sale unit, or the stock unit). */
   saleUnit: string;
@@ -20,6 +22,7 @@ export interface SaleUnits {
 export function saleUnitsOf(c: UnitSource): SaleUnits {
   const { cfg } = unitConfigFor(c);
   return {
+    kind: cfg.kind,
     baseUnit: cfg.baseUnit,
     saleUnit: cfg.saleUnit ?? cfg.baseUnit,
     purchaseUnit: cfg.purchaseUnit ?? cfg.baseUnit,

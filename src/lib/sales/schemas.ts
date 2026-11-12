@@ -1,5 +1,6 @@
 // src/lib/sales/schemas.ts - What the Sales screens send (Report 28).
 import { z } from "zod";
+import { paperSchema } from "@/lib/purchases/schemas";
 
 const amount = z.union([z.number(), z.string()]);
 const requestId = z.string().uuid().optional();
@@ -10,6 +11,8 @@ export const screenSaleSchema = z.object({
   walkInName: z.string().max(120).nullish(),
   items: z.array(z.object({
     componentId: z.string().min(1), quantity: amount, unit: z.string().trim().min(1).max(20).optional(), loose: amount.optional(), unitPrice: amount,
+    // Paper sold by weight, as on the old Customer Invoice: size, GSM and rate per kg the price was worked out from
+    paper: paperSchema.optional(),
   })).min(1, "Add at least one item"),
   notes: z.string().max(1000).nullish(),
   paidNow: z.object({ amount, method: z.string().min(1), cashAccountId: z.string().optional() }).nullish(),

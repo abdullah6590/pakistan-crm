@@ -96,6 +96,8 @@ export async function stockReport(db: PrismaClient, opts: { locationCode?: strin
     if (value !== null) totalValue = add(totalValue, value);
     else if (cmp(onHand, ZERO) > 0) uncosted++;
     const packs = toPacksAndLoose(cfg, onHand, cfg.saleUnit ?? cfg.purchaseUnit);
+    // Paper with a size: total weight of what is on hand (old stock report's "Total Kg"); 100 sheets weigh X x Y x gm / divisor
+    const kgPerSheet = c.dimensionX && c.dimensionY && c.gsm ? (c.dimensionX * c.dimensionY * c.gsm) / (c.divisor || 15500) / 100 : null;
     rows.push({
       componentId: c.id,
       sku: c.sku,
@@ -105,6 +107,7 @@ export async function stockReport(db: PrismaClient, opts: { locationCode?: strin
       packs: packs ? { unit: packs.unit, perPack: s(unitFactor(cfg, packs.unit)), packs: s(packs.packs), loose: s(packs.loose) } : null,
       averageCost: avg === null ? null : s(avg),
       value: value === null ? null : s(value),
+      weightKg: kgPerSheet === null || cfg.baseUnit !== "sheet" ? null : Math.round(Number(s(onHand)) * kgPerSheet * 100) / 100,
       unitConfirmed: confirmed,
       negative: isNegative(onHand),
     });
