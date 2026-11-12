@@ -96,6 +96,40 @@ try {
 }
 await sleep(1500);
 
+// A computer that cannot load the database engine (on a tester's laptop the Microsoft Visual C++ Runtime was missing,
+// 2026-11-10) gets one plain message within seconds, not a 2-minute wait and a log full of repeated errors. Rehearsed
+// with a program folder whose engine file is unloadable; the real server is never started from it.
+{
+  const nodeExe = env.CRM_DESKTOP_NODE ?? path.join(path.dirname(exe), "node", "node.exe");
+  const appDir = env.CRM_DESKTOP_APP_DIR ?? path.join(path.dirname(exe), "app");
+  const fake = fs.mkdtempSync(path.join(os.tmpdir(), "crm-desktop-broken-engine-"));
+  fs.mkdirSync(path.join(fake, "node_modules", "@libsql", "win32-x64-msvc"), { recursive: true });
+  fs.copyFileSync(path.join(appDir, "app-entry.cjs"), path.join(fake, "app-entry.cjs"));
+  fs.writeFileSync(path.join(fake, "node_modules", "@libsql", "win32-x64-msvc", "index.node"), "not a loadable module");
+  const brokenData = fs.mkdtempSync(path.join(os.tmpdir(), "crm-desktop-smoke-broken-"));
+  const broken = spawn(exe, [], { env: { ...env, CRM_DESKTOP_DATA_DIR: brokenData, CRM_DESKTOP_APP_DIR: fake, CRM_DESKTOP_NODE: nodeExe }, stdio: "ignore" });
+  const t2 = Date.now();
+  const logFile = path.join(brokenData, "logs", "instance.log");
+  let log = "";
+  while (Date.now() - t2 < 60_000) {
+    log = fs.existsSync(logFile) ? fs.readFileSync(logFile, "utf8") : "";
+    if (/database engine could not load/.test(log)) break;
+    await sleep(500);
+  }
+  const seconds = Math.round((Date.now() - t2) / 1000);
+  try { execSync(`taskkill /PID ${broken.pid} /T /F`, { stdio: "ignore" }); } catch {}
+  const attempts = (log.match(/starting the local server/g) ?? []).length;
+  check("W-08", "If the database engine cannot load, the window says so plainly within 20 seconds (with the Microsoft runtime download) and the server is not retried",
+    /database engine could not load/.test(log) && /vc_redist\.x64\.exe/.test(log) && seconds <= 20 && attempts === 1 && !fs.existsSync(path.join(brokenData, "logs", "startup-problem.txt")),
+    `message after ${seconds} s; start attempts ${attempts}; problem file cleaned ${!fs.existsSync(path.join(brokenData, "logs", "startup-problem.txt"))}`);
+  fs.rmSync(fake, { recursive: true, force: true });
+  fs.rmSync(brokenData, { recursive: true, force: true });
+  const dlls = ["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"];
+  const present = dlls.filter((d) => fs.existsSync(path.join(path.dirname(nodeExe), d)));
+  check("W-09", "The Microsoft Visual C++ Runtime files ship beside node.exe, so the database engine loads on a PC without the runtime installed",
+    present.length === dlls.length, `beside ${path.dirname(nodeExe)}: ${present.join(", ") || "none"}`);
+}
+
 const passed = results.filter((r) => r.pass).length;
 console.log(`\n${passed}/${results.length} passed`);
 fs.writeFileSync(path.join(here, "smoke-results.json"), JSON.stringify({ at: new Date().toISOString(), passed, total: results.length, results }, null, 2));

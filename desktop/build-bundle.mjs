@@ -12,6 +12,24 @@ const root = path.resolve(here, "..");
 const out = path.join(here, "bundle");
 const dist = path.join(root, ".next-desktop");
 
+export const VC_RUNTIME_DLLS = ["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"];
+/** Microsoft's redistributable x64 runtime folder of the installed Visual Studio Build Tools (the newest one). */
+function vcRedistDir() {
+  const roots = ["C:\\Program Files (x86)\\Microsoft Visual Studio", "C:\\Program Files\\Microsoft Visual Studio"].filter((r) => fs.existsSync(r));
+  const found = [];
+  const walk = (dir, depth) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (!e.isDirectory()) continue;
+      if (/^Microsoft\.VC14\d\.CRT$/i.test(e.name) && path.basename(dir).toLowerCase() === "x64" && VC_RUNTIME_DLLS.every((d) => fs.existsSync(path.join(p, d)))) found.push(p);
+      else if (depth < 8) walk(p, depth + 1);
+    }
+  };
+  for (const r of roots) walk(r, 0);
+  if (!found.length) throw new Error(`The Microsoft Visual C++ Runtime files (${VC_RUNTIME_DLLS.join(", ")}) were not found under Visual Studio's VC\\Redist folder; the installer must ship them`);
+  return found.sort().at(-1);
+}
+
 // Start clean: an old bundle or build must not be picked up by the build's file tracing
 fs.rmSync(out, { recursive: true, force: true });
 fs.rmSync(dist, { recursive: true, force: true });
@@ -41,6 +59,10 @@ fs.copyFileSync(path.join(here, "app-entry.cjs"), path.join(app, "app-entry.cjs"
 fs.rmSync(path.join(app, ".next-desktop", "server", "route-cache"), { recursive: true, force: true });
 fs.mkdirSync(path.join(out, "node"), { recursive: true });
 fs.copyFileSync(process.execPath, path.join(out, "node", "node.exe"));
+// The database engine (@libsql's native module) needs the Microsoft Visual C++ Runtime, which a fresh Windows PC does
+// not have (a tester's laptop, 2026-11-10). Microsoft's redistributable copies of it ship beside node.exe, the first
+// place Windows looks for a DLL, so nothing has to be installed first.
+for (const dll of VC_RUNTIME_DLLS) fs.copyFileSync(path.join(vcRedistDir(), dll), path.join(out, "node", dll));
 
 console.log("3/4 Checking that nothing private would be shipped");
 // Data, backups, keys, environment files and sources must never be in the bundle (D-026). If any is found, the

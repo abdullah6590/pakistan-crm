@@ -4,7 +4,7 @@
 import type { AccountingDocument, LedgerAccount } from "@prisma/client";
 import { Dec, ZERO, add, dec, cmp, isZero, sub, toPlain } from "@/lib/domain/decimal";
 import {
-  Actor, PostingError, Tx, accountByCode, amendDocument, createCashSale, createSaleInvoice, money, run,
+  Actor, PaperDetails, PostingError, Tx, accountByCode, amendDocument, createCashSale, createSaleInvoice, money, run,
 } from "@/lib/accounting/posting";
 import { Db } from "@/lib/accounting/setup";
 import { receivePayment } from "@/lib/accounting/receivables";
@@ -72,6 +72,8 @@ export interface SaleLine {
   loose?: number | string;
   /** Price of one `unit`. */
   unitPrice: number | string;
+  /** Paper sold by weight: the size, GSM and rate per kg the price came from (kept on the bill line). */
+  paper?: PaperDetails;
 }
 
 export interface ScreenSaleInput {
@@ -89,7 +91,7 @@ export interface ScreenSaleInput {
 
 function linesFor(items: SaleLine[]) {
   if (!Array.isArray(items) || items.length === 0) throw new PostingError("Add at least one item");
-  return items.map((i) => ({ componentId: i.componentId, quantity: i.quantity, unit: i.unit || undefined, loose: i.loose || undefined, unitPrice: i.unitPrice }));
+  return items.map((i) => ({ componentId: i.componentId, quantity: i.quantity, unit: i.unit || undefined, loose: i.loose || undefined, unitPrice: i.unitPrice, paper: i.paper || undefined }));
 }
 
 const today = () => new Date().toISOString().slice(0, 10);

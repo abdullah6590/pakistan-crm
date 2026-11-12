@@ -108,6 +108,10 @@ fn start_server(app: &AppHandle, paths: &Paths) -> Result<u16, String> {
     let logs = paths.data.join("logs");
     let log_file = logs.join("server.log");
     let log = fs::File::create(&log_file).map_err(|e| format!("Could not write {}: {e}", log_file.display()))?;
+    // Written by app-entry.cjs when it finds, before serving anything, that this computer cannot run the server
+    // (for example the database engine cannot load). Shown at once, without the retries below.
+    let problem_file = logs.join("startup-problem.txt");
+    let _ = fs::remove_file(&problem_file);
     let token = launch_token();
     let preferred = std::env::var("CRM_DESKTOP_PREFERRED_PORT").ok().and_then(|p| p.parse::<u16>().ok());
     let mut last_error = String::new();
@@ -164,6 +168,13 @@ fn start_server(app: &AppHandle, paths: &Paths) -> Result<u16, String> {
                 }
             };
             if exited {
+                if let Ok(text) = fs::read_to_string(&problem_file) {
+                    let _ = fs::remove_file(&problem_file);
+                    let text = text.trim().to_string();
+                    if !text.is_empty() {
+                        return Err(text);
+                    }
+                }
                 last_error = format!("The local server stopped while starting (attempt {attempt}); see {}", log_file.display());
                 instance::log(&paths.data, &last_error);
                 break;

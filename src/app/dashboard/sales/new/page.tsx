@@ -1,10 +1,10 @@
-// src/app/(dashboard)/sales/new/page.tsx - New Sale (Server)
+// src/app/dashboard/sales/new/page.tsx - New Sale: the Customer Invoice / Cash Sale screen laid out like the old program
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { UNIT_FIELDS, withSaleUnits } from "@/lib/sales/units";
 import { SPEC_FIELDS } from "@/lib/product-spec";
-import NewSaleClient from "./new-sale-client";
+import PaperSaleClient from "./paper-sale-client";
 
 // ?walkin=1 starts on a walk-in cash sale (Classic menu: Cash Sale)
 export default async function NewSalePage({ searchParams }: { searchParams: Promise<{ walkin?: string }> }) {
@@ -31,11 +31,11 @@ export default async function NewSalePage({ searchParams }: { searchParams: Prom
   ]);
 
   return (
-    <NewSaleClient
+    <PaperSaleClient
       key={walkIn ? "walk-in" : "customer"}
       startWalkIn={walkIn}
-      initialComponents={JSON.parse(JSON.stringify(initialComponents.map(withSaleUnits)))}
-      initialCustomers={JSON.parse(JSON.stringify(initialCustomers))}
+      initialItems={JSON.parse(JSON.stringify(initialComponents.map(withSaleUnits)))}
+      initialCustomers={JSON.parse(JSON.stringify(initialCustomers.map((c) => ({ ...c, phone: c.phone ?? "" }))))}
     />
   );
 }

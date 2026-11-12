@@ -181,8 +181,8 @@ async function Stock({ location, sp }: { location?: string; sp: Record<string, s
         <thead>
           <tr className="border-y border-black">
             <th className={`${th} text-left`}>ID</th><th className={`${th} text-left`}>Product name</th>
-            <th className={`${th} text-right`}>C in Q</th><th className={`${th} text-right`}>Catan</th><th className={`${th} text-right`}>Qty</th>
-            <th className={`${th} text-right`}>Total units</th><th className={`${th} text-right`}>Avg cost</th><th className={`${th} text-right`}>Amount</th>
+            <th className={`${th} text-right`}>Per pack</th><th className={`${th} text-right`}>Packs</th><th className={`${th} text-right`}>Loose</th>
+            <th className={`${th} text-right`}>Total</th><th className={`${th} text-right`}>Total kg</th><th className={`${th} text-right`}>Avg cost</th><th className={`${th} text-right`}>Amount</th>
           </tr>
         </thead>
         <tbody>
@@ -191,9 +191,10 @@ async function Stock({ location, sp }: { location?: string; sp: Record<string, s
               <td className={cell}>{r.sku}</td>
               <td className={cell}>{r.name}{r.unitConfirmed ? "" : " (units unconfirmed)"}</td>
               <td className={num}>{r.packs ? qty(r.packs.perPack) : "-"}</td>
-              <td className={num}>{r.packs ? `${qty(r.packs.packs)}` : "-"}</td>
-              <td className={num}>{r.packs ? qty(r.packs.loose) : qty(r.onHand)}</td>
+              <td className={num}>{r.packs ? `${qty(r.packs.packs)} ${r.packs.unit}${Number(r.packs.packs) === 1 ? "" : "s"}` : "-"}</td>
+              <td className={num}>{r.packs ? (Number(r.packs.loose) ? `${qty(r.packs.loose)} ${r.baseUnit}${Number(r.packs.loose) === 1 ? "" : "s"}` : "-") : qty(r.onHand)}</td>
               <td className={num}>{qty(r.onHand)} {r.baseUnit}</td>
+              <td className={num}>{r.weightKg === null ? "-" : r.weightKg.toLocaleString("en-PK", { maximumFractionDigits: 2 })}</td>
               <td className={num}>{money(r.averageCost, 4)}</td>
               <td className={num}>{r.value === null ? (r.negative ? "negative" : "n/a") : money(r.value)}</td>
             </tr>
@@ -201,7 +202,7 @@ async function Stock({ location, sp }: { location?: string; sp: Record<string, s
         </tbody>
         <tfoot>
           <tr className="border-t border-black font-semibold">
-            <td className={th} colSpan={7}>Total value{st.uncostedItems ? ` (${st.uncostedItems} item(s) without a cost are not valued)` : ""}</td>
+            <td className={th} colSpan={8}>Total value{st.uncostedItems ? ` (${st.uncostedItems} item(s) without a cost are not valued)` : ""}</td>
             <td className={`${th} text-right tabular-nums`}>{money(st.totalValue)}</td>
           </tr>
         </tfoot>

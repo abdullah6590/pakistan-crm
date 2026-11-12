@@ -578,6 +578,16 @@ async function stockOut(ctx: PostCtx, item: ItemContext, a: { lineNo?: number; l
   return { cost: r.cost, status: r.status, note: r.note, warning: taken.warning };
 }
 
+/**
+ * Take a sold line out of stock. A service item (Labour, as a line of the old Customer Invoice) holds no stock: it is
+ * sold at no cost and moves nothing, so a bill with Labour never shows negative stock and cancelling it has nothing to
+ * put back.
+ */
+async function sellOut(ctx: PostCtx, item: ItemContext, a: { lineNo?: number; locationId: string; qty: Dec }) {
+  if (item.cfg.kind === "SERVICE") return { cost: ZERO as Dec | null, status: "ACTUAL" as CostStatus, note: null as string | null, warning: null as string | null };
+  return stockOut(ctx, item, a);
+}
+
 /** Take stock out at a known value (purchase return): the value it arrived with leaves the average. */
 async function stockOutAtValue(ctx: PostCtx, item: ItemContext, a: { lineNo?: number; locationId: string; qty: Dec; value: Dec }) {
   const taken = await takeFromLocation(ctx, item, a.locationId, a.qty);
@@ -692,7 +702,7 @@ async function saleInvoiceInTx(tx: Tx, actor: Actor, input: SaleInvoiceInput, su
   for (const [i, l] of lines.entries()) {
     const item = await loadItem(tx, l.componentId);
     const p = priced(item, l);
-    const out = await stockOut(ctx, item, { lineNo: i + 1, locationId: main.id, qty: p.baseQuantity });
+    const out = await sellOut(ctx, item, { lineNo: i + 1, locationId: main.id, qty: p.baseQuantity });
     await tx.accountingDocumentLine.create({
       data: lineRecord(doc.id, i + 1, item, l, p.baseQuantity, {
         unitPrice: s(p.unitPrice), loosePrice: s(p.loosePrice), amount: s(p.amount),
@@ -720,7 +730,7 @@ async function cashSaleInTx(tx: Tx, actor: Actor, input: CashSaleInput, supersed
   for (const [i, l] of lines.entries()) {
     const item = await loadItem(tx, l.componentId);
     const p = priced(item, l);
-    const out = await stockOut(ctx, item, { lineNo: i + 1, locationId: main.id, qty: p.baseQuantity });
+    const out = await sellOut(ctx, item, { lineNo: i + 1, locationId: main.id, qty: p.baseQuantity });
     await tx.accountingDocumentLine.create({
       data: lineRecord(doc.id, i + 1, item, l, p.baseQuantity, {
         unitPrice: s(p.unitPrice), loosePrice: s(p.loosePrice), amount: s(p.amount),
@@ -1057,7 +1067,8 @@ async function saleReturnInTx(tx: Tx, actor: Actor, input: SaleReturnInput, supe
   const returned: ReturnedLine[] = [];
   for (const [i, r] of (await returnLines(tx, original, input.lines)).entries()) {
     const cost = r.unitCost === null ? null : mul(r.base, r.unitCost);
-    await stockIn(ctx, r.item, { lineNo: i + 1, locationId: main.id, qty: r.base, value: cost });
+    // A service line (Labour) comes back without stock, as it went out without any
+    if (r.item.cfg.kind !== "SERVICE") await stockIn(ctx, r.item, { lineNo: i + 1, locationId: main.id, qty: r.base, value: cost });
     await tx.accountingDocumentLine.create({
       data: lineRecord(doc.id, i + 1, r.item, { componentId: r.item.componentId, quantity: r.l.quantity, unit: r.l.unit, loose: r.l.loose }, r.base, {
         unitPrice: r.orig.unitPrice, loosePrice: r.orig.loosePrice, amount: s(r.amount), costAmount: cost === null ? null : s(cost),

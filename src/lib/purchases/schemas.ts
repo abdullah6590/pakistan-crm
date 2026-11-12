@@ -24,7 +24,7 @@ export const openingBalanceSchema = z.object({
 
 /** Paper bought by weight (old Supplier Invoice: X, Y, gm, Kg, Price per kg). */
 const positive = z.union([z.number(), z.string()]).refine((v) => Number(v) > 0, "Must be more than 0");
-const paper = z.object({
+export const paperSchema = z.object({
   x: positive, y: positive, gsm: positive,
   divisor: positive.nullish(),
   ratePerKg: z.union([z.number(), z.string()]).refine((v) => Number(v) >= 0, "Cannot be negative").nullish(),
@@ -32,7 +32,7 @@ const paper = z.object({
 
 const line = z.object({
   componentId: z.string().min(1), quantity: amount, unit: z.string().trim().min(1).max(20).optional(), loose: amount.optional(), unitPrice: amount,
-  paper: paper.optional(),
+  paper: paperSchema.optional(),
 });
 
 export const screenPurchaseSchema = z.object({
