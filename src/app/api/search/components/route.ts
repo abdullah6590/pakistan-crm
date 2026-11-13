@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 import { UNIT_FIELDS, withSaleUnits } from "@/lib/sales/units";
 import { SPEC_FIELDS } from "@/lib/product-spec";
+import { parseShortNo } from "@/lib/catalog/numbers";
+import { accountingReady } from "@/lib/accounting/server";
 
 export async function GET(request: NextRequest) {
   try {
@@ -18,12 +20,17 @@ export async function GET(request: NextRequest) {
 
     let components: any[];
 
-    if (q.trim().length >= 2) {
+    // Numbers exist once the main server has caught up (Report 32 phase 1)
+    await accountingReady();
+    // A typed product number (the old program's ID) finds that product, even a single digit
+    const no = parseShortNo(q);
+    if (q.trim().length >= 2 || no) {
       // Search mode
       components = await prisma.component.findMany({
         where: {
           isActive: true,
           OR: [
+            ...(no ? [{ itemNo: no }] : []),
             { name: { contains: q } },
             { sku: { contains: q } },
           ],
@@ -65,6 +72,8 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // The product with the typed number comes first
+    if (no) components.sort((a, b) => Number(b.itemNo === no) - Number(a.itemNo === no));
     return NextResponse.json({ data: components.map(withSaleUnits) });
   } catch (error) {
     console.error("Error searching components:", error);

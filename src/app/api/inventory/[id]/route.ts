@@ -3,7 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { authorize } from "@/lib/permissions";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
-import { createStockAdjustment } from "@/lib/accounting/posting";
+import { createStockAdjustment, fallbackUnitConfig, unitConfigFor } from "@/lib/accounting/posting";
+import { assertUnitChangeAllowed, unitChangesAfterMovement, writeUnitProfile } from "@/lib/catalog/units";
 import { accountingError, accountingReady, serialize } from "@/lib/accounting/server";
 
 /** Fields an item edit may change. The stock quantity is not one of them: it changes only through Books (sales,
@@ -13,6 +14,9 @@ const EDITABLE = [
   "supplierPrice", "expenses", "unitCost", "unitPrice", "isActive", "size", "grams", "unit", "location",
   "dimensionX", "dimensionY", "divisor", "gsm", "rimInSheet", "weightKg", "ratePerKg", "datasheetUrl", "imageUrl", "customFields",
 ];
+
+/** Copies of the unit profile's packet size; never written directly. */
+const PACK_FIELDS = ["unit", "rimInSheet", "itemsPerPackage", "packagingUnit"];
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -63,7 +67,22 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       stockCount = { id: doc.id, docNo: doc.docNo, status: doc.status };
     }
 
-    const data = Object.fromEntries(Object.entries(body).filter(([k]) => EDITABLE.includes(k)));
+    // Packet size and stock unit live in the unit profile (Report 32 phase 1): a change made on this screen goes through
+    // it, locked once stock has moved (an administrator may correct with a reason); the older fields are copies
+    const packChange = Object.fromEntries(PACK_FIELDS.filter((k) => k in body).map((k) => [k, body[k]]));
+    if (Object.keys(packChange).length) {
+      const item = await prisma.component.findUniqueOrThrow({ where: { id }, include: { unitProfile: { include: { conversions: true } } } });
+      const next = fallbackUnitConfig({ ...item, ...packChange, unitProfile: null });
+      const current = unitConfigFor(item).cfg;
+      if (unitChangesAfterMovement(current, next).length) {
+        await prisma.$transaction(async (tx) => {
+          const changes = await assertUnitChangeAllowed(tx, item, next, user, body.correctionReason);
+          await writeUnitProfile(tx, id, next, { confirmed: true, updatedById: user.id });
+          await tx.auditLog.create({ data: { entity: "ItemUnitProfile", entityId: id, action: item.unitProfile ? "UNIT_CORRECTION" : "UPDATE", userId: user.id, reason: body.correctionReason ?? null, before: JSON.stringify(current), after: JSON.stringify({ ...next, changes }) } });
+        });
+      }
+    }
+    const data = Object.fromEntries(Object.entries(body).filter(([k]) => EDITABLE.includes(k) && !PACK_FIELDS.includes(k)));
     const component = Object.keys(data).length
       ? await prisma.component.update({ where: { id }, data, include: { category: true, supplier: true } })
       : await prisma.component.findUniqueOrThrow({ where: { id }, include: { category: true, supplier: true } });

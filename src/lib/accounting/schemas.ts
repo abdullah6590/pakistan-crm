@@ -83,6 +83,8 @@ export const unitProfileSchema = z.object({
   referencePurchasePrice: z.union([decimal, z.null()]).optional(),
   referenceExpenses: z.union([decimal, z.null()]).optional(),
   conversions: z.array(z.object({ code: z.string().trim().min(1).max(20), factor: decimal, decimals: z.number().int().min(0).max(3).optional() })).max(10),
+  /** Administrator's reason to correct units after stock has moved (Report 32 P-2). */
+  correctionReason: z.string().trim().max(500).nullable().optional(),
 });
 
 export const documentActionSchema = z.discriminatedUnion("action", [

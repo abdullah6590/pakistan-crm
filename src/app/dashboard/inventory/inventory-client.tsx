@@ -32,7 +32,7 @@ import { toast } from "sonner";
 import { suggestPrices, checkBelowCost } from "@/lib/ai-engine";
 
 interface ComponentItem {
-  id: string; sku: string; name: string; description: string | null;
+  id: string; sku: string; name: string; description: string | null; itemNo?: number | null;
   quantity: number; minQuantity: number; unitCost: number; unitPrice: number;
   packagingUnit: string; itemsPerPackage: number; supplierPrice: number; expenses: number;
   location: string | null; isActive: boolean; totalPurchased: number;
@@ -77,18 +77,18 @@ export default function InventoryClient({ components, categories, suppliers, sta
   const [form, setForm] = useState({
     name: "", description: "", sku: "", categoryId: "",
     quantity: "0", minQuantity: "5", unitCost: "0", unitPrice: "0",
-    packagingUnit: "Carton", itemsPerPackage: "1", supplierPrice: "0", expenses: "0",
+    packagingUnit: "Packet", itemsPerPackage: "100", supplierPrice: "0", expenses: "0",
     packages: "0", looseQuantity: "0",
-    location: "", supplierId: "none", size: "", grams: "", unit: "piece", customFields: "",
+    location: "", supplierId: "none", size: "", grams: "", unit: "sheet", customFields: "",
   });
 
   const resetForm = () => {
     setForm({
       name: "", description: "", sku: "", categoryId: "",
       quantity: "0", minQuantity: "5", unitCost: "0", unitPrice: "0",
-      packagingUnit: "Carton", itemsPerPackage: "1", supplierPrice: "0", expenses: "0",
+      packagingUnit: "Packet", itemsPerPackage: "100", supplierPrice: "0", expenses: "0",
       packages: "0", looseQuantity: "0",
-      location: "", supplierId: "none", size: "", grams: "", unit: "piece", customFields: "",
+      location: "", supplierId: "none", size: "", grams: "", unit: "sheet", customFields: "",
     });
     setCalcValues(defaultCalcValues);
   };
@@ -319,7 +319,8 @@ export default function InventoryClient({ components, categories, suppliers, sta
             <Button variant="outline" onClick={() => router.push("/dashboard/inventory/opening-stock")}>
               <PackageOpen className="h-4 w-4 mr-1" /> Opening stock
             </Button>
-            <Button onClick={() => { resetForm(); setShowAdd(true); }}>
+            {/* Add New Product, laid out like the old program (Report 32 phase 1) */}
+            <Button onClick={() => router.push("/dashboard/inventory/product?new=1")}>
               <Plus className="h-4 w-4 mr-1" /> Add Product
             </Button>
           </div>
@@ -397,7 +398,7 @@ export default function InventoryClient({ components, categories, suppliers, sta
               icon={PackageOpen}
               title="No products found"
               description="Try adjusting your filters or add your first component"
-              action={{ label: "Add Product", onClick: () => setShowAdd(true) }}
+              action={{ label: "Add Product", onClick: () => router.push("/dashboard/inventory/product?new=1") }}
             />
           ) : (
             <div className="overflow-x-auto">
@@ -445,7 +446,7 @@ export default function InventoryClient({ components, categories, suppliers, sta
                           {c.category.name}
                         </Badge>
                       </TableCell>
-                      <TableCell><code className="text-xs bg-muted px-1.5 py-0.5 rounded">{c.sku}</code></TableCell>
+                      <TableCell>{c.itemNo ? <span className="mr-1.5 font-semibold tabular-nums" title="Product number">{c.itemNo}</span> : null}<code className="text-xs bg-muted px-1.5 py-0.5 rounded">{c.sku}</code></TableCell>
                       <TableCell className="text-right text-sm">
                         <div className="font-mono">{Math.floor(c.quantity / (c.itemsPerPackage || 1))} {c.packagingUnit}</div>
                         <div className="text-[10px] text-muted-foreground">{c.quantity % (c.itemsPerPackage || 1)} loose</div>

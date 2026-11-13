@@ -4,6 +4,8 @@
 /** Fields to load with an item for its size/grams label and the price calculator. */
 export const SPEC_FIELDS = {
   size: true, grams: true, dimensionX: true, dimensionY: true, gsm: true, divisor: true, weightKg: true, ratePerKg: true,
+  // Short product number and the sale rate per kg (Report 32 phase 1)
+  itemNo: true, saleRatePerKg: true,
 } as const;
 
 export interface ProductSpec {
@@ -15,6 +17,10 @@ export interface ProductSpec {
   divisor?: number | null;
   weightKg?: number | null;
   ratePerKg?: number | null;
+  /** Sale rate per kg (old "Sale Price"); `ratePerKg` is the purchase rate */
+  saleRatePerKg?: number | null;
+  /** Short product number (old "ID") */
+  itemNo?: number | null;
   rimInSheet?: number | null;
 }
 

@@ -6,6 +6,7 @@ import { handleApiError } from "@/lib/api-error";
 import { ensureAccountingSetup } from "./setup";
 import { PostingError } from "./posting";
 import { isAuthority } from "@/lib/sync/local";
+import { ensureCatalog } from "@/lib/catalog/ensure";
 
 let setup: Promise<void> | null = null;
 
@@ -13,7 +14,8 @@ let setup: Promise<void> | null = null;
 export function accountingReady(): Promise<void> {
   // Replicas receive the system accounts from the cloud; creating them locally would clash on first sync
   if (!isAuthority()) return Promise.resolve();
-  setup ??= ensureAccountingSetup(prisma).catch((e) => {
+  // Then every product gets its unit profile and short number, and every party its number (Report 32 phase 1)
+  setup ??= ensureAccountingSetup(prisma).then(() => ensureCatalog(prisma)).then(() => undefined).catch((e) => {
     setup = null;
     throw e;
   });
@@ -32,4 +34,14 @@ export function accountingError(error: unknown) {
 /** JSON-safe copy: journal amounts are stored as bigint paisa. */
 export function serialize<T>(value: T): unknown {
   return JSON.parse(JSON.stringify(value, (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
+}
+
+/** For server-rendered pages that read products or parties directly: make sure the one-time catch-up (numbers,
+ *  unit profiles) has run, without letting a setup problem break the page itself (the API routes still report it). */
+export async function catalogReady(): Promise<void> {
+  try {
+    await accountingReady();
+  } catch (e) {
+    console.error("[catalog] setup not ready:", e instanceof Error ? e.message : e);
+  }
 }

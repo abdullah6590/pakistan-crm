@@ -18,7 +18,9 @@ export interface ItemOption extends ProductSpec {
   id: string; name: string; sku: string; quantity: number;
   baseUnit?: string; purchaseUnit?: string; units?: { code: string; factor: number }[];
 }
-export interface SupplierOption { id: string; name: string; phone: string | null }
+export interface SupplierOption { id: string; name: string; phone: string | null; partyNo?: number | null }
+/** A typed short number (digits only), else null. */
+const shortNo = (t: string) => (/^\d{1,9}$/.test(t.trim()) && Number(t.trim()) > 0 ? Number(t.trim()) : null);
 /** Paper bought by weight, as on the old Supplier Invoice: size, GSM, divisor and rate per kg (all as typed). */
 interface Paper { x: string; y: string; gsm: string; divisor: string; rate: string }
 interface Line {
@@ -112,9 +114,11 @@ export default function NewPurchaseClient({ suppliers: initialSuppliers, initial
   const [itemQuery, setItemQuery] = useState("");
   const [found, setFound] = useState<{ q: string; items: ItemOption[] } | null>(null);
   const q = itemQuery.trim();
-  const items = q.length === 0 ? initialItems : q.length < 2 ? [] : found?.q === q ? found.items : [];
+  const itemNo = shortNo(q);
+  const [itemBrowse, setItemBrowse] = useState(false);
+  const items = q.length === 0 ? initialItems : q.length < 2 && !itemNo ? [] : found?.q === q ? found.items : [];
   useEffect(() => {
-    if (q.length < 2) return;
+    if (q.length < 2 && !shortNo(q)) return;
     const controller = new AbortController();
     const t = setTimeout(async () => {
       try {
@@ -144,7 +148,11 @@ export default function NewPurchaseClient({ suppliers: initialSuppliers, initial
     toast.success(`${s.name} added`);
   };
 
-  const supplierMatches = supplierQuery.trim() ? suppliers.filter((s) => `${s.name} ${s.phone ?? ""}`.toLowerCase().includes(supplierQuery.trim().toLowerCase())).slice(0, 8) : [];
+  const supNo = shortNo(supplierQuery);
+  const [supBrowse, setSupBrowse] = useState(false);
+  const supplierMatches = supNo ? suppliers.filter((s) => s.partyNo === supNo)
+    : supplierQuery.trim() ? suppliers.filter((s) => `${s.name} ${s.phone ?? ""}`.toLowerCase().includes(supplierQuery.trim().toLowerCase())).slice(0, 8)
+    : supBrowse ? suppliers.slice(0, 50) : [];
   const total = useMemo(() => Math.round(lines.reduce((t, l) => t + lineAmount(l), 0) * 100) / 100, [lines]);
   const paidNow = Number(paid.amount) || 0;
   const paperLines = lines.filter((l) => l.paper);
@@ -265,12 +273,23 @@ export default function NewPurchaseClient({ suppliers: initialSuppliers, initial
               ) : (
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-                  <Input aria-label="Search supplier" className="pl-9" placeholder="Search supplier by name or phone..." value={supplierQuery} onChange={(e) => setSupplierQuery(e.target.value)} />
-                  {supplierQuery.trim() && (
-                    <div className="absolute z-20 top-full mt-1 w-full rounded-lg border bg-background shadow-lg">
+                  <Input aria-label="Search supplier" className="pl-9" placeholder="Supplier number + Enter, or name/phone (F1 lists suppliers)" value={supplierQuery}
+                    onBlur={() => setTimeout(() => setSupBrowse(false), 150)}
+                    onKeyDown={(e) => {
+                      if (e.key === "F1") { e.preventDefault(); setSupplierQuery(""); setSupBrowse(true); }
+                      else if (e.key === "Escape") setSupBrowse(false);
+                      else if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (supplierMatches[0]) { setSupplier(supplierMatches[0]); setSupplierQuery(""); setSupBrowse(false); }
+                        else if (supNo) toast.error(`No supplier with number ${supNo}`);
+                      }
+                    }}
+                    onChange={(e) => setSupplierQuery(e.target.value)} />
+                  {(supplierQuery.trim() || supBrowse) && (
+                    <div className="absolute z-20 top-full mt-1 max-h-72 w-full overflow-y-auto rounded-lg border bg-background shadow-lg">
                       {supplierMatches.map((s) => (
-                        <button key={s.id} type="button" className="w-full px-3 py-2 text-left text-sm hover:bg-muted" onClick={() => { setSupplier(s); setSupplierQuery(""); }}>
-                          <span className="font-medium">{s.name}</span> {s.phone && <span className="text-muted-foreground">{s.phone}</span>}
+                        <button key={s.id} type="button" className="w-full px-3 py-2 text-left text-sm hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => { setSupplier(s); setSupplierQuery(""); setSupBrowse(false); }}>
+                          {s.partyNo ? <span className="mr-2 text-xs text-muted-foreground tabular-nums">No. {s.partyNo}</span> : null}<span className="font-medium">{s.name}</span> {s.phone && <span className="text-muted-foreground">{s.phone}</span>}
                         </button>
                       ))}
                       <button type="button" className="flex w-full items-center gap-2 border-t px-3 py-2 text-left text-sm text-primary hover:bg-muted" onClick={() => setNewSupplier({ name: supplierQuery.trim(), phone: "", contactPerson: "", why: "", duplicates: [] })}>
@@ -296,15 +315,26 @@ export default function NewPurchaseClient({ suppliers: initialSuppliers, initial
             <CardContent className="space-y-3">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-                <Input aria-label="Search items" className="pl-9" placeholder="Search item by name or SKU..." value={itemQuery} onChange={(e) => setItemQuery(e.target.value)} />
-                {itemQuery.trim() && items.length > 0 && (
+                <Input aria-label="Search items" className="pl-9" placeholder="Item number + Enter, or name (F1 lists items)" value={itemQuery}
+                  onChange={(e) => setItemQuery(e.target.value)} onBlur={() => setTimeout(() => setItemBrowse(false), 150)}
+                  onKeyDown={(e) => {
+                    if (e.key === "F1") { e.preventDefault(); setItemQuery(""); setItemBrowse(true); }
+                    else if (e.key === "Escape") setItemBrowse(false);
+                    else if (e.key === "Enter") {
+                      e.preventDefault();
+                      const exact = itemNo ? items.find((it) => it.itemNo === itemNo) : undefined;
+                      if (exact ?? items[0]) { add((exact ?? items[0])!); setItemBrowse(false); }
+                      else if (itemNo) toast.error(`No product with number ${itemNo} (or it is still loading)`);
+                    }
+                  }} />
+                {(itemQuery.trim() || itemBrowse) && items.length > 0 && (
                   <div className="absolute z-20 top-full mt-1 max-h-60 w-full overflow-y-auto rounded-lg border bg-background shadow-lg">
                     {items.map((it) => (
                       <button key={it.id} type="button" className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted" onMouseDown={(e) => e.preventDefault()} onClick={() => add(it)}>
                         <span>
                           <span className="font-medium">{it.name}</span>
                           {specLabel(it) && <span className="ml-2 inline-block whitespace-nowrap rounded bg-muted px-1.5 py-0.5 text-xs">{specLabel(it)}</span>}{" "}
-                          <span className="text-xs text-muted-foreground">{it.sku} · in stock {it.quantity} {it.baseUnit ?? ""}</span>
+                          <span className="text-xs text-muted-foreground">{it.itemNo ? `No. ${it.itemNo} · ` : ""}{it.sku} · in stock {it.quantity} {it.baseUnit ?? ""}</span>
                         </span>
                         <Plus className="h-4 w-4 text-muted-foreground" aria-hidden />
                       </button>

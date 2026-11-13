@@ -23,10 +23,17 @@ import { cn } from "@/lib/utils";
 export interface SaleItemOption {
   id: string; name: string; sku: string; quantity: number; unitCost: number; unitPrice: number;
   dimensionX?: number | null; dimensionY?: number | null; gsm?: number | null; divisor?: number | null; ratePerKg?: number | null;
+  /** Sale rate per kg (old "Sale Price"); the purchase rate is `ratePerKg` */
+  saleRatePerKg?: number | null;
+  /** Short product number (old "ID"): typed with Enter to pick the item */
+  itemNo?: number | null;
   size?: string | null; grams?: number | null;
   kind?: string; baseUnit?: string; saleUnit?: string; units?: { code: string; factor: number }[];
 }
-export interface SaleCustomerOption { id: string; name: string; phone: string }
+export interface SaleCustomerOption { id: string; name: string; phone: string; partyNo?: number | null }
+
+/** A typed short number (digits only), else null. */
+const shortNo = (t: string) => (/^\d{1,9}$/.test(t.trim()) && Number(t.trim()) > 0 ? Number(t.trim()) : null);
 
 /** A saved bill opened for correction (edit mode). */
 export interface EditBill {
@@ -89,12 +96,13 @@ const weightOf = (r: Row) => { const kg = kgPerUnit(r); return kg === null ? 0 :
 function rowFor(item: SaleItemOption, prev: Row): Row {
   const unit = item.saleUnit ?? item.baseUnit ?? "";
   const hasSize = !!(item.dimensionX && item.dimensionY && item.gsm);
+  const saleRate = item.saleRatePerKg || item.ratePerKg;
   return {
     ...prev, item, query: "", unit,
     x: hasSize ? String(item.dimensionX) : "", y: hasSize ? String(item.dimensionY) : "", gsm: hasSize ? String(item.gsm) : "",
-    divisor: String(item.divisor || 15500), rate: hasSize && item.ratePerKg ? String(item.ratePerKg) : "",
+    divisor: String(item.divisor || 15500), rate: hasSize && saleRate ? String(saleRate) : "",
     // Without a size the item is priced per unit as before; with one the price follows kg x rate
-    price: hasSize && item.ratePerKg ? "" : item.unitPrice ? String(item.unitPrice) : "", priceTyped: !(hasSize && item.ratePerKg),
+    price: hasSize && saleRate ? "" : item.unitPrice ? String(item.unitPrice) : "", priceTyped: !(hasSize && saleRate),
     qty: prev.qty || "", loose: "",
   };
 }
@@ -153,9 +161,17 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
   const [custResults, setCustResults] = useState<{ q: string; items: SaleCustomerOption[] } | null>(null);
   const [custOpen, setCustOpen] = useState(false);
   const [newCustomerOpen, setNewCustomerOpen] = useState(false);
-  const custList = custQuery.trim().length < 2 ? (custQuery.trim() ? [] : initialCustomers) : custResults?.q === custQuery ? custResults.items : [];
+  /** Enter on a customer number that is not in the list yet: ask the server for exactly that number. */
+  const pickCustomerNo = async (no: number) => {
+    const d = await fetch(`/api/search/customers?q=${no}&limit=5`).then((x) => x.json()).catch(() => null);
+    const hit = (d?.data as SaleCustomerOption[] | undefined)?.find((c) => c.partyNo === no);
+    if (!hit) { toast.error(`No customer with number ${no}`); return; }
+    setCustomer({ ...hit, phone: hit.phone ?? "" }); setCustQuery(""); setCustOpen(false); setFocusNext(`${rows[0].key}:item`);
+  };
+  const custNo = shortNo(custQuery);
+  const custList = custQuery.trim().length < 2 && !custNo ? (custQuery.trim() ? [] : initialCustomers) : custResults?.q === custQuery ? custResults.items : [];
   useEffect(() => {
-    if (custQuery.trim().length < 2) return;
+    if (custQuery.trim().length < 2 && !shortNo(custQuery)) return;
     const c = new AbortController();
     const t = setTimeout(() => {
       fetch(`/api/search/customers?q=${encodeURIComponent(custQuery)}&limit=10`, { signal: c.signal })
@@ -190,9 +206,12 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
   const activeQuery = rows.find((r) => r.key === searchRow)?.query ?? "";
   // One letter or digit (the old program had items called "a") filters the starting list; two or more search everything
   const q1 = activeQuery.trim().toLowerCase();
-  const matches = q1.length === 0 ? initialItems
-    : q1.length === 1 ? initialItems.filter((m) => m.name.toLowerCase().startsWith(q1) || m.sku.toLowerCase().startsWith(q1))
-    : searchResults?.q === activeQuery ? searchResults.items : [];
+  const itemNo = shortNo(activeQuery);
+  const matches = (q1.length === 0 ? initialItems
+    : q1.length === 1 ? initialItems.filter((m) => m.itemNo === itemNo || m.name.toLowerCase().startsWith(q1) || m.sku.toLowerCase().startsWith(q1))
+    : searchResults?.q === activeQuery ? searchResults.items : [])
+    // The product with the typed number comes first, so Enter picks it
+    .slice().sort((a, b) => Number(itemNo !== null && b.itemNo === itemNo) - Number(itemNo !== null && a.itemNo === itemNo));
   useEffect(() => {
     if (activeQuery.trim().length < 2) return;
     const c = new AbortController();
@@ -244,6 +263,12 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
     moveOn(e.currentTarget);
   };
 
+  /** Enter on a product number that is not in the list yet: ask the server for exactly that number. */
+  const pickItemNo = async (row: Row, no: number) => {
+    const d = await fetch(`/api/search/components?q=${no}&limit=5`).then((x) => x.json()).catch(() => null);
+    const hit = (d?.data as SaleItemOption[] | undefined)?.find((m) => m.itemNo === no);
+    if (hit) pick(row, hit); else toast.error(`No product with number ${no}`);
+  };
   const pick = (row: Row, item: SaleItemOption) => {
     setSearchRow(null);
     const next = rowFor(item, row);
@@ -436,6 +461,9 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
                   onFocus={() => setCustOpen(true)}
                   onBlur={() => setTimeout(() => setCustOpen(false), 150)}
                   onKeyDown={(e) => {
+                    // F1 opens the customer list (old program); a typed number + Enter picks that customer
+                    if (e.key === "F1") { e.preventDefault(); setCustQuery(""); setCustOpen(true); return; }
+                    if (e.key === "Enter" && custNo && !custList.some((c) => c.partyNo === custNo)) { e.preventDefault(); void pickCustomerNo(custNo); return; }
                     if (e.key === "Enter" && custList[0]) { e.preventDefault(); setCustomer(custList[0]); setCustQuery(""); setCustOpen(false); setFocusNext(`${rows[0].key}:item`); }
                     if (e.key === "Escape") setCustOpen(false);
                   }}
@@ -532,7 +560,9 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
                                 onBlur={() => setTimeout(() => setSearchRow((s) => (s === r.key ? null : s)), 150)}
                                 onChange={(e) => { placeList(e.currentTarget); setRow(r.key, { query: e.target.value }); setSearchRow(r.key); setHighlight(0); }}
                                 onKeyDown={(e) => {
-                                  if (e.key === "ArrowDown") { e.preventDefault(); setHighlight((h) => Math.min(h + 1, matches.length - 1)); }
+                                  if (e.key === "F1") { e.preventDefault(); setRow(r.key, { query: "" }); setSearchRow(r.key); setHighlight(0); }
+                                  else if (e.key === "Enter" && itemNo && !matches.some((m) => m.itemNo === itemNo)) { e.preventDefault(); void pickItemNo(r, itemNo); }
+                                  else if (e.key === "ArrowDown") { e.preventDefault(); setHighlight((h) => Math.min(h + 1, matches.length - 1)); }
                                   else if (e.key === "ArrowUp") { e.preventDefault(); setHighlight((h) => Math.max(h - 1, 0)); }
                                   else if (e.key === "Escape") setSearchRow(null);
                                   else if (e.key === "Enter") {
@@ -551,7 +581,7 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
                                       <span className="min-w-0">
                                         <span className="block truncate text-sm font-medium">{m.name}</span>
                                         <span className="block text-xs text-muted-foreground">
-                                          {m.sku}{m.dimensionX && m.dimensionY && m.gsm ? ` · ${m.dimensionX}x${m.dimensionY} · ${m.gsm} gm` : ""}
+                                          {m.itemNo ? `No. ${m.itemNo} · ` : ""}{m.sku}{m.dimensionX && m.dimensionY && m.gsm ? ` · ${m.dimensionX}x${m.dimensionY} · ${m.gsm} gm` : ""}
                                         </span>
                                       </span>
                                       <span className="shrink-0 text-xs text-muted-foreground tabular-nums">

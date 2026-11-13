@@ -15,7 +15,7 @@ import { SupplierForm } from "./supplier-form";
 
 export interface SupplierRow {
   id: string; name: string; company: string | null; contactPerson: string | null; phone: string | null; email: string | null; city: string | null;
-  isActive: boolean; partyCode: string | null; balance: string; bills: number;
+  isActive: boolean; partyCode: string | null; balance: string; bills: number; partyNo?: number | null;
 }
 
 export default function SuppliersClient({ suppliers, canEdit, filters }: { suppliers: SupplierRow[]; canEdit: boolean; filters: { search: string; status: string; owed: boolean } }) {
@@ -73,7 +73,7 @@ export default function SuppliersClient({ suppliers, canEdit, filters }: { suppl
                     const b = Number(s.balance);
                     return (
                       <TableRow key={s.id} className="cursor-pointer hover:bg-muted/50" onClick={() => router.push(`/dashboard/suppliers/${s.id}`)}>
-                        <TableCell><a href={`/dashboard/suppliers/${s.id}`} onClick={(e) => e.stopPropagation()} className="font-medium hover:underline">{s.name}</a>{s.company && <div className="text-xs text-muted-foreground">{s.company}</div>}{!s.isActive && <Badge variant="secondary" className="ml-1">archived</Badge>}</TableCell>
+                        <TableCell><a href={`/dashboard/suppliers/${s.id}`} onClick={(e) => e.stopPropagation()} className="font-medium hover:underline">{s.partyNo ? <span className="mr-2 text-xs font-normal text-muted-foreground tabular-nums">No. {s.partyNo}</span> : null}{s.name}</a>{s.company && <div className="text-xs text-muted-foreground">{s.company}</div>}{!s.isActive && <Badge variant="secondary" className="ml-1">archived</Badge>}</TableCell>
                         <TableCell className="font-mono text-xs">{s.partyCode ?? "-"}</TableCell>
                         <TableCell className="text-sm">{s.contactPerson ?? "-"}</TableCell>
                         <TableCell className="text-sm">{s.phone ?? "-"}</TableCell>

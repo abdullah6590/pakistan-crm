@@ -24,7 +24,7 @@ import { AdvancedFilter } from "@/components/shared/advanced-filter";
 import { Pagination } from "@/components/shared/pagination";
 
 interface CustomerItem {
-  id: string; name: string; email: string | null; phone: string | null;
+  id: string; name: string; email: string | null; phone: string | null; partyNo?: number | null;
   address: string | null; city: string | null;
   totalPurchased: number; visitCount: number;
   notes: string | null; isActive: boolean;
@@ -210,7 +210,7 @@ export default function CustomersClient({ customers: initialCustomers, paginatio
                 <TableBody>
                   {initialCustomers.map(c => (
                     <TableRow key={c.id}>
-                      <TableCell className="font-medium">{c.name}</TableCell>
+                      <TableCell className="font-medium">{c.partyNo ? <span className="mr-2 text-xs font-normal text-muted-foreground tabular-nums">No. {c.partyNo}</span> : null}{c.name}</TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-0.5 text-sm">
                           {c.email && <span className="text-muted-foreground flex items-center gap-1"><Mail className="h-3 w-3" />{c.email}</span>}

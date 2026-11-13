@@ -1,4 +1,5 @@
 // src/app/(dashboard)/customers/page.tsx - Customers (Server)
+import { catalogReady } from "@/lib/accounting/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 import { redirect } from "next/navigation";
@@ -8,6 +9,7 @@ import { parseSortParams, buildOrderBy, CUSTOMERS_SORT_WHITELIST } from "@/lib/s
 
 export default async function CustomersPage({ searchParams }: { searchParams: Promise<{ [key: string]: string | undefined }> }) {
   const user = await getAuthUser();
+  await catalogReady(); // product and party numbers (Report 32 phase 1)
   if (!user) redirect("/login");
 
   const params = await searchParams;

@@ -5,7 +5,10 @@ import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 import { componentSchema } from "@/lib/validations";
 import { generateSKU } from "@/lib/utils";
-import { createOpeningStock, unitConfigFor } from "@/lib/accounting/posting";
+import { createOpeningStock, fallbackUnitConfig, unitConfigFor } from "@/lib/accounting/posting";
+import { nextItemNo } from "@/lib/catalog/numbers";
+import { writeUnitProfile } from "@/lib/catalog/units";
+import { isAuthority } from "@/lib/sync/local";
 import { accountingError, accountingReady } from "@/lib/accounting/server";
 
 export async function GET(request: NextRequest) {
@@ -100,7 +103,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Enter the purchase cost for the starting quantity, or save the item with quantity 0 and enter its opening stock later (Inventory → Opening stock)" }, { status: 400 });
     }
     const component = await prisma.$transaction(async (tx) => {
-      const created = await tx.component.create({ data: { ...parsed.data, sku, quantity: 0 } });
+      // A short product number (main server only) and the unit profile, the one place its packet size is kept; the
+      // older fields (unit, packet size) are rewritten from it so they cannot disagree (Report 32 phase 1)
+      const itemNo = isAuthority() ? await nextItemNo(tx) : null;
+      const created = await tx.component.create({ data: { ...parsed.data, sku, quantity: 0, itemNo } });
+      await writeUnitProfile(tx, created.id, fallbackUnitConfig({ ...created, unitProfile: null }), { confirmed: true, updatedById: user.id });
       if (startQty > 0) {
         // The cost is per package when the item comes in packages (as the Total Amount on the form shows it)
         const { cfg } = unitConfigFor({ ...created, unitProfile: null });

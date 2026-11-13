@@ -37,7 +37,7 @@ export const CLASSIC_MENUS: ClassicMenu[] = [
     id: "product", label: "Product", icon: "Package", tone: "bg-sky-500/15 text-sky-700 dark:text-sky-300",
     items: [
       { id: "item-groups", label: "Item Group", href: "/dashboard/inventory/groups", icon: "Boxes", access: read("inventory") },
-      { id: "add-product", label: "Add New Product", href: "/dashboard/inventory?new=1", icon: "PackagePlus", access: write("inventory") },
+      { id: "add-product", label: "Add New Product", href: "/dashboard/inventory/product?new=1", icon: "PackagePlus", access: write("inventory") },
       { id: "opening-stock", label: "Opening stock", href: "/dashboard/inventory/opening-stock", icon: "PackageOpen", access: write("inventory") },
       { id: "stock-count", label: "Stock count", href: "/dashboard/accounting/new/STOCK_ADJUSTMENT", icon: "ClipboardCheck", access: write("stockIssues") },
       { id: "products", label: "Products list", href: "/dashboard/inventory", icon: "List", shortcut: "inventory", access: read("inventory"), group: true },
