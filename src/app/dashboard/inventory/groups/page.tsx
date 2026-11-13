@@ -14,7 +14,7 @@ export default async function ItemGroupsPage() {
   if (!can(user.role, "inventory", "read")) redirect("/dashboard");
 
   const [groups, counts] = await Promise.all([
-    prisma.componentCategory.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, description: true, color: true } }),
+    prisma.componentCategory.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, description: true, color: true, ratePerKg: true } }),
     prisma.component.groupBy({ by: ["categoryId"], where: { isActive: true }, _count: { _all: true } }),
   ]);
   const byGroup = new Map(counts.map((c) => [c.categoryId, c._count._all]));

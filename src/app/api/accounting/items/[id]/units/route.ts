@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { unitProfileSchema } from "@/lib/accounting/schemas";
 import { accountingError } from "@/lib/accounting/server";
 import { unitConfigFor } from "@/lib/accounting/posting";
+import { assertUnitChangeAllowed, legacyFieldsFrom } from "@/lib/catalog/units";
 import { validateUnitConfig, QuantityError } from "@/lib/domain/units";
 import { dec, toPlain } from "@/lib/domain/decimal";
 
@@ -37,11 +38,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     }
     const item = await prisma.component.findUnique({ where: { id }, include: { unitProfile: { include: { conversions: true } } } });
     if (!item) return NextResponse.json({ error: "Item not found" }, { status: 404 });
-    // Changing units after stock has moved would reinterpret recorded quantities; only the base unit is protected
-    const moved = await prisma.stockMovement.count({ where: { componentId: id } });
-    if (moved > 0 && item.unitProfile && (item.unitProfile.baseUnit !== data.baseUnit || item.unitProfile.kind !== data.kind)) {
-      return NextResponse.json({ error: "Stock has already moved in the current base unit; the base unit and kind cannot change" }, { status: 409 });
-    }
+    // Changing units after stock has moved would reinterpret recorded quantities: the kind, the stock unit and every
+    // existing pack size are locked; an administrator may correct them with a written reason (P-2, audited below)
+    const body = data as typeof data & { correctionReason?: string | null };
     const plain = (v: string | number | null | undefined) => (v === null || v === undefined || v === "" ? null : toPlain(dec(v)));
     const fields = {
       kind: data.kind, baseUnit: data.baseUnit, baseDecimals: data.baseDecimals,
@@ -49,11 +48,14 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       referencePurchasePrice: plain(data.referencePurchasePrice), referenceExpenses: plain(data.referenceExpenses), updatedById: auth.user.id,
     };
     const profile = await prisma.$transaction(async (tx) => {
+      const changes = await assertUnitChangeAllowed(tx, item, cfg, auth.user, body.correctionReason);
       const saved = await tx.itemUnitProfile.upsert({ where: { componentId: id }, create: { componentId: id, ...fields }, update: fields });
       await tx.itemUnitConversion.deleteMany({ where: { profileId: saved.id } });
       await tx.itemUnitConversion.createMany({ data: cfg.conversions.map((c) => ({ profileId: saved.id, code: c.code, factor: toPlain(dec(c.factor)), decimals: c.decimals })) });
+      // The older product fields are copies of the profile, so older screens show the same packet size
+      await tx.component.update({ where: { id }, data: legacyFieldsFrom(cfg) });
       await tx.auditLog.create({
-        data: { entity: "ItemUnitProfile", entityId: id, action: "UPDATE", userId: auth.user.id, before: item.unitProfile ? JSON.stringify(item.unitProfile) : null, after: JSON.stringify({ ...fields, conversions: cfg.conversions }) },
+        data: { entity: "ItemUnitProfile", entityId: id, action: changes.length && item.unitProfile ? "UNIT_CORRECTION" : "UPDATE", userId: auth.user.id, reason: changes.length ? body.correctionReason ?? null : null, before: item.unitProfile ? JSON.stringify(item.unitProfile) : null, after: JSON.stringify({ ...fields, conversions: cfg.conversions }) },
       });
       return tx.itemUnitProfile.findUniqueOrThrow({ where: { id: saved.id }, include: { conversions: true } });
     });

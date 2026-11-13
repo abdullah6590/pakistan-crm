@@ -1,4 +1,5 @@
 // src/app/(dashboard)/inventory/page.tsx - Inventory List (Server)
+import { catalogReady } from "@/lib/accounting/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 import { redirect } from "next/navigation";
@@ -8,6 +9,7 @@ import { parseSortParams, buildOrderBy, INVENTORY_SORT_WHITELIST } from "@/lib/s
 
 export default async function InventoryPage({ searchParams }: { searchParams: Promise<{ page?: string, search?: string, categoryId?: string, supplierId?: string, lowStock?: string }> }) {
   const user = await getAuthUser();
+  await catalogReady(); // product and party numbers (Report 32 phase 1)
   if (!user) redirect("/login");
 
   const params = await searchParams;

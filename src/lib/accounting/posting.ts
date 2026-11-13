@@ -392,7 +392,7 @@ type ComponentWithProfile = Prisma.ComponentGetPayload<{ include: { unitProfile:
 export type UnitSource = Pick<ComponentWithProfile, "unit" | "rimInSheet" | "itemsPerPackage" | "packagingUnit" | "unitProfile">;
 
 /** Until an item's units are confirmed (Report 13 D-C), derive them from the existing item fields. */
-function fallbackUnitConfig(c: UnitSource): ItemUnitConfig {
+export function fallbackUnitConfig(c: UnitSource): ItemUnitConfig {
   const unit = (c.unit || "piece").toLowerCase();
   if (unit === "sheet") return { kind: "PAPER", baseUnit: "sheet", conversions: [{ code: "packet", factor: c.rimInSheet && c.rimInSheet > 0 ? c.rimInSheet : 100 }] };
   if (unit === "kg") return { kind: "WEIGHT", baseUnit: "kg", baseDecimals: 3 };

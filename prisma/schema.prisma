@@ -252,6 +252,7 @@ model ComponentCategory {
   description String?
   icon        String?
   color       String      @default("#6366F1")
+  ratePerKg   Float?      // Item Group price: default purchase rate per KG for its products (old PG.Pprice)
 
   components  Component[]
 
@@ -300,7 +301,9 @@ model Component {
   divisor        Float?             @default(15500) // Weight divisor (varies by category/size)
   weightKg       Float?             // Calculated: (X × Y × GSM) / Divisor
   rimInSheet     Int?               @default(100) // Sheets per ream (adjustable)
-  ratePerKg      Float?             // Rate per KG for auto-pricing
+  ratePerKg      Float?             // Purchase rate per KG (old "Sup-Price"); bills keep their own rate
+  saleRatePerKg  Float?             // Sale rate per KG (old "Sale Price"), independent of the purchase rate
+  itemNo         Int?               @unique // Short product number (old "Product id"), given by the main server
 
   // Tracking
   totalPurchased  Int                @default(0)
@@ -360,6 +363,7 @@ model Supplier {
   taxNumber       String?
   notes           String?
   contactPerson   String?
+  partyNo         Int?         @unique // Short party number; one sequence shared with customers (old SubCode)
   customFields    String?      // JSON list of {label, value}: the owner's own supplier details
   totalPurchased  Float        @default(0)
   balanceDue      Float        @default(0)
@@ -384,6 +388,7 @@ model Customer {
   phone          String?
   address        String?
   city           String?
+  partyNo        Int?     @unique // Short party number; one sequence shared with suppliers (old SubCode)
   totalPurchased Float    @default(0)
   balanceDue     Float    @default(0)
   visitCount     Int      @default(0)

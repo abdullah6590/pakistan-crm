@@ -1,6 +1,8 @@
 // src/lib/purchases/suppliers.ts - Supplier records (Report 30 §1): create with a duplicate check, edit with audit history,
 // archive instead of delete. A supplier's money (bills, payments, balance) lives in Books on their own account, so
 // archiving never touches it; an archived supplier only stops getting new bills.
+import { nextPartyNo } from "@/lib/catalog/numbers";
+import { isAuthority } from "@/lib/sync/local";
 import type { Prisma, PrismaClient, Supplier } from "@prisma/client";
 import { PostingError } from "@/lib/accounting/posting";
 
@@ -70,7 +72,9 @@ export async function createSupplier(db: PrismaClient, userId: string, input: Su
       err.details = { duplicates: dups };
       throw err;
     }
-    const supplier = await tx.supplier.create({ data: { ...(data as Prisma.SupplierCreateInput), name: data.name!, country: data.country ?? "Pakistan" } });
+    // A short number from the shared party counter (customers and suppliers, like the old SubCode), main server only
+    const partyNo = isAuthority() ? await nextPartyNo(tx) : null;
+    const supplier = await tx.supplier.create({ data: { ...(data as Prisma.SupplierCreateInput), name: data.name!, country: data.country ?? "Pakistan", partyNo } });
     await auditSupplier(tx, supplier.id, "CREATE", userId, { after: data, reason: dups.length ? `Not a duplicate of ${dups.map((d) => d.name).join(", ")}: ${why}` : undefined });
     return supplier;
   });

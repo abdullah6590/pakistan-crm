@@ -11,6 +11,11 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { name, description, color } = body;
+    // Item Group price: default purchase rate per kg for the group's products (old PG.Pprice)
+    const rate = body.ratePerKg === undefined || body.ratePerKg === null || body.ratePerKg === "" ? null : Number(body.ratePerKg);
+    if (rate !== null && !(Number.isFinite(rate) && rate >= 0)) {
+      return NextResponse.json({ error: "Enter the price per kg as a number (0 or more)" }, { status: 400 });
+    }
 
     if (!name) {
       return NextResponse.json({ error: "Name is required" }, { status: 400 });
@@ -30,6 +35,7 @@ export async function POST(request: NextRequest) {
         name,
         description: description || null,
         color: color || "#6366F1",
+        ratePerKg: rate,
       },
     });
 

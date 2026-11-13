@@ -1,4 +1,5 @@
 // src/app/dashboard/purchases/new/page.tsx - Enter a purchase bill on Books (Report 30).
+import { catalogReady } from "@/lib/accounting/server";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
@@ -12,6 +13,7 @@ export const dynamic = "force-dynamic";
 
 export default async function NewPurchasePage({ searchParams }: { searchParams: Promise<{ supplierId?: string }> }) {
   const user = await getAuthUser();
+  await catalogReady(); // product and party numbers (Report 32 phase 1)
   if (!user) redirect("/login");
   if (!can(user.role, "purchases", "write")) redirect("/dashboard/purchases");
   const p = await searchParams;
@@ -20,7 +22,7 @@ export default async function NewPurchasePage({ searchParams }: { searchParams: 
       where: { isActive: true }, orderBy: { totalPurchased: "desc" }, take: 15,
       select: { id: true, name: true, sku: true, quantity: true, ...SPEC_FIELDS, ...UNIT_FIELDS },
     }),
-    prisma.supplier.findMany({ where: { isActive: true }, select: { id: true, name: true, phone: true }, orderBy: { name: "asc" } }),
+    prisma.supplier.findMany({ where: { isActive: true }, select: { id: true, name: true, phone: true, partyNo: true }, orderBy: { name: "asc" } }),
   ]);
   return (
     <NewPurchaseClient

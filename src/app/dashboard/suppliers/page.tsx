@@ -1,4 +1,5 @@
 // src/app/dashboard/suppliers/page.tsx - Suppliers (Report 30 §1): search, filter, what each is owed (from Books), add.
+import { catalogReady } from "@/lib/accounting/server";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
@@ -11,6 +12,7 @@ export const dynamic = "force-dynamic";
 
 export default async function SuppliersPage({ searchParams }: { searchParams: Promise<{ search?: string; status?: string; owed?: string }> }) {
   const user = await getAuthUser();
+  await catalogReady(); // product and party numbers (Report 32 phase 1)
   if (!user) redirect("/login");
   if (!can(user.role, "suppliers", "read")) redirect("/dashboard");
   await accountingReady();
