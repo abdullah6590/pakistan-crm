@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { loadPurchaseBill } from "@/lib/purchases/queries";
+import { billPayments } from "@/lib/accounting/payables";
 import { stepBill } from "@/lib/sales/step";
 import { startingLists } from "@/lib/sales/desk-data";
 import { withSaleUnits } from "@/lib/sales/units";
@@ -50,6 +51,8 @@ export default async function SupplierDeskPage({ searchParams }: { searchParams:
     })),
   }));
   const current = doc.status === "POSTED";
+  const pays = await billPayments(prisma, doc.id);
+  const payments = pays.payments.map((p) => ({ docNo: p.docNo, date: new Date(p.date).toISOString(), method: p.method, amount: String(p.amount) }));
   return (
     <PaperSaleClient
       key={doc.id}
@@ -65,6 +68,8 @@ export default async function SupplierDeskPage({ searchParams }: { searchParams:
         // A bill with an active return cannot be edited (Report 30); the API refuses it too
         canEdit: current && canWrite && !doc.returns.some((r) => r.status === "POSTED"),
         canCashUpdate: false, canNew: canWrite,
+        canPay: current && Number(bill.remaining) > 0 && can(user.role, "supplierPayments", "write"),
+        payments,
       }}
     />
   );

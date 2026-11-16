@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { loadBooksBill } from "@/lib/sales/books-queries";
+import { invoicePayments } from "@/lib/accounting/receivables";
 import { mayEditBill } from "@/lib/sales/books-sales";
 import { stepBill } from "@/lib/sales/step";
 import { screenBill, startingLists } from "@/lib/sales/desk-data";
@@ -33,6 +34,11 @@ export default async function SaleDeskPage({ searchParams }: { searchParams: Pro
   }
   const { doc } = bill;
   const current = doc.status === "POSTED";
+  const pays = await invoicePayments(prisma, doc.id);
+  const payments = [
+    ...(Number(pays.atCounter) > 0 ? [{ docNo: doc.docNo, date: doc.date.toISOString(), method: "At the counter", amount: String(pays.atCounter) }] : []),
+    ...pays.payments.map((p) => ({ docNo: p.receiptNo, date: new Date(p.date).toISOString(), method: p.method, amount: String(p.amount) })),
+  ];
   return (
     <PaperSaleClient
       key={doc.id}
@@ -48,6 +54,8 @@ export default async function SaleDeskPage({ searchParams }: { searchParams: Pro
         previousBalance: doc.previousBalance, newBalance: doc.newBalance,
         canEdit: current && canWrite && mayEditBill({ id: user.id, role: user.role }, doc),
         canCashUpdate: current && doc.type === "CASH_SALE" && Number(bill.remaining) > 0 && can(user.role, "customerPayments", "write"),
+        canPay: current && Number(bill.remaining) > 0 && can(user.role, "customerPayments", "write"),
+        payments,
         canNew: canWrite,
       }}
     />

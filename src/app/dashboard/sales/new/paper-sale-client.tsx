@@ -7,7 +7,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Banknote, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, FilePlus2, Pencil, Plus, Printer, Receipt, Save, Search, Trash2, UserPlus, X } from "lucide-react";
+import { Banknote, CheckCircle2, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, FilePlus2, Pencil, Plus, Printer, Receipt, Save, Search, Trash2, UserPlus, X } from "lucide-react";
 import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -145,8 +145,14 @@ export interface DeskInfo {
   newBalance?: string | null;
   canEdit?: boolean;
   canCashUpdate?: boolean;
+  /** Receive (or, on a supplier invoice, pay) money against this bill from the desk */
+  canPay?: boolean;
+  /** Money already set against this bill: cash at the counter, receipts, supplier payments and returns */
+  payments?: DeskPayment[];
   canNew?: boolean;
 }
+
+export interface DeskPayment { docNo: string; date: string; method: string; amount: string }
 
 interface Props {
   initialItems: SaleItemOption[];
@@ -485,15 +491,27 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
     setTimeout(() => router.refresh(), 1500);
   };
   const [cashUpdate, setCashUpdate] = useState<null | { amount: string; method: string; busy: boolean }>(null);
-  const [cashRequest] = useState(() => crypto.randomUUID());
+  const [cashRequest, setCashRequest] = useState(() => crypto.randomUUID());
+  const payLabel = purchase ? "Pay supplier" : cashSale ? "Cash Update" : "Receive payment";
   const sendCashUpdate = async () => {
     if (!editBill || !cashUpdate) return;
     setCashUpdate({ ...cashUpdate, busy: true });
-    const res = await fetch(`/api/sales/${editBill.id}/cash-update`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ amount: cashUpdate.amount, method: cashUpdate.method, requestId: cashRequest }) });
+    const date = new Date().toISOString().slice(0, 10);
+    const amount = cashUpdate.amount;
+    // A cash sale's walk-in has no customer record: its Cash Update goes through the bill itself (main server)
+    const [url, body] = editBill.type === "CASH_SALE"
+      ? [`/api/sales/${editBill.id}/cash-update`, { amount, method: cashUpdate.method, requestId: cashRequest }]
+      : purchase
+        ? ["/api/purchases/payments", { supplierId: editBill.customer?.id, date, amount, method: cashUpdate.method, allocations: [{ billId: editBill.id, amount }], requestId: cashRequest }]
+        : ["/api/sales/payments", { customerId: editBill.customer?.id, date, amount, method: cashUpdate.method, allocations: [{ invoiceId: editBill.id, amount }], requestId: cashRequest }];
+    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) { toast.error(data.error || "The cash was not recorded"); setCashUpdate({ ...cashUpdate, busy: false }); return; }
-    toast.success(`Cash ${money(Number(cashUpdate.amount))} recorded as ${data.receipt.docNo}`);
+    if (!res.ok) { toast.error(data.error || "The payment was not recorded"); setCashUpdate({ ...cashUpdate, busy: false }); return; }
+    const doc = data.receipt ?? data.payment;
+    toast.success(data.pending ? `${money(Number(amount))} kept on this computer; it reaches the office server when connected`
+      : `${money(Number(amount))} ${purchase ? "paid" : "received"}${doc?.docNo ? ` as ${doc.docNo}` : ""}`);
     setCashUpdate(null);
+    setCashRequest(crypto.randomUUID());
     router.refresh();
   };
   const [nameHits, setNameHits] = useState<{ id: string; docNo: string; customer: string; date: string; remaining: string }[] | null>(null);
@@ -599,7 +617,7 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
                   <div>
                     <p className="text-xs text-muted-foreground">{purchase ? "Owed to them before this bill" : "Balance before this bill"}</p>
                     {/* A saved bill shows the balance stored with it; a new bill today's balance */}
-                    <p className={cn("font-semibold tabular-nums", (editBill ? Number(desk?.previousBalance) : balance!) > 0 && "text-amber-700 dark:text-amber-400")}>{money(editBill ? (purchase ? -1 : 1) * Number(desk?.previousBalance) : balance!)}</p>
+                    <p className={cn("font-semibold tabular-nums", (editBill ? Number(desk?.previousBalance) : balance!) > 0 && "text-amber-700 dark:text-amber-400")}>{money(editBill ? ((purchase ? -1 : 1) * Number(desk?.previousBalance) || 0) : balance!)}</p>
                   </div>
                 )}
                 {!editBill && <Button type="button" variant="ghost" size="sm" onClick={() => { setCustomer(null); setBalance(null); }}>Change</Button>}
@@ -878,13 +896,15 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
         </CardContent>
       </Card>
 
+      </fieldset>
+
       {/* Remarks, money and the old program's buttons */}
-      <Card>
+      <Card className="[&_input:disabled]:cursor-default [&_input:disabled]:opacity-100 [&_button:disabled]:opacity-100">
         <CardContent className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
           <div className="space-y-3">
             <div className="space-y-1">
               <Label htmlFor="remarks">Remarks</Label>
-              <Input id="remarks" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Shown on the bill" />
+              <Input id="remarks" disabled={locked} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Shown on the bill" />
             </div>
             {editing && (
               <div className="space-y-1">
@@ -894,6 +914,10 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
               </div>
             )}
           </div>
+          {desk && editBill ? (
+            <PaymentPanel desk={desk} money={money} purchase={purchase} cashSale={cashSale} editing={editing} payLabel={payLabel}
+              onPay={() => setCashUpdate({ amount: String(Number(desk.remaining ?? 0) || ""), method: "CASH", busy: false })} />
+          ) : (
           <div className="space-y-2">
             {isInvoiceEdit ? (
               <p className="text-sm text-muted-foreground">Payments already received stay with this bill. Receive more from the bill page.</p>
@@ -901,11 +925,11 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
               <div className="grid grid-cols-[1fr_auto] items-end gap-2">
                 <div className="space-y-1">
                   <Label htmlFor="received">{purchase ? "Paid now" : cashSale ? "Cash received" : "Received now"}</Label>
-                  <Input id="received" inputMode="decimal" className="tabular-nums" value={received === "" ? String(receivedNow) : received}
+                  <Input id="received" disabled={locked} inputMode="decimal" className="tabular-nums" value={received === "" ? String(receivedNow) : received}
                     onFocus={(e) => e.target.select()} onChange={(e) => setReceived(decimal(e.target.value, 2))}
                     onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); document.getElementById("save-bill")?.focus(); } }} />
                 </div>
-                <Select value={method} onChange={(v: string) => setMethod(v)}>
+                <Select value={method} disabled={locked} onChange={(v: string) => setMethod(v)}>
                   <SelectTrigger className="w-36" aria-label="Paid by"><SelectValue /></SelectTrigger>
                   <SelectContent>{PAYMENT_METHODS.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
                 </Select>
@@ -918,10 +942,11 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
                 <div className="flex justify-between border-t pt-1"><dt className="text-muted-foreground">{purchase ? "Owed to them after this bill" : <>Customer&apos;s balance after this bill</>}</dt><dd className="font-semibold tabular-nums">{money(balance + owedOnBill)}</dd></div>
               )}
               {!cashSale && editBill && locked && desk?.newBalance != null && (
-                <div className="flex justify-between border-t pt-1"><dt className="text-muted-foreground">{purchase ? "Owed to them after this bill" : <>Customer&apos;s balance after this bill</>}</dt><dd className="font-semibold tabular-nums">{money((purchase ? -1 : 1) * Number(desk.newBalance))}</dd></div>
+                <div className="flex justify-between border-t pt-1"><dt className="text-muted-foreground">{purchase ? "Owed to them after this bill" : <>Customer&apos;s balance after this bill</>}</dt><dd className="font-semibold tabular-nums">{money((purchase ? -1 : 1) * Number(desk.newBalance) || 0)}</dd></div>
               )}
             </dl>
           </div>
+          )}
           {!desk && <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 lg:col-span-2">
             <div className="flex gap-1" role="group" aria-label="Step through bills">
               {([["first", ChevronFirst, "First bill"], ["prev", ChevronLeft, "Previous bill"], ["next", ChevronRight, "Next bill"], ["last", ChevronLast, "Last bill"]] as const).map(([d, Icon, label]) => (
@@ -941,7 +966,6 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
           </div>}
         </CardContent>
       </Card>
-      </fieldset>
 
       {desk && (
         <div className="sticky bottom-0 z-20 flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-background/95 p-3 shadow-sm backdrop-blur" role="toolbar" aria-label="Invoice desk">
@@ -960,14 +984,14 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
           {editBill && locked && (
             <p className="text-xs text-muted-foreground" aria-live="polite">
               {desk.status === "CANCELLED" ? "Cancelled · " : ""}Printed {desk.printCount ?? 0} time{desk.printCount === 1 ? "" : "s"}{desk.lastPrintedAt ? `, last ${new Date(desk.lastPrintedAt).toLocaleString("en-PK")}` : ""}
-              {desk.kind === "CASH_SALE" && Number(desk.remaining ?? 0) > 0 ? ` · owes ${money(Number(desk.remaining))}` : ""}
+              {Number(desk.remaining ?? 0) > 0 ? ` · ${purchase ? "you owe" : "owes"} ${money(Number(desk.remaining))}` : ""}
             </p>
           )}
           <div className="flex flex-wrap gap-2">
             {locked ? (<>
               {desk.canNew !== false && <Button type="button" variant="outline" className="gap-1" onClick={() => router.push(deskUrl("new=1"))}><FilePlus2 className="h-4 w-4" aria-hidden /> New</Button>}
               {desk.canEdit && <Button type="button" variant="outline" className="gap-1" onClick={() => { setLocked(false); setTimeout(() => document.getElementById("reason")?.focus(), 50); }}><Pencil className="h-4 w-4" aria-hidden /> Edit</Button>}
-              {desk.canCashUpdate && <Button type="button" variant="outline" className="gap-1" onClick={() => setCashUpdate({ amount: String(desk.remaining ?? ""), method: "CASH", busy: false })}><Banknote className="h-4 w-4" aria-hidden /> Cash Update</Button>}
+              {(desk.canPay || desk.canCashUpdate) && <Button type="button" variant="outline" className="gap-1 border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/40" onClick={() => setCashUpdate({ amount: String(Number(desk.remaining ?? 0) || ""), method: "CASH", busy: false })}><Banknote className="h-4 w-4" aria-hidden /> {payLabel}</Button>}
               <Button type="button" variant="outline" className="gap-1" onClick={() => print("invoice")}><Printer className="h-4 w-4" aria-hidden /> Print</Button>
               {!purchase && <Button type="button" variant="outline" className="gap-1" onClick={() => print("slip")} title="The slip (old Print G)"><Receipt className="h-4 w-4" aria-hidden /> Print G</Button>}
             </>) : (<>
@@ -983,28 +1007,100 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
       <Dialog open={!!cashUpdate} onClose={() => !cashUpdate?.busy && setCashUpdate(null)}>
         {cashUpdate && (<>
           <DialogHeader>
-            <DialogTitle>Cash Update · {editBill?.invoiceNumber}</DialogTitle>
-            <DialogDescription>More cash for this bill. It is kept as a receipt against the bill; the bill itself stays as saved. Still owed: {money(Number(desk?.remaining ?? 0))}.</DialogDescription>
+            <DialogTitle>{payLabel} · {editBill?.invoiceNumber}</DialogTitle>
+            <DialogDescription>
+              {purchase ? `Money paid to ${editBill?.customer?.name ?? "the supplier"} for this bill. It is kept as a payment voucher set against the bill.`
+                : `Money received${cashSale ? "" : ` from ${editBill?.customer?.name ?? "the customer"}`} for this bill. It is kept as a receipt set against the bill.`}
+              {" "}The bill itself stays as saved. Still owed: {money(Number(desk?.remaining ?? 0))}.
+            </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-[1fr_auto] items-end gap-2 py-2">
             <div className="space-y-1">
-              <Label htmlFor="cash-update-amount">Cash received</Label>
+              <Label htmlFor="cash-update-amount">{purchase ? "Amount paid" : "Amount received"}</Label>
               <Input id="cash-update-amount" autoFocus inputMode="decimal" className="tabular-nums" value={cashUpdate.amount}
                 onChange={(e) => setCashUpdate({ ...cashUpdate, amount: decimal(e.target.value, 2) })}
                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void sendCashUpdate(); } }} />
             </div>
             <Select value={cashUpdate.method} onChange={(v: string) => setCashUpdate({ ...cashUpdate, method: v })}>
-              <SelectTrigger className="w-36" aria-label="Received into"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-36" aria-label={purchase ? "Paid from" : "Received into"}><SelectValue /></SelectTrigger>
               <SelectContent>{PAYMENT_METHODS.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
             </Select>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCashUpdate(null)} disabled={cashUpdate.busy}>Cancel</Button>
-            <Button onClick={() => void sendCashUpdate()} disabled={cashUpdate.busy || !(Number(cashUpdate.amount) > 0)}>{cashUpdate.busy ? "Saving…" : "Record cash"}</Button>
+            <Button onClick={() => void sendCashUpdate()} disabled={cashUpdate.busy || !(Number(cashUpdate.amount) > 0)}>{cashUpdate.busy ? "Saving…" : purchase ? "Record payment" : cashSale ? "Record cash" : "Record receipt"}</Button>
           </DialogFooter>
         </>)}
       </Dialog>
     </div>
+  );
+}
+
+/** A saved bill's money on the desk: the bill, what is paid, what is still owed, each payment, and the payment button. */
+function PaymentPanel({ desk, money, purchase, cashSale, editing, payLabel, onPay }: {
+  desk: DeskInfo; money: (n: number) => string; purchase: boolean; cashSale: boolean; editing: boolean; payLabel: string; onPay: () => void;
+}) {
+  const total = Number(desk.total ?? 0), paid = Number(desk.paid ?? 0), owed = Number(desk.remaining ?? 0);
+  const cancelled = desk.status && desk.status !== "POSTED";
+  const pct = total > 0 ? Math.min(100, Math.round(((total - owed) / total) * 100)) : 0;
+  const state = cancelled ? { text: desk.status === "CANCELLED" ? "Cancelled" : "Replaced", cls: "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300" }
+    : owed <= 0 ? { text: "Paid in full", cls: "bg-emerald-600 text-white" }
+    : owed < total ? { text: "Part paid", cls: "bg-amber-500 text-white" }
+    : { text: "Not paid yet", cls: "bg-rose-600 text-white" };
+  const tile = "rounded-lg border px-3 py-2";
+  return (
+    <section aria-label="Payment" data-payment-panel
+      className="space-y-3 rounded-xl border border-sky-200 bg-gradient-to-br from-sky-50 via-white to-emerald-50 p-3 dark:border-sky-900 dark:from-sky-950/50 dark:via-background dark:to-emerald-950/40">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold">{purchase ? "Payment to the supplier" : cashSale ? "Cash for this sale" : "Payment from the customer"}</h3>
+        <span data-payment-state className={cn("rounded-full px-2.5 py-0.5 text-xs font-semibold", state.cls)}>{state.text}</span>
+      </div>
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <div className={cn(tile, "border-sky-200 bg-sky-100/70 dark:border-sky-900 dark:bg-sky-950/60")}>
+          <div className="text-[11px] font-medium uppercase tracking-wide text-sky-800 dark:text-sky-300">Bill</div>
+          <div data-pay="total" className="font-semibold tabular-nums text-sky-950 dark:text-sky-100">{money(total)}</div>
+        </div>
+        <div className={cn(tile, "border-emerald-200 bg-emerald-100/70 dark:border-emerald-900 dark:bg-emerald-950/60")}>
+          <div className="text-[11px] font-medium uppercase tracking-wide text-emerald-800 dark:text-emerald-300">Paid</div>
+          <div data-pay="paid" className="font-semibold tabular-nums text-emerald-950 dark:text-emerald-100">{money(paid)}</div>
+        </div>
+        <div className={cn(tile, owed > 0 ? "border-rose-200 bg-rose-100/70 dark:border-rose-900 dark:bg-rose-950/60" : "border-emerald-200 bg-emerald-100/70 dark:border-emerald-900 dark:bg-emerald-950/60")}>
+          <div className={cn("text-[11px] font-medium uppercase tracking-wide", owed > 0 ? "text-rose-800 dark:text-rose-300" : "text-emerald-800 dark:text-emerald-300")}>{purchase ? "You owe" : "Still owed"}</div>
+          <div data-pay="owed" className={cn("flex items-center justify-center gap-1 font-semibold tabular-nums", owed > 0 ? "text-rose-950 dark:text-rose-100" : "text-emerald-950 dark:text-emerald-100")}>
+            {owed <= 0 && <CheckCircle2 className="h-4 w-4" aria-hidden />}{money(owed)}
+          </div>
+        </div>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-rose-200 dark:bg-rose-950" role="progressbar" aria-label="Paid so far" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
+        <div className="h-full rounded-full bg-emerald-500 transition-[width]" style={{ width: `${pct}%` }} />
+      </div>
+      {(desk.payments?.length ?? 0) > 0 && (
+        <ul className="space-y-1 text-xs" aria-label="Payments on this bill">
+          {desk.payments!.map((p, i) => (
+            <li key={`${p.docNo}-${i}`} className="flex items-center justify-between gap-2 rounded-md bg-background/70 px-2 py-1">
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" aria-hidden />
+                <span className="truncate">{p.date.slice(0, 10)} · {p.docNo} · {p.method}</span>
+              </span>
+              <span className="font-medium tabular-nums">{money(Number(p.amount))}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {!cashSale && desk.newBalance != null && (
+        <div className="flex items-center justify-between rounded-lg bg-violet-100/70 px-3 py-1.5 text-sm dark:bg-violet-950/50">
+          <span className="text-violet-900 dark:text-violet-200">{purchase ? "Owed to them after this bill" : "Customer's balance after this bill"}</span>
+          <span className="font-semibold tabular-nums text-violet-950 dark:text-violet-100">{money((purchase ? -1 : 1) * Number(desk.newBalance) || 0)}</span>
+        </div>
+      )}
+      {editing ? (
+        <p className="text-xs text-muted-foreground">Payments already made stay with this bill. Receive or pay more after saving.</p>
+      ) : (desk.canPay || desk.canCashUpdate) && owed > 0 ? (
+        <Button type="button" data-pay-button onClick={onPay} className="h-10 w-full gap-2 bg-emerald-600 text-white hover:bg-emerald-700">
+          <Banknote className="h-4 w-4" aria-hidden /> {payLabel} · {money(owed)}
+        </Button>
+      ) : null}
+    </section>
   );
 }
 
