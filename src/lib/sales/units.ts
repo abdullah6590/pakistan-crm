@@ -21,11 +21,14 @@ export interface SaleUnits {
 
 export function saleUnitsOf(c: UnitSource): SaleUnits {
   const { cfg } = unitConfigFor(c);
+  // Owner rule (2026-11-16): anything counted in sheets is billed in packets by default, even when its own sale or
+  // purchase unit was left as the sheet; the row's unit box still offers the sheet for anyone who wants it
+  const packetDefault = cfg.baseUnit === "sheet" && cfg.conversions?.some((u) => u.code === "packet") ? "packet" : undefined;
   return {
     kind: cfg.kind,
     baseUnit: cfg.baseUnit,
-    saleUnit: cfg.saleUnit ?? cfg.baseUnit,
-    purchaseUnit: cfg.purchaseUnit ?? cfg.baseUnit,
+    saleUnit: cfg.saleUnit && cfg.saleUnit !== cfg.baseUnit ? cfg.saleUnit : packetDefault ?? cfg.saleUnit ?? cfg.baseUnit,
+    purchaseUnit: cfg.purchaseUnit && cfg.purchaseUnit !== cfg.baseUnit ? cfg.purchaseUnit : packetDefault ?? cfg.purchaseUnit ?? cfg.baseUnit,
     units: [...(cfg.conversions ?? []).map((u) => ({ code: u.code, factor: Number(u.factor) })), { code: cfg.baseUnit, factor: 1 }],
   };
 }
