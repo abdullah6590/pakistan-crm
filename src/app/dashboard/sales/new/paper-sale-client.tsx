@@ -63,11 +63,13 @@ interface Row {
   qty: string; loose: string;
   /** The line's own remark (old grid "Remarks") */
   remarks: string;
+  /** The "entered in sheets, did you mean packets?" question was answered for this row (or the row came from a saved bill) */
+  sheetsOk: boolean;
 }
 
 /** An empty row. Its key is given by the screen's own counter, so the page drawn on the server and in the browser
  * name every row the same (a counter shared by all screens gave the two sides different names, and the cursor got lost). */
-const emptyRow = (key: string): Row => ({ key, item: null, query: "", unit: "", x: "", y: "", gsm: "", divisor: "15500", rate: "", price: "", priceTyped: false, qty: "", loose: "", remarks: "" });
+const emptyRow = (key: string): Row => ({ key, item: null, query: "", unit: "", x: "", y: "", gsm: "", divisor: "15500", rate: "", price: "", priceTyped: false, qty: "", loose: "", remarks: "", sheetsOk: false });
 const num = (v: string | number | null | undefined) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 /** A number as typed: digits and one point, at most `dp` decimals, no leading zeros. */
 const decimal = (text: string, dp: number) => {
@@ -100,6 +102,20 @@ const sheetsOf = (r: Row) => num(r.qty) * factorOf(r) + (isPack(r) ? num(r.loose
 /** As Books prices it: whole units at their price, loose sheets at the price per sheet. */
 const amountOf = (r: Row) => priceOf(r) * num(r.qty) + (isPack(r) ? (priceOf(r) / factorOf(r)) * num(r.loose) : 0);
 const weightOf = (r: Row) => { const kg = kgPerUnit(r); return kg === null ? 0 : (kg / factorOf(r)) * sheetsOf(r); };
+/** The packet of an item counted in sheets, when the row is entered in sheets (owner 2026-11-16: customers count in
+ * packets, so a number typed as sheets is usually packets by mistake). */
+const packetOf = (r: Row) =>
+  r.item?.baseUnit === "sheet" && r.unit === r.item.baseUnit ? r.item.units?.find((u) => u.code === "packet" && u.factor > 1) : undefined;
+/** The row still has to answer "entered in sheets, did you mean packets?" (asked once per row). */
+const asksSheets = (r: Row) => !r.sheetsOk && !!packetOf(r) && num(r.qty) > 0;
+/** The row moved to packets: a typed price was per sheet, so it becomes per packet (a worked-out price follows by itself). */
+const toPackets = (r: Row, qty: number, loose: number): Partial<Row> => {
+  const f = packetOf(r)!.factor;
+  return {
+    unit: "packet", qty: String(qty), loose: loose > 0 ? String(loose) : "", sheetsOk: true,
+    ...(r.priceTyped && r.price ? { price: String(Math.round(num(r.price) * f * 10000) / 10000) } : {}),
+  };
+};
 
 function rowFor(item: SaleItemOption, prev: Row, side: "sale" | "purchase" = "sale"): Row {
   const unit = (side === "purchase" ? item.purchaseUnit : item.saleUnit) ?? item.saleUnit ?? item.baseUnit ?? "";
@@ -113,7 +129,7 @@ function rowFor(item: SaleItemOption, prev: Row, side: "sale" | "purchase" = "sa
     divisor: String(item.divisor || 15500), rate: hasSize && saleRate ? String(saleRate) : "",
     // Without a size the item is priced per unit as before; with one the price follows kg x rate
     price: hasSize && saleRate ? "" : listPrice ? String(listPrice) : "", priceTyped: !(hasSize && saleRate),
-    qty: prev.qty || "", loose: "", remarks: prev.remarks,
+    qty: prev.qty || "", loose: "", remarks: prev.remarks, sheetsOk: false,
   };
 }
 
@@ -196,7 +212,7 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
       return {
         ...r, unit: i.unit ?? r.unit, qty: String(i.quantity), loose: i.loose ? String(i.loose) : "",
         ...(i.paper ? { x: i.paper.x, y: i.paper.y, gsm: i.paper.gsm, divisor: i.paper.divisor ?? "15500", rate: i.paper.rate ?? "" } : {}),
-        price: String(i.unitPrice), priceTyped: true, remarks: i.remarks ?? "",
+        price: String(i.unitPrice), priceTyped: true, remarks: i.remarks ?? "", sheetsOk: true,
       };
     });
     return [...loaded, emptyRow(`r${loaded.length}`)];
@@ -368,6 +384,7 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
     for (const r of filled) {
       const name = r.item!.name;
       if (!(num(r.qty) > 0) && !(isPack(r) && num(r.loose) > 0)) return `${name}: enter the quantity`;
+      if (asksSheets(r)) return `${name}: entered in sheets. Choose packets or keep sheets under the row`;
       if (isPack(r) && num(r.loose) >= factorOf(r)) return `${name}: loose sheets must be fewer than one ${r.unit} (${factorOf(r)})`;
       if (!(priceOf(r) > 0)) return `${name}: enter the price${isPaper(r) ? " or the rate per kg" : ""}`;
       if (!purchase && !isService(r) && sheetsOf(r) > available(r.item!)) return `${name}: only ${fmt(available(r.item!), 0)} ${r.item!.baseUnit ?? ""} in stock`;
@@ -687,6 +704,8 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
                   const service = isService(r);
                   const short = !purchase && r.item && !service && sheetsOf(r) > available(r.item);
                   const open = searchRow === r.key;
+                  const askN = !locked && asksSheets(r) ? num(r.qty) : 0;
+                  const askF = askN ? packetOf(r)!.factor : 0;
                   return (
                     <Fragment key={r.key}>
                       <tr className={cn("border-b align-middle", short && "bg-destructive/5")} onFocusCapture={() => setActiveKey(r.key)}
@@ -819,6 +838,31 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
                         <tr className="bg-destructive/5"><td /><td colSpan={15} className="px-2 pb-2 text-xs text-destructive">
                           Only {fmt(available(r.item!), 0)} {r.item!.baseUnit} in stock ({stockText(r.item!, available(r.item!))}).
                         </td></tr>
+                      )}
+                      {askN > 0 && (
+                          <tr className="bg-amber-50 dark:bg-amber-950/30" data-sheets-ask={r.key}>
+                            <td /><td colSpan={15} className="px-2 py-2 text-xs">
+                              <div role="group" aria-label={`Row ${i + 1} entered in sheets`} className="flex flex-wrap items-center gap-2">
+                                <span className="font-medium text-amber-900 dark:text-amber-200">
+                                  {fmt(askN, 0)} sheets of {r.item!.name}. This item comes in packets of {fmt(askF, 0)}. Did you mean packets?
+                                </span>
+                                <Button type="button" size="sm" className="h-7" data-sheets-choice="packets"
+                                  onClick={() => { setRow(r.key, toPackets(r, askN, 0)); setFocusNext(`${r.key}:qty`); }}>
+                                  Yes: {fmt(askN, 0)} packets ({fmt(askN * askF, 0)} sheets)
+                                </Button>
+                                {askN >= askF && (
+                                  <Button type="button" size="sm" variant="outline" className="h-7" data-sheets-choice="same"
+                                    onClick={() => { setRow(r.key, toPackets(r, Math.floor(askN / askF), askN % askF)); setFocusNext(`${r.key}:qty`); }}>
+                                    Keep {fmt(askN, 0)} sheets as {fmt(Math.floor(askN / askF), 0)} packets{askN % askF ? ` + ${askN % askF} sheets` : ""}
+                                  </Button>
+                                )}
+                                <Button type="button" size="sm" variant="ghost" className="h-7" data-sheets-choice="sheets"
+                                  onClick={() => setRow(r.key, { sheetsOk: true })}>
+                                  No, keep {fmt(askN, 0)} sheets
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
                       )}
                     </Fragment>
                   );
