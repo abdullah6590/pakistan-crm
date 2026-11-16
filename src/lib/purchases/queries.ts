@@ -167,7 +167,7 @@ export async function supplierList(db: PrismaClient, f: { search?: string; statu
     const party = parties.get(s.id);
     const balance = party ? sub(ZERO, await accountBalance(db, party.id)) : ZERO;
     const bills = party ? await db.accountingDocument.count({ where: { type: "PURCHASE_INVOICE", status: "POSTED", partyAccountId: party.id } }) : 0;
-    rows.push({ ...s, partyCode: party?.code ?? null, balance: toPlain(balance), bills });
+    rows.push({ ...s, partyCode: party?.code ?? null, balance: toPlain(balance), bills, partyAccountId: party?.id ?? null });
   }
   if (f.withBalance) return rows.filter((r) => Number(r.balance) !== 0);
   return rows;

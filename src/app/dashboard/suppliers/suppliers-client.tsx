@@ -12,13 +12,16 @@ import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { formatPaisa } from "@/lib/utils";
 import { SupplierForm } from "./supplier-form";
+import { BalanceBadge, BilledPaid, MoneyTiles, type PartyMoney, type PartyTotals } from "@/components/shared/party-money";
 
 export interface SupplierRow {
   id: string; name: string; company: string | null; contactPerson: string | null; phone: string | null; email: string | null; city: string | null;
   isActive: boolean; partyCode: string | null; balance: string; bills: number; partyNo?: number | null;
+  /** Billed, paid and balance from Books */
+  money?: PartyMoney | null;
 }
 
-export default function SuppliersClient({ suppliers, canEdit, filters }: { suppliers: SupplierRow[]; canEdit: boolean; filters: { search: string; status: string; owed: boolean } }) {
+export default function SuppliersClient({ suppliers, canEdit, filters, totals }: { suppliers: SupplierRow[]; canEdit: boolean; filters: { search: string; status: string; owed: boolean }; totals: PartyTotals }) {
   const router = useRouter();
   const [search, setSearch] = useState(filters.search);
   const [adding, setAdding] = useState(false);
@@ -45,6 +48,8 @@ export default function SuppliersClient({ suppliers, canEdit, filters }: { suppl
         actions={canEdit ? <Button onClick={() => setAdding(true)}><Plus className="h-4 w-4 mr-1" aria-hidden /> Add supplier</Button> : undefined}
       />
 
+      <MoneyTiles totals={totals} side="supplier" format={formatPaisa} />
+
       <Card>
         <CardContent className="flex flex-wrap items-center gap-3 p-4">
           <form className="relative min-w-[16rem] flex-1" onSubmit={(e) => { e.preventDefault(); go({ search: search.trim() || null }); }}>
@@ -66,7 +71,7 @@ export default function SuppliersClient({ suppliers, canEdit, filters }: { suppl
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
-                  <TableRow><TableHead>Supplier</TableHead><TableHead>Account</TableHead><TableHead>Contact</TableHead><TableHead>Phone</TableHead><TableHead>City</TableHead><TableHead className="text-right">Bills</TableHead><TableHead className="text-right">Balance</TableHead></TableRow>
+                  <TableRow><TableHead>Supplier</TableHead><TableHead>Account</TableHead><TableHead>Contact</TableHead><TableHead>Phone</TableHead><TableHead>City</TableHead><TableHead className="text-right">Bills</TableHead><TableHead><span className="text-sky-700 dark:text-sky-300">Billed</span> / <span className="text-emerald-700 dark:text-emerald-300">Paid</span></TableHead><TableHead className="text-right">Balance</TableHead></TableRow>
                 </TableHeader>
                 <TableBody>
                   {suppliers.map((s) => {
@@ -79,7 +84,8 @@ export default function SuppliersClient({ suppliers, canEdit, filters }: { suppl
                         <TableCell className="text-sm">{s.phone ?? "-"}</TableCell>
                         <TableCell className="text-sm">{s.city ?? "-"}</TableCell>
                         <TableCell className="text-right tabular-nums">{s.bills}</TableCell>
-                        <TableCell className="text-right tabular-nums font-medium">{b === 0 ? "-" : b > 0 ? `${formatPaisa(b)} owed` : `${formatPaisa(-b)} Dr`}</TableCell>
+                        <TableCell><BilledPaid money={s.money} format={formatPaisa} /></TableCell>
+                        <TableCell className="text-right" data-supplier-balance={s.name}><BalanceBadge money={s.money ?? { billed: "0", paid: "0", balance: String(b) }} side="supplier" format={formatPaisa} /></TableCell>
                       </TableRow>
                     );
                   })}
