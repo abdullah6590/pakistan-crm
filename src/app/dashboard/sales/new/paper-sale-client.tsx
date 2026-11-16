@@ -102,23 +102,20 @@ const sheetsOf = (r: Row) => num(r.qty) * factorOf(r) + (isPack(r) ? num(r.loose
 /** As Books prices it: whole units at their price, loose sheets at the price per sheet. */
 const amountOf = (r: Row) => priceOf(r) * num(r.qty) + (isPack(r) ? (priceOf(r) / factorOf(r)) * num(r.loose) : 0);
 const weightOf = (r: Row) => { const kg = kgPerUnit(r); return kg === null ? 0 : (kg / factorOf(r)) * sheetsOf(r); };
-/** The packet of an item counted in sheets, when the row is entered in sheets (owner 2026-11-16: customers count in
- * packets, so a number typed as sheets is usually packets by mistake). */
+/** The packet of an item counted in sheets (paper). As in the old program such a row is always packets + loose sheets:
+ * the price and kg are per packet and single sheets go in Loose sheets (Report 32: Amount = P-Price x Rim + S.Price x Sheet). */
 const packetOf = (r: Row) =>
-  r.item?.baseUnit === "sheet" && r.unit === r.item.baseUnit ? r.item.units?.find((u) => u.code === "packet" && u.factor > 1) : undefined;
-/** The row still has to answer "entered in sheets, did you mean packets?" (asked once per row). */
-const asksSheets = (r: Row) => !r.sheetsOk && !!packetOf(r) && num(r.qty) > 0;
-/** The row moved to packets: a typed price was per sheet, so it becomes per packet (a worked-out price follows by itself). */
-const toPackets = (r: Row, qty: number, loose: number): Partial<Row> => {
-  const f = packetOf(r)!.factor;
-  return {
-    unit: "packet", qty: String(qty), loose: loose > 0 ? String(loose) : "", sheetsOk: true,
-    ...(r.priceTyped && r.price ? { price: String(Math.round(num(r.price) * f * 10000) / 10000) } : {}),
-  };
-};
+  r.item?.baseUnit === "sheet" ? r.item.units?.find((u) => u.code === "packet" && u.factor > 1) : undefined;
+/** The units the row's unit box offers: the single sheet is left out where a packet exists (it is the Loose sheets box),
+ * unless a saved bill's line was entered in sheets. */
+const unitsFor = (r: Row) => (r.item?.units ?? []).filter((u) => !(packetOf(r) && u.code === r.item!.baseUnit && r.unit !== u.code));
+/** Only loose sheets and no packets: usually packets typed in the wrong box (owner 2026-11-16), so asked once per row. */
+const asksSheets = (r: Row) => !r.sheetsOk && !!packetOf(r) && r.unit === "packet" && !(num(r.qty) > 0) && num(r.loose) > 0;
 
 function rowFor(item: SaleItemOption, prev: Row, side: "sale" | "purchase" = "sale"): Row {
-  const unit = (side === "purchase" ? item.purchaseUnit : item.saleUnit) ?? item.saleUnit ?? item.baseUnit ?? "";
+  const own = (side === "purchase" ? item.purchaseUnit : item.saleUnit) ?? item.saleUnit ?? item.baseUnit ?? "";
+  // Paper in sheets with a packet is entered in packets + loose sheets (old program)
+  const unit = item.baseUnit === "sheet" && own === "sheet" && item.units?.some((u) => u.code === "packet") ? "packet" : own;
   const hasSize = !!(item.dimensionX && item.dimensionY && item.gsm);
   // A sale starts from the sale rate per kg, a purchase from the purchase rate (old Supplier Invoice)
   const saleRate = side === "purchase" ? item.ratePerKg : item.saleRatePerKg || item.ratePerKg;
@@ -218,6 +215,13 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
     return [...loaded, emptyRow(`r${loaded.length}`)];
   });
   const setRow = (key: string, patch: Partial<Row>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  /** Loose sheets of a whole packet or more become packets + loose, as the old T-Qty = packets x size + sheets (250 -> 2 + 50). */
+  const foldLoose = (key: string) => setRows((rs) => rs.map((r) => {
+    if (r.key !== key || !isPack(r)) return r;
+    const f = factorOf(r), loose = num(r.loose);
+    if (!(f > 1 && loose >= f)) return r;
+    return { ...r, qty: String(num(r.qty) + Math.floor(loose / f)), loose: loose % f ? String(loose % f) : "" };
+  }));
 
   // ─── Customer ───
   const [custQuery, setCustQuery] = useState("");
@@ -384,7 +388,7 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
     for (const r of filled) {
       const name = r.item!.name;
       if (!(num(r.qty) > 0) && !(isPack(r) && num(r.loose) > 0)) return `${name}: enter the quantity`;
-      if (asksSheets(r)) return `${name}: entered in sheets. Choose packets or keep sheets under the row`;
+      if (asksSheets(r)) return `${name}: ${r.loose} loose sheets and no packets. Answer the question under the row`;
       if (isPack(r) && num(r.loose) >= factorOf(r)) return `${name}: loose sheets must be fewer than one ${r.unit} (${factorOf(r)})`;
       if (!(priceOf(r) > 0)) return `${name}: enter the price${isPaper(r) ? " or the rate per kg" : ""}`;
       if (!purchase && !isService(r) && sheetsOf(r) > available(r.item!)) return `${name}: only ${fmt(available(r.item!), 0)} ${r.item!.baseUnit ?? ""} in stock`;
@@ -704,8 +708,8 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
                   const service = isService(r);
                   const short = !purchase && r.item && !service && sheetsOf(r) > available(r.item);
                   const open = searchRow === r.key;
-                  const askN = !locked && asksSheets(r) ? num(r.qty) : 0;
-                  const askF = askN ? packetOf(r)!.factor : 0;
+                  const askN = !locked && asksSheets(r) ? num(r.loose) : 0;
+                  const units = unitsFor(r);
                   return (
                     <Fragment key={r.key}>
                       <tr className={cn("border-b align-middle", short && "bg-destructive/5")} onFocusCapture={() => setActiveKey(r.key)}
@@ -804,10 +808,10 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
                               aria-label={`${unitLabel(r) || "Quantity"}, row ${i + 1}`} value={r.qty}
                               onFocus={(e) => e.target.select()} onKeyDown={onEnter}
                               onChange={(e) => setRow(r.key, { qty: r.item?.kind === "WEIGHT" ? decimal(e.target.value, 3) : whole(e.target.value) })} />
-                            {r.item && (r.item.units?.length ?? 0) > 1 ? (
+                            {r.item && units.length > 1 ? (
                               <select aria-label={`Unit, row ${i + 1}`} className="h-8 rounded-md border bg-background px-1 text-xs"
                                 value={r.unit} onChange={(e) => setRow(r.key, { unit: e.target.value, loose: "" })}>
-                                {r.item.units!.map((u) => <option key={u.code} value={u.code}>{u.code}</option>)}
+                                {units.map((u) => <option key={u.code} value={u.code}>{u.code}</option>)}
                               </select>
                             ) : r.item ? <span className="w-12 text-xs text-muted-foreground">{unitLabel(r)}</span> : null}
                           </div>
@@ -818,6 +822,7 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
                           <Input data-cell={`${r.key}:loose`} disabled={!r.item || !pack} className={`${cellInput} w-16`} inputMode="numeric"
                             aria-label={`Loose ${r.item?.baseUnit ?? "sheets"}, row ${i + 1}`} value={r.loose}
                             onFocus={(e) => e.target.select()} onKeyDown={onEnter}
+                            onBlur={() => foldLoose(r.key)}
                             onChange={(e) => setRow(r.key, { loose: whole(e.target.value) })} />
                         </td>
                         <td className={shown}>{r.item && !service ? fmt(sheetsOf(r), 0) : ""}</td>
@@ -840,29 +845,23 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
                         </td></tr>
                       )}
                       {askN > 0 && (
-                          <tr className="bg-amber-50 dark:bg-amber-950/30" data-sheets-ask={r.key}>
-                            <td /><td colSpan={15} className="px-2 py-2 text-xs">
-                              <div role="group" aria-label={`Row ${i + 1} entered in sheets`} className="flex flex-wrap items-center gap-2">
-                                <span className="font-medium text-amber-900 dark:text-amber-200">
-                                  {fmt(askN, 0)} sheets of {r.item!.name}. This item comes in packets of {fmt(askF, 0)}. Did you mean packets?
-                                </span>
-                                <Button type="button" size="sm" className="h-7" data-sheets-choice="packets"
-                                  onClick={() => { setRow(r.key, toPackets(r, askN, 0)); setFocusNext(`${r.key}:qty`); }}>
-                                  Yes: {fmt(askN, 0)} packets ({fmt(askN * askF, 0)} sheets)
-                                </Button>
-                                {askN >= askF && (
-                                  <Button type="button" size="sm" variant="outline" className="h-7" data-sheets-choice="same"
-                                    onClick={() => { setRow(r.key, toPackets(r, Math.floor(askN / askF), askN % askF)); setFocusNext(`${r.key}:qty`); }}>
-                                    Keep {fmt(askN, 0)} sheets as {fmt(Math.floor(askN / askF), 0)} packets{askN % askF ? ` + ${askN % askF} sheets` : ""}
-                                  </Button>
-                                )}
-                                <Button type="button" size="sm" variant="ghost" className="h-7" data-sheets-choice="sheets"
-                                  onClick={() => setRow(r.key, { sheetsOk: true })}>
-                                  No, keep {fmt(askN, 0)} sheets
-                                </Button>
-                              </div>
-                            </td>
-                          </tr>
+                        <tr className="bg-amber-50 dark:bg-amber-950/30" data-sheets-ask={r.key}>
+                          <td /><td colSpan={15} className="px-2 py-2 text-xs">
+                            <div role="group" aria-label={`Row ${i + 1}: loose sheets and no packets`} className="flex flex-wrap items-center gap-2">
+                              <span className="font-medium text-amber-900 dark:text-amber-200">
+                                {fmt(askN, 0)} loose sheets of {r.item!.name} and no packets. Did you mean {fmt(askN, 0)} packets?
+                              </span>
+                              <Button type="button" size="sm" className="h-7" data-sheets-choice="packets" onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => { setRow(r.key, { qty: String(askN), loose: "", sheetsOk: true }); setFocusNext(`${r.key}:qty`); }}>
+                                Yes: {fmt(askN, 0)} packets ({fmt(askN * factorOf(r), 0)} sheets)
+                              </Button>
+                              <Button type="button" size="sm" variant="ghost" className="h-7" data-sheets-choice="sheets" onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => setRow(r.key, { sheetsOk: true })}>
+                                No, {fmt(askN, 0)} loose sheets
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
                       )}
                     </Fragment>
                   );
