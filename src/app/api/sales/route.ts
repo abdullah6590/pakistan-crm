@@ -24,7 +24,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ sales });
   }
   const result = await listBills(prisma, {
-    search: p.get("search") ?? undefined, customerId: p.get("customerId") ?? undefined, status: p.get("status") ?? undefined,
+    search: p.get("search") ?? undefined, customerId: p.get("customerId") ?? undefined,
+    type: p.get("type") === "CASH_SALE" || p.get("type") === "SALE_INVOICE" ? (p.get("type") as "CASH_SALE" | "SALE_INVOICE") : undefined, status: p.get("status") ?? undefined,
     from: p.get("from") ?? undefined, to: p.get("to") ?? undefined, page: Number(p.get("page")) || 1,
   });
   return NextResponse.json(result);

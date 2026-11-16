@@ -67,6 +67,8 @@ export interface ItemLineInput {
   /** Price per `unit`; required on sale and purchase documents. */
   unitPrice?: number | string;
   description?: string;
+  /** The line's own remark (old invoice grid "Remarks") */
+  remarks?: string | null;
   /** Paper bought or sold by weight: kept on the line (size, GSM, kg per unit, rate per kg), as the old Supplier Invoice did. */
   paper?: PaperDetails;
 }
@@ -118,6 +120,8 @@ export interface CashSaleInput {
   amountReceived?: number | string;
   partyAccountId?: string;
   customerName?: string;
+  /** Walk-in customer's phone (old Cash Sale "Cell No") */
+  customerPhone?: string;
   lines: ItemLineInput[];
   remarks?: string;
 }
@@ -682,6 +686,7 @@ function lineRecord(documentId: string, lineNo: number, item: ItemContext, l: It
     quantity: s(dec(l.quantity)), unit: l.unit ?? item.cfg.baseUnit,
     loose: l.loose === undefined || l.loose === "" ? "0" : s(dec(l.loose)), baseQuantity: s(baseQuantity),
     ...paperFields(item, l),
+    remarks: l.remarks?.trim() ? l.remarks.trim().slice(0, 500) : null,
     ...extra,
   };
 }
@@ -723,6 +728,7 @@ async function cashSaleInTx(tx: Tx, actor: Actor, input: CashSaleInput, supersed
   const remarks = [input.customerName ? `Customer: ${input.customerName}` : null, input.remarks].filter(Boolean).join(" | ") || null;
   const doc = await newDocument(tx, {
     type: "CASH_SALE", date, status: "POSTED", cashAccountId: cash.id, locationId: main.id,
+    walkInName: input.customerName?.trim() || null, walkInPhone: input.customerPhone?.trim() || null,
     roundingMode: DEFAULT_TOTAL_ROUNDING.CASH_SALE, remarks, createdById: actor.id, postedAt: new Date(),
   }, { supersedes });
   const ctx = await newCtx(tx, doc.id, date);

@@ -845,6 +845,8 @@ model AccountingDocument {
   total            String         @default("0") // printed/posted total
   roundingAdjustment String       @default("0")
   amountReceived   String?        // cash sale
+  walkInName       String?        // cash sale: the walk-in customer's name as typed (old Cash Sale "Name")
+  walkInPhone      String?        // cash sale: their phone (old "Cell No")
   extraCharge      String?        // press receipt: printing charge billed by the press
   previousBalance  String?        // party balance before this document (OD-09), set when posted
   newBalance       String?
@@ -926,6 +928,7 @@ model AccountingDocumentLine {
   paperDivisor        String?
   kgPerUnit           String?
   ratePerKg           String?
+  remarks             String?        // the line's own remark (old invoice grid "Remarks")
 
   @@unique([documentId, lineNo])
   @@index([componentId])

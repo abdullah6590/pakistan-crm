@@ -6,7 +6,7 @@ import type { AccountingDocument, PaymentAllocation, Prisma } from "@prisma/clie
 import { Dec, dec, ZERO, add, sub, cmp, isZero, toPlain } from "@/lib/domain/decimal";
 import { Actor, PostingError, Tx, audit, createVoucher, getAccount, money, run, toDate } from "./posting";
 import { Db } from "./setup";
-import { PAYABLE_TYPES, REFUND_SERIES, RECEIPT_SERIES, appliedTo, sumAmounts, usedFrom } from "./allocations";
+import { PAYABLE_TYPES, REFUND_SERIES, RECEIPT_SERIES, appliedTo, counterPaid, sumAmounts, usedFrom } from "./allocations";
 
 export interface AllocationInput {
   invoiceId: string;
@@ -57,11 +57,11 @@ async function existingFor(tx: Tx, requestId: string | undefined) {
   return tx.accountingDocument.findUnique({ where: { commandId: requestId } });
 }
 
-/** An invoice that can be paid: a posted (current) sale invoice of this customer. */
+/** A bill that can be paid: a posted (current) sale invoice, or a part-paid cash sale, of this customer. */
 async function payableInvoice(tx: Tx, invoiceId: string, partyAccountId: string): Promise<AccountingDocument> {
   const inv = await tx.accountingDocument.findUnique({ where: { id: invoiceId } });
   if (!inv) throw new PostingError("Invoice not found", 404);
-  if (!(PAYABLE_TYPES as readonly string[]).includes(inv.type)) throw new PostingError(`${inv.docNo} is not a sale invoice`);
+  if (!(PAYABLE_TYPES as readonly string[]).includes(inv.type)) throw new PostingError(`${inv.docNo} is not a sale invoice or cash sale`);
   if (inv.status !== "POSTED") throw new PostingError(`${inv.docNo} is ${inv.status.toLowerCase()}; payments go to its current version`, 409);
   if (inv.partyAccountId !== partyAccountId) throw new PostingError(`${inv.docNo} belongs to another customer`);
   return inv;
@@ -76,7 +76,7 @@ async function allocate(tx: Tx, actor: Actor, receipt: AccountingDocument, party
     seen.add(it.invoiceId);
     const amount = positive(it.amount, "Amount for an invoice");
     const inv = await payableInvoice(tx, it.invoiceId, partyAccountId);
-    const owed = sub(dec(inv.total), await appliedTo(tx, inv.id));
+    const owed = sub(sub(dec(inv.total), counterPaid(inv)), await appliedTo(tx, inv.id));
     if (cmp(amount, owed) > 0) throw new PostingError(`${inv.docNo}: only ${s(owed)} is still owed, ${s(amount)} was entered`);
     if (cmp(amount, left) > 0) throw new PostingError(`The amounts for invoices add up to more than the ${s(dec(receipt.total))} received`);
     made.push(await tx.paymentAllocation.create({
@@ -220,7 +220,9 @@ export async function invoicePayments(db: Db | Tx, invoiceId: string) {
     orderBy: { createdAt: "asc" },
   });
   const total = dec(inv.total);
-  const paid = sumAmounts(rows);
+  // A cash sale counts the cash taken on the bill itself, then any later receipts
+  const atCounter = counterPaid(inv);
+  const paid = add(atCounter, sumAmounts(rows));
   const remaining = cmp(paid, total) >= 0 ? ZERO : sub(total, paid);
   return {
     invoice: inv,
@@ -228,6 +230,7 @@ export async function invoicePayments(db: Db | Tx, invoiceId: string) {
     paid: s(paid),
     remaining: s(remaining),
     status: inv.status === "POSTED" ? paymentStatus(total, paid) : null,
+    atCounter: s(atCounter),
     payments: rows.map((r) => ({
       allocationId: r.id, receiptId: r.creditDoc.id, receiptNo: r.creditDoc.docNo, date: r.creditDoc.date,
       method: r.creditDoc.cashAccount?.name ?? (r.creditDoc.series === "BRV" ? "Bank" : "Cash"), amount: r.amount, source: r.source,
@@ -257,7 +260,7 @@ export async function openInvoices(db: Db | Tx, partyAccountId: string) {
   });
   const out: { invoice: AccountingDocument; paid: Dec; remaining: Dec }[] = [];
   for (const inv of invoices) {
-    const paid = await appliedTo(db as Tx, inv.id);
+    const paid = add(counterPaid(inv), await appliedTo(db as Tx, inv.id));
     const remaining = sub(dec(inv.total), paid);
     if (cmp(remaining, ZERO) > 0) out.push({ invoice: inv, paid, remaining });
   }

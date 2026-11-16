@@ -9,10 +9,12 @@ export const screenSaleSchema = z.object({
   date: z.string().optional(),
   customerId: z.string().nullish(),
   walkInName: z.string().max(120).nullish(),
+  walkInPhone: z.string().max(40).nullish(),
   items: z.array(z.object({
     componentId: z.string().min(1), quantity: amount, unit: z.string().trim().min(1).max(20).optional(), loose: amount.optional(), unitPrice: amount,
     // Paper sold by weight, as on the old Customer Invoice: size, GSM and rate per kg the price was worked out from
     paper: paperSchema.optional(),
+    remarks: z.string().max(500).nullish(),
   })).min(1, "Add at least one item"),
   notes: z.string().max(1000).nullish(),
   paidNow: z.object({ amount, method: z.string().min(1), cashAccountId: z.string().optional() }).nullish(),

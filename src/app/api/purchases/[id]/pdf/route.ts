@@ -31,7 +31,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     payments: b.payments.map((p) => ({ date: p.date, docNo: p.docNo, method: p.method, reference: p.reference, amount: p.amount })),
     charges: b.charges, words: b.words, notes: doc.remarks, printedBy: auth.user.name,
   });
-  await prisma.accountingDocument.update({ where: { id: doc.id }, data: { printCount: { increment: 1 }, lastPrintedAt: new Date() } });
+  // Every print and reprint is counted and kept in the bill's history (Report 33)
+  const printed = await prisma.accountingDocument.update({ where: { id: doc.id }, data: { printCount: { increment: 1 }, lastPrintedAt: new Date() } });
+  await prisma.auditLog.create({ data: { entity: "AccountingDocument", entityId: doc.id, action: "PRINT", userId: auth.user.id, after: JSON.stringify({ layout: "invoice", printCount: printed.printCount }) } });
   const inline = request.nextUrl.searchParams.get("inline") === "1";
   return new NextResponse(new Uint8Array(pdf), {
     headers: { "Content-Type": "application/pdf", "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="Purchase-${doc.docNo.replace(/\//g, "-")}.pdf"`, "Cache-Control": "no-store" },

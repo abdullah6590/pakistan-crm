@@ -66,6 +66,8 @@ export async function accountForPayment(tx: Tx, method: string, cashAccountId: s
 
 export interface SaleLine {
   componentId: string;
+  /** The line's own remark (old invoice grid "Remarks") */
+  remarks?: string | null;
   /** Quantity in `unit` (the item's stock unit when left out), plus `loose` stock units with a pack unit. */
   quantity: number | string;
   unit?: string;
@@ -81,6 +83,7 @@ export interface ScreenSaleInput {
   /** Registered customer (a sale invoice), or a walk-in name (a cash sale). */
   customerId?: string | null;
   walkInName?: string | null;
+  walkInPhone?: string | null;
   items: SaleLine[];
   notes?: string | null;
   /** Money received now; for a walk-in it defaults to the full total. */
@@ -91,7 +94,7 @@ export interface ScreenSaleInput {
 
 function linesFor(items: SaleLine[]) {
   if (!Array.isArray(items) || items.length === 0) throw new PostingError("Add at least one item");
-  return items.map((i) => ({ componentId: i.componentId, quantity: i.quantity, unit: i.unit || undefined, loose: i.loose || undefined, unitPrice: i.unitPrice, paper: i.paper || undefined }));
+  return items.map((i) => ({ componentId: i.componentId, quantity: i.quantity, unit: i.unit || undefined, loose: i.loose || undefined, unitPrice: i.unitPrice, paper: i.paper || undefined , remarks: i.remarks ?? undefined }));
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -147,7 +150,7 @@ function createScreenSaleOnce(db: Db, actor: Actor, input: ScreenSaleInput) {
       // A walk-in pays now; any unpaid part is owed by the Counter Sale account (Books rule F-03)
       const counter = await accountByCode(tx, "COUNTER_SALE");
       document = (await createCashSale(tx, actor, {
-        date, cashAccountId: cash.id, customerName: name, lines, remarks: notes,
+        date, cashAccountId: cash.id, customerName: name, customerPhone: input.walkInPhone?.trim() || undefined, lines, remarks: notes,
         ...(input.paidNow?.amount !== undefined && input.paidNow?.amount !== "" ? { amountReceived: input.paidNow.amount, partyAccountId: counter.id } : {}),
       })) as AccountingDocument;
       if (input.requestId) document = await tx.accountingDocument.update({ where: { id: document.id }, data: { commandId: input.requestId } });
@@ -193,7 +196,7 @@ export function amendScreenSale(db: Db, actor: Actor, id: string, input: ScreenS
       if (!name) throw new PostingError("Enter the walk-in customer's name");
       const counter = await accountByCode(tx, "COUNTER_SALE");
       const cashAccountId = old.cashAccountId ?? (await accountForPayment(tx, "CASH", undefined, actor.id)).id;
-      next = { date, cashAccountId, customerName: name, lines, remarks: notes, ...(input.paidNow?.amount !== undefined ? { amountReceived: input.paidNow.amount, partyAccountId: counter.id } : {}) };
+      next = { date, cashAccountId, customerName: name, customerPhone: input.walkInPhone?.trim() || undefined, lines, remarks: notes, ...(input.paidNow?.amount !== undefined ? { amountReceived: input.paidNow.amount, partyAccountId: counter.id } : {}) };
     }
     const before = await appliedByReceipt(tx, id);
     const revised = (await amendDocument(tx, actor, id, next, reason)) as AccountingDocument;

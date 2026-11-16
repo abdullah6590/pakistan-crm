@@ -39,6 +39,8 @@ export async function partyForSupplier(tx: Tx, supplierId: string, userId: strin
 
 export interface PurchaseLine {
   componentId: string;
+  /** The line's own remark (old invoice grid "Remarks") */
+  remarks?: string | null;
   /** Quantity in `unit` (the item's stock unit when left out), plus `loose` stock units with a pack unit. */
   quantity: number | string;
   unit?: string;
@@ -69,7 +71,7 @@ export interface ScreenPurchaseInput {
 
 function linesFor(items: PurchaseLine[]): ItemLineInput[] {
   if (!Array.isArray(items) || items.length === 0) throw new PostingError("Add at least one item");
-  return items.map((i) => ({ componentId: i.componentId, quantity: i.quantity, unit: i.unit || undefined, loose: i.loose || undefined, unitPrice: i.unitPrice, paper: i.paper || undefined }));
+  return items.map((i) => ({ componentId: i.componentId, quantity: i.quantity, unit: i.unit || undefined, loose: i.loose || undefined, unitPrice: i.unitPrice, paper: i.paper || undefined , remarks: i.remarks ?? undefined }));
 }
 
 const today = () => new Date().toISOString().slice(0, 10);

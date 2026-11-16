@@ -33,6 +33,7 @@ export const paperSchema = z.object({
 const line = z.object({
   componentId: z.string().min(1), quantity: amount, unit: z.string().trim().min(1).max(20).optional(), loose: amount.optional(), unitPrice: amount,
   paper: paperSchema.optional(),
+  remarks: z.string().max(500).nullish(),
 });
 
 export const screenPurchaseSchema = z.object({

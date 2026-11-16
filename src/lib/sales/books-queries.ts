@@ -2,6 +2,7 @@
 // bill has received and still owes, and one bill with its payments, revisions and history.
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { dec, sub, cmp, ZERO, add, toPlain } from "@/lib/domain/decimal";
+import { counterPaid } from "@/lib/accounting/allocations";
 import { getSetting } from "@/lib/accounting/setup";
 import { amountInWords } from "@/lib/domain/words";
 import { invoicePayments, paymentStatus, unappliedReceipts, openInvoices, PaymentStatus } from "@/lib/accounting/receivables";
@@ -14,6 +15,8 @@ export const BILL_TYPES = ["SALE_INVOICE", "CASH_SALE"];
 export interface BillFilters {
   search?: string;
   customerId?: string;
+  /** Only customer invoices or only cash sales (Cash Report, F1 on the cash sale name) */
+  type?: "SALE_INVOICE" | "CASH_SALE";
   status?: string; // UNPAID | PARTIALLY_PAID | PAID | CANCELLED
   from?: string;
   to?: string;
@@ -41,12 +44,12 @@ export function rupeesInWords(total: string) {
 export async function listBills(db: PrismaClient, f: BillFilters, pageSize = 50) {
   const party = f.customerId ? await db.ledgerAccount.findUnique({ where: { customerId: f.customerId } }) : null;
   const where: Prisma.AccountingDocumentWhereInput = {
-    type: { in: BILL_TYPES },
+    type: f.type ? f.type : { in: BILL_TYPES },
     supersededBy: { is: null },
     ...(f.status === "CANCELLED" ? { status: "CANCELLED" } : { status: "POSTED" }),
     ...(f.customerId ? { partyAccountId: party?.id ?? "none" } : {}),
     ...(f.from || f.to ? { date: { ...(f.from ? { gte: new Date(f.from) } : {}), ...(f.to ? { lte: new Date(`${f.to}T23:59:59.999Z`) } : {}) } } : {}),
-    ...(f.search ? { OR: [{ docNo: { contains: f.search } }, { remarks: { contains: f.search } }, { partyAccount: { name: { contains: f.search } } }, { lines: { some: { description: { contains: f.search } } } }] } : {}),
+    ...(f.search ? { OR: [{ docNo: { contains: f.search } }, { remarks: { contains: f.search } }, { walkInName: { contains: f.search } }, { walkInPhone: { contains: f.search } }, { partyAccount: { name: { contains: f.search } } }, { lines: { some: { description: { contains: f.search } } } }] } : {}),
   };
   const docs = await db.accountingDocument.findMany({
     where,
@@ -60,12 +63,13 @@ export async function listBills(db: PrismaClient, f: BillFilters, pageSize = 50)
   const users = new Map((await db.user.findMany({ where: { id: { in: [...new Set(docs.map((d) => d.createdById))] } }, select: { id: true, name: true } })).map((u) => [u.id, u.name]));
   let rows = docs.map((d) => {
     const total = dec(d.total);
-    const paid = d.type === "CASH_SALE" ? dec(d.amountReceived ?? d.total) : paidBy.get(d.id) ?? ZERO;
+    // Cash sale: cash at the counter plus later receipts (Cash Update); invoice: its receipts
+    const paid = add(counterPaid(d), paidBy.get(d.id) ?? ZERO);
     const remaining = cmp(paid, total) >= 0 ? ZERO : sub(total, paid);
     const cost = d.lines.reduce((t, l) => (l.costAmount === null ? t : add(t, dec(l.costAmount))), ZERO);
     return {
       id: d.id, docNo: d.docNo, type: d.type, revision: d.revision, date: d.date.toISOString(), status: d.status,
-      customer: d.type === "SALE_INVOICE" ? d.partyAccount?.name ?? "" : walkInName(d.remarks) ?? "Walk-in",
+      customer: d.type === "SALE_INVOICE" ? d.partyAccount?.name ?? "" : (d.walkInName ?? walkInName(d.remarks)) ?? "Walk-in",
       walkIn: d.type === "CASH_SALE", items: d.lines.map((l) => l.description).join(", "),
       total: toPlain(total), paid: toPlain(paid), remaining: toPlain(remaining),
       paymentStatus: (d.status === "POSTED" ? paymentStatus(total, paid) : "CANCELLED") as PaymentStatus | "CANCELLED",
@@ -104,17 +108,17 @@ export async function loadBooksBill(db: PrismaClient, id: string) {
     versions.unshift(v);
     cur = v.supersedesId ? { id: v.supersedesId } : null;
   }
-  const payments = doc.type === "SALE_INVOICE" ? await invoicePayments(db, doc.id) : null;
+  const payments = doc.type === "SALE_INVOICE" || doc.type === "CASH_SALE" ? await invoicePayments(db, doc.id) : null;
   const history = await db.auditLog.findMany({ where: { entity: "AccountingDocument", entityId: { in: versions.map((v) => v.id) } }, orderBy: { createdAt: "asc" } });
   const people = new Map((await db.user.findMany({ where: { id: { in: [...new Set([doc.createdById, ...history.map((h) => h.userId)])] } }, select: { id: true, name: true } })).map((u) => [u.id, u.name]));
   const [businessName, businessAddress] = await Promise.all([getSetting(db, "BUSINESS_NAME"), getSetting(db, "BUSINESS_ADDRESS")]);
   const total = dec(doc.total);
-  const paid = doc.type === "CASH_SALE" ? dec(doc.amountReceived ?? doc.total) : dec(payments!.paid);
+  const paid = dec(payments!.paid);
   const remaining = cmp(paid, total) >= 0 ? ZERO : sub(total, paid);
   return {
     doc,
-    customerName: doc.type === "SALE_INVOICE" ? doc.partyAccount?.name ?? "" : walkInName(doc.remarks) ?? "Walk-in",
-    customerPhone: doc.type === "SALE_INVOICE" ? doc.partyAccount?.phone ?? null : null,
+    customerName: doc.type === "SALE_INVOICE" ? doc.partyAccount?.name ?? "" : (doc.walkInName ?? walkInName(doc.remarks)) ?? "Walk-in",
+    customerPhone: doc.type === "SALE_INVOICE" ? doc.partyAccount?.phone ?? null : doc.walkInPhone ?? null,
     customerId: doc.partyAccount?.customerId ?? null,
     notes: billNotes(doc.remarks),
     total: toPlain(total), paid: toPlain(paid), remaining: toPlain(remaining),
@@ -212,13 +216,14 @@ export async function recentBooksBills(db: PrismaClient, take = 5) {
   }
   return docs.map((d) => {
     const total = dec(d.total);
-    const paid = d.type === "CASH_SALE" ? dec(d.amountReceived ?? d.total) : paidBy.get(d.id) ?? ZERO;
+    // Cash sale: cash at the counter plus later receipts (Cash Update); invoice: its receipts
+    const paid = add(counterPaid(d), paidBy.get(d.id) ?? ZERO);
     const st = paymentStatus(total, paid);
     return {
       id: d.id, invoiceNumber: d.docNo, total: Number(d.total), paymentMethod: d.cashAccount?.name ?? "Credit",
       paymentStatus: st === "PAID" ? "PAID" : st === "PARTIALLY_PAID" ? "PARTIAL" : "PENDING",
       createdAt: d.createdAt, date: d.date, customer: d.type === "SALE_INVOICE" ? { name: d.partyAccount?.name ?? "" } : null,
-      walkInName: d.type === "CASH_SALE" ? walkInName(d.remarks) : null,
+      walkInName: d.type === "CASH_SALE" ? (d.walkInName ?? walkInName(d.remarks)) : null,
     };
   });
 }
@@ -240,7 +245,7 @@ export async function booksCustomerDaybook(db: PrismaClient, f: { customerId?: s
   });
   const out: { id: string; date: Date; type: "SALE" | "RECEIPT" | "REFUND"; description: string; debit: number; credit: number; reference: string | null; entityName: string }[] = [];
   for (const d of docs) {
-    const name = d.partyAccount?.name ?? walkInName(d.remarks) ?? "Walk-in";
+    const name = d.partyAccount?.name ?? (d.walkInName ?? walkInName(d.remarks)) ?? "Walk-in";
     if (d.type === "SALE_INVOICE" || d.type === "CASH_SALE") {
       out.push({ id: d.id, date: d.date, type: "SALE", description: `Bill ${d.docNo}`, debit: Number(d.total), credit: 0, reference: d.docNo, entityName: name });
       if (d.type === "CASH_SALE" && Number(d.amountReceived ?? d.total) > 0) {

@@ -17,8 +17,9 @@ const roleRouteMap: Record<string, string[]> = {
   "/dashboard/partners": ["ADMIN", "PARTNER"],
   "/dashboard/finance": ["ADMIN", "ACCOUNTANT", "PARTNER"],
   "/dashboard/reports": ["ADMIN", "ACCOUNTANT", "PARTNER"],
-  "/dashboard/purchases": ["ADMIN", "INVENTORY_MANAGER"],
-  "/dashboard/suppliers": ["ADMIN", "INVENTORY_MANAGER"],
+  // P-3: supplier invoices and the supplier ledger for administrators and accountants only
+  "/dashboard/purchases": ["ADMIN", "ACCOUNTANT"],
+  "/dashboard/suppliers": ["ADMIN", "ACCOUNTANT"],
   "/dashboard/inventory": ["ADMIN", "INVENTORY_MANAGER", "EMPLOYEE"],
   "/dashboard/accounts": ["ADMIN", "ACCOUNTANT"],
   "/dashboard/transfers": ["ADMIN", "ACCOUNTANT"],

@@ -8,7 +8,13 @@ import { Dec, dec, ZERO, add, cmp, sub, isZero, toPlain } from "@/lib/domain/dec
 type Tx = Prisma.TransactionClient;
 
 /** Documents that can be paid by allocations: credit sale invoices (cash sales are paid when made). */
-export const PAYABLE_TYPES = ["SALE_INVOICE"] as const;
+// A part-paid cash sale owes its unpaid rest like an invoice; later cash is a receipt allocated to it (Report 33, old "Cash Update")
+export const PAYABLE_TYPES = ["SALE_INVOICE", "CASH_SALE"] as const;
+
+/** Money taken on the bill itself: the cash received at the counter on a cash sale (none on an invoice). */
+export function counterPaid(d: { type: string; amountReceived: string | null; total: string }): Dec {
+  return d.type === "CASH_SALE" ? dec(d.amountReceived ?? d.total) : ZERO;
+}
 /** Receipts whose money can be allocated: cash and bank receipt vouchers. */
 export const RECEIPT_SERIES = ["CRV", "BRV"] as const;
 /** Refunds paid back out of a customer's unapplied credit. */

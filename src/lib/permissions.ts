@@ -21,9 +21,11 @@ export const PERMISSIONS: Record<string, Record<Action, Role[]>> = {
   transfers: { read: ["ADMIN", "ACCOUNTANT"], write: ["ADMIN", "ACCOUNTANT"], delete: ["ADMIN"] },
   expenditures: { read: ["ADMIN", "ACCOUNTANT"], write: ["ADMIN", "ACCOUNTANT"], delete: ["ADMIN", "ACCOUNTANT"] },
   inventory: { read: ALL, write: ["ADMIN", "INVENTORY_MANAGER"], delete: ["ADMIN", "INVENTORY_MANAGER"] },
-  purchases: { read: ["ADMIN", "INVENTORY_MANAGER", "ACCOUNTANT"], write: ["ADMIN", "INVENTORY_MANAGER"], delete: ["ADMIN"] },
-  suppliers: { read: ["ADMIN", "INVENTORY_MANAGER", "ACCOUNTANT"], write: ["ADMIN", "INVENTORY_MANAGER"], delete: ["ADMIN"] },
-  supplierPayments: { read: ["ADMIN", "ACCOUNTANT", "INVENTORY_MANAGER"], write: ["ADMIN", "ACCOUNTANT"], delete: ["ADMIN"] },
+  // P-3 (owner decision 2026-11-13, Report 32): supplier invoices, the supplier ledger and supplier payments are for
+  // administrators and accountants only (the old program hid them behind a code)
+  purchases: { read: ["ADMIN", "ACCOUNTANT"], write: ["ADMIN", "ACCOUNTANT"], delete: ["ADMIN"] },
+  suppliers: { read: ["ADMIN", "ACCOUNTANT"], write: ["ADMIN", "ACCOUNTANT"], delete: ["ADMIN"] },
+  supplierPayments: { read: ["ADMIN", "ACCOUNTANT"], write: ["ADMIN", "ACCOUNTANT"], delete: ["ADMIN"] },
   sales: { read: ["ADMIN", "EMPLOYEE", "ACCOUNTANT", "PARTNER"], write: ["ADMIN", "EMPLOYEE", "ACCOUNTANT"], delete: ["ADMIN"] },
   cashSales: { read: ["ADMIN", "EMPLOYEE", "ACCOUNTANT"], write: ["ADMIN", "EMPLOYEE"], delete: ["ADMIN"] },
   customers: { read: ["ADMIN", "EMPLOYEE", "ACCOUNTANT", "PARTNER"], write: ["ADMIN", "EMPLOYEE"], delete: ["ADMIN"] },

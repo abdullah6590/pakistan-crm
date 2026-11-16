@@ -7,7 +7,7 @@ import { loadBill } from "@/lib/sales/bill-view";
 import { generateSaleBillPDF } from "@/lib/pdf-generator";
 import { formatDate } from "@/lib/utils";
 import { loadBooksBill } from "@/lib/sales/books-queries";
-import { invoicePdf } from "@/lib/books-pdf";
+import { invoicePdf, slipPdf } from "@/lib/books-pdf";
 import { paperLineText, paperLineWeight, specLabel } from "@/lib/product-spec";
 
 const STATUS_LABEL: Record<string, string> = { PAID: "Paid", PARTIALLY_PAID: "Partially paid", UNPAID: "Unpaid", CANCELLED: "Cancelled" };
@@ -28,10 +28,12 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
   const { id } = await params;
   const inline = request.nextUrl.searchParams.get("inline") === "1";
+  // ?layout=slip is the old "Print G": the narrow slip; anything else is the invoice
+  const layout = request.nextUrl.searchParams.get("layout") === "slip" ? "slip" : "invoice";
   const books = await loadBooksBill(prisma, id);
   if (books) {
     const { doc } = books;
-    const pdf = await invoicePdf({
+    const pdf = await (layout === "slip" ? slipPdf : invoicePdf)({
       business: { name: books.businessName, address: books.businessAddress },
       kind: doc.type as "SALE_INVOICE" | "CASH_SALE",
       docNo: doc.docNo,
@@ -42,15 +44,17 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       phone: books.customerPhone,
       status: STATUS_LABEL[books.status] ?? books.status,
       // A paper line shows the size, gm, kg per packet and rate per kg it was sold at (as on the purchase bill)
-      lines: doc.lines.map((l) => ({ description: l.description ?? "", spec: paperLineText(l) || specLabel(l.component) || null, sku: l.component?.sku, quantity: l.quantity, unit: l.unit, loose: l.loose, unitPrice: l.unitPrice, amount: l.amount })),
+      lines: doc.lines.map((l) => ({ description: l.description ?? "", spec: paperLineText(l) || specLabel(l.component) || null, sku: l.component?.sku, quantity: l.quantity, unit: l.unit, loose: l.loose, unitPrice: l.unitPrice, amount: l.amount, remarks: l.remarks })),
       weightKg: doc.lines.reduce((t, l) => t + paperLineWeight(l), 0) || null,
       sheets: doc.lines.filter((l) => paperLineWeight(l) > 0).reduce((t, l) => t + Number(l.baseQuantity), 0) || null,
       total: books.total, paid: books.paid, remaining: books.remaining,
       payments: books.payments.map((p) => ({ date: p.date, receiptNo: p.receiptNo, method: p.method, amount: p.amount })),
       words: books.words, notes: books.notes, printedBy: auth.user.name,
     });
-    await prisma.accountingDocument.update({ where: { id: doc.id }, data: { printCount: { increment: 1 }, lastPrintedAt: new Date() } });
-    return pdfResponse(pdf, `Bill-${doc.docNo}`, inline);
+    // Every print and reprint is counted on the bill and kept in its history with the layout (old PrintQty/PrintDate)
+    const printed = await prisma.accountingDocument.update({ where: { id: doc.id }, data: { printCount: { increment: 1 }, lastPrintedAt: new Date() } });
+    await prisma.auditLog.create({ data: { entity: "AccountingDocument", entityId: doc.id, action: "PRINT", userId: auth.user.id, after: JSON.stringify({ layout, printCount: printed.printCount }) } });
+    return pdfResponse(pdf, `${layout === "slip" ? "Slip" : "Bill"}-${doc.docNo}`, inline);
   }
   const bill = await loadBill(prisma, id);
   if (!bill) return NextResponse.json({ error: "Sale not found" }, { status: 404 });

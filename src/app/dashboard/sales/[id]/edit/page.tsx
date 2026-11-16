@@ -52,6 +52,7 @@ export default async function EditSalePage({ params }: { params: Promise<{ id: s
         date: doc.date.toISOString().slice(0, 10),
         customer: customer ? { id: customer.id, name: customer.name, phone: customer.phone ?? "" } : null,
         walkInName: doc.type === "CASH_SALE" ? bill.customerName : null,
+        walkInPhone: doc.type === "CASH_SALE" ? doc.walkInPhone : null,
         amountReceived: doc.type === "CASH_SALE" ? doc.amountReceived : null,
         notes: bill.notes,
         // Each line comes back in the unit it was billed in (packets, cartons, ...), with its loose stock units
@@ -64,6 +65,7 @@ export default async function EditSalePage({ params }: { params: Promise<{ id: s
           component: withSaleUnits(l.component!),
           // The size, gm and rate per kg the line was priced with (as saved, not the item's current values)
           paper: l.paperX && l.paperY && l.paperGsm ? { x: l.paperX, y: l.paperY, gsm: l.paperGsm, divisor: l.paperDivisor, rate: l.ratePerKg } : null,
+          remarks: l.remarks,
         })),
       }))}
     />
