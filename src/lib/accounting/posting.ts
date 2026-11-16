@@ -17,7 +17,7 @@ import {
 } from "@/lib/domain/ledger";
 import { can } from "@/lib/permissions";
 import { Db, MAIN_LOCATION, STOCK_ISSUE_REASONS, PRESS_LOSS_REASONS, getSetting, SettingKey } from "./setup";
-import { carryToRevision, refundsFundedBy, releaseForCancelled } from "./allocations";
+import { carryToRevision, refundsFundedBy, releaseForCancelled, walkInReceiptsProblem } from "./allocations";
 
 export type Tx = Prisma.TransactionClient;
 
@@ -1311,6 +1311,8 @@ export async function cancelInTx(tx: Tx, actor: Actor, id: string, reason: strin
     });
   }
   // Its payments become unapplied credit again; an amendment instead carries them to the new revision (Report 28)
+  const stranded = action === "AMEND" ? null : await walkInReceiptsProblem(tx, doc, "cancel");
+  if (stranded) throw new PostingError(stranded, 409);
   const released = action === "AMEND" ? [] : await releaseForCancelled(tx, id, actor.id, reason);
   await audit(tx, id, action, actor.id, {
     reason,
@@ -1411,6 +1413,11 @@ export async function amendDocument(db: Db, actor: Actor, id: string, input: unk
     const revised = (await creator(tx, actor, input as never, fresh)) as AccountingDocument;
     // Payments follow the bill (and a receipt's allocations follow the receipt) to the new revision (Report 28)
     const moved = await carryToRevision(tx, fresh, revised, actor.id);
+    // Cash Update money left over on a walk-in bill would be stranded on the counter-sale account
+    if (moved.released.length) {
+      const stranded = await walkInReceiptsProblem(tx, revised, "lower", moved.released.map((r) => r.allocation.creditDocId));
+      if (stranded) throw new PostingError(stranded, 409);
+    }
     if (moved.carried.length || moved.released.length) {
       await audit(tx, revised.id, "ALLOCATIONS_MOVED", actor.id, {
         reason,

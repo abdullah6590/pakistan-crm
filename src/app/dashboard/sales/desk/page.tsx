@@ -7,7 +7,8 @@ import { prisma } from "@/lib/prisma";
 import { getAuthUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { loadBooksBill } from "@/lib/sales/books-queries";
-import { invoicePayments } from "@/lib/accounting/receivables";
+import { counterPaid } from "@/lib/accounting/allocations";
+import { isAuthority } from "@/lib/sync/local";
 import { mayEditBill } from "@/lib/sales/books-sales";
 import { stepBill } from "@/lib/sales/step";
 import { screenBill, startingLists } from "@/lib/sales/desk-data";
@@ -34,11 +35,15 @@ export default async function SaleDeskPage({ searchParams }: { searchParams: Pro
   }
   const { doc } = bill;
   const current = doc.status === "POSTED";
-  const pays = await invoicePayments(prisma, doc.id);
+  // Cash taken at the counter, then the receipts loadBooksBill already found (no second allocations query)
+  const atCounter = Number(counterPaid(doc));
   const payments = [
-    ...(Number(pays.atCounter) > 0 ? [{ docNo: doc.docNo, date: doc.date.toISOString(), method: "At the counter", amount: String(pays.atCounter) }] : []),
-    ...pays.payments.map((p) => ({ docNo: p.receiptNo, date: new Date(p.date).toISOString(), method: p.method, amount: String(p.amount) })),
+    ...(atCounter > 0 ? [{ docNo: doc.docNo, date: doc.date.toISOString(), method: "At the counter", amount: String(atCounter) }] : []),
+    ...bill.payments.filter((p) => p.source !== "CASH_SALE").map((p) => ({ docNo: p.receiptNo, date: new Date(p.date).toISOString(), method: p.method, amount: String(p.amount) })),
   ];
+  // A walk-in's Cash Update needs the main server (the receipt has no customer a computer could queue it against)
+  const cashUpdateHere = doc.type !== "CASH_SALE" || isAuthority();
+  const mayReceive = current && Number(bill.remaining) > 0 && can(user.role, "customerPayments", "write");
   return (
     <PaperSaleClient
       key={doc.id}
@@ -53,8 +58,9 @@ export default async function SaleDeskPage({ searchParams }: { searchParams: Pro
         total: bill.total, paid: bill.paid, remaining: bill.remaining,
         previousBalance: doc.previousBalance, newBalance: doc.newBalance,
         canEdit: current && canWrite && mayEditBill({ id: user.id, role: user.role }, doc),
-        canCashUpdate: current && doc.type === "CASH_SALE" && Number(bill.remaining) > 0 && can(user.role, "customerPayments", "write"),
-        canPay: current && Number(bill.remaining) > 0 && can(user.role, "customerPayments", "write"),
+        canCashUpdate: mayReceive && doc.type === "CASH_SALE" && cashUpdateHere,
+        canPay: mayReceive && cashUpdateHere,
+        payNote: mayReceive && !cashUpdateHere ? "Cash Update for a walk-in sale is done on the office server, not on this computer." : null,
         payments,
         canNew: canWrite,
       }}

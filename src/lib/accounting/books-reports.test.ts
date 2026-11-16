@@ -84,3 +84,19 @@ describe("dashboard money summary", () => {
     expect(await moneySummary(db)).toEqual({ cash: "100", bank: "0", owedToYou: "750", youOwe: "800" });
   });
 });
+
+describe("party money on the customer and supplier lists", () => {
+  it("billed and paid as posted; a cancelled bill or receipt counts as neither (its reversal is taken off)", async () => {
+    const { partyMoney } = await import("./books-reports");
+    const { cancelDocument } = await import("./posting");
+    id.c = (await db.ledgerAccount.create({ data: { code: "C", name: "Cancelled Co", kind: "PARTY", subType: "CUSTOMER" } })).id;
+    const inv = await createSaleInvoice(db, admin, { date: "2026-10-08", partyAccountId: id.c, lines: [{ componentId: id.item, quantity: 4, unitPrice: 25 }] });
+    const receipt = await createVoucher(db, admin, { series: "CRV", date: "2026-10-08", debitAccountId: id.cash, creditAccountId: id.c, amount: 60 });
+    await cancelDocument(db, admin, receipt.id, "entered twice");
+    await cancelDocument(db, admin, inv.id, "wrong customer");
+    const customers = await partyMoney(db, [id.a, id.c], "CUSTOMER");
+    expect(customers.get(id.a)).toEqual({ billed: "1000", paid: "300", balance: "700" });
+    expect(customers.get(id.c)).toEqual({ billed: "0", paid: "0", balance: "0" });
+    expect((await partyMoney(db, [id.s], "SUPPLIER")).get(id.s)).toEqual({ billed: "1000", paid: "200", balance: "800" });
+  });
+});

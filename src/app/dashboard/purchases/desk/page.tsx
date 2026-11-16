@@ -43,6 +43,7 @@ export default async function SupplierDeskPage({ searchParams }: { searchParams:
     customer: supplier ? { id: supplier.id, name: supplier.name, phone: supplier.phone ?? "", partyNo: supplier.partyNo } : null,
     walkInName: null, amountReceived: null, notes: doc.remarks,
     vendorBillNo: doc.vendorBillNo, vendorBillDate: day(doc.vendorBillDate), biltyNo: doc.biltyNo, biltyDate: day(doc.biltyDate),
+    dueDate: day(doc.dueDate),
     items: doc.lines.filter((l) => l.component).map((l) => ({
       quantity: Number(l.quantity), unit: l.unit, loose: Number(l.loose ?? 0), baseQuantity: Number(l.baseQuantity), unitPrice: Number(l.unitPrice ?? 0),
       component: withSaleUnits(l.component!),

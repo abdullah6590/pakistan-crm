@@ -49,6 +49,8 @@ export interface EditBill {
   walkInPhone?: string | null;
   /** Supplier invoice: the supplier's own bill number and date, the bilty (BL) number and date */
   vendorBillNo?: string | null; vendorBillDate?: string | null; biltyNo?: string | null; biltyDate?: string | null;
+  /** A supplier bill's due date (entered on New purchase); the desk has no box for it, so an edit keeps it */
+  dueDate?: string | null;
 }
 
 interface Row {
@@ -147,6 +149,8 @@ export interface DeskInfo {
   canCashUpdate?: boolean;
   /** Receive (or, on a supplier invoice, pay) money against this bill from the desk */
   canPay?: boolean;
+  /** Why the money cannot be taken here (shown instead of the button) */
+  payNote?: string | null;
   /** Money already set against this bill: cash at the counter, receipts, supplier payments and returns */
   payments?: DeskPayment[];
   canNew?: boolean;
@@ -256,13 +260,14 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
   }, [custQuery, party]);
   // The customer's balance before this bill (old "Balance"), when this user may see it
   useEffect(() => {
-    if (!customer) return;
+    // A saved bill on the desk shows the balance stored with it, so today's is not fetched
+    if (!customer || (editBill && desk)) return;
     const c = new AbortController();
     // A supplier's balance is what is owed to them (old Supplier Invoice "Balance")
     fetch(purchase ? `/api/suppliers/${customer.id}?summary=1` : `/api/sales/payments?customerId=${customer.id}`, { signal: c.signal })
       .then((r) => (r.ok ? r.json() : null)).then((d) => setBalance(purchase ? (d?.balance != null ? Number(d.balance) : null) : d?.account ? Number(d.account.balance) : null)).catch(() => {});
     return () => c.abort();
-  }, [customer, purchase]);
+  }, [customer, purchase, editBill, desk]);
 
   // ─── Item search (one open box at a time) ───
   const [searchRow, setSearchRow] = useState<string | null>(null);
@@ -417,7 +422,7 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
         body: JSON.stringify({
           date,
           ...(purchase
-            ? { supplierId: customer!.id, vendorBillNo: vendorBillNo.trim() || null, vendorBillDate: vendorBillDate || null, biltyNo: biltyNo.trim() || null, biltyDate: biltyDate || null }
+            ? { supplierId: customer!.id, vendorBillNo: vendorBillNo.trim() || null, vendorBillDate: vendorBillDate || null, biltyNo: biltyNo.trim() || null, biltyDate: biltyDate || null, dueDate: editBill?.dueDate || null }
             : { customerId: cashSale ? null : customer!.id }),
           walkInName: cashSale ? walkInName.trim() : null,
           walkInPhone: cashSale ? walkInPhone.trim() || null : null,
@@ -545,7 +550,8 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
   const shown = "px-2 py-1 text-right tabular-nums whitespace-nowrap text-sm";
 
   return (
-    <div className="space-y-4">
+    // The desk is a window of its own, as the old program's, not the full page: centred, with a soft deep shadow
+    <div className={cn("space-y-4", desk && "mx-auto max-w-6xl rounded-2xl border border-border/60 bg-card p-4 shadow-[0_1px_2px_rgba(15,23,42,.06),0_18px_48px_-16px_rgba(15,23,42,.35)] ring-1 ring-black/[.04] sm:p-6 dark:border-border dark:shadow-[0_18px_48px_-16px_rgba(0,0,0,.8)] dark:ring-white/[.06]")} data-desk-window={desk ? "" : undefined}>
       <NewCustomerDialog
         open={newCustomerOpen}
         initialText={custQuery}
@@ -626,11 +632,11 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
                   <p className="text-xs text-muted-foreground">{purchase ? "Supplier" : "Customer"}</p>
                   <p className="font-semibold">{customer.name}{customer.phone && <span className="ml-2 text-sm font-normal text-muted-foreground">{customer.phone}</span>}</p>
                 </div>
-                {(editBill ? desk?.previousBalance != null : balance !== null) && (
+                {(editBill && desk ? desk.previousBalance != null : balance !== null) && (
                   <div>
                     <p className="text-xs text-muted-foreground">{purchase ? "Owed to them before this bill" : "Balance before this bill"}</p>
                     {/* A saved bill shows the balance stored with it; a new bill today's balance */}
-                    <p className={cn("font-semibold tabular-nums", (editBill ? Number(desk?.previousBalance) : balance!) > 0 && "text-amber-700 dark:text-amber-400")}>{money(editBill ? ((purchase ? -1 : 1) * Number(desk?.previousBalance) || 0) : balance!)}</p>
+                    <p className={cn("font-semibold tabular-nums", (editBill && desk ? Number(desk.previousBalance) : balance!) > 0 && "text-amber-700 dark:text-amber-400")}>{money(editBill && desk ? ((purchase ? -1 : 1) * Number(desk.previousBalance) || 0) : balance!)}</p>
                   </div>
                 )}
                 {!editBill && <Button type="button" variant="ghost" size="sm" onClick={() => { setCustomer(null); setBalance(null); }}>Change</Button>}
@@ -1150,6 +1156,8 @@ function PaymentPanel({ desk, money, purchase, cashSale, editing, payLabel, onPa
         <Button type="button" data-pay-button onClick={onPay} className="h-10 w-full gap-2 bg-emerald-600 text-white hover:bg-emerald-700">
           <Banknote className="h-4 w-4" aria-hidden /> {payLabel} · {money(owed)}
         </Button>
+      ) : desk.payNote && owed > 0 ? (
+        <p data-pay-note className="rounded-lg bg-amber-100 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">{desk.payNote}</p>
       ) : null}
     </section>
   );

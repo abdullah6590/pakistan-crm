@@ -7,8 +7,7 @@ import { getAuthUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { loadBooksBill } from "@/lib/sales/books-queries";
 import { mayEditBill } from "@/lib/sales/books-sales";
-import { UNIT_FIELDS, withSaleUnits } from "@/lib/sales/units";
-import { SPEC_FIELDS } from "@/lib/product-spec";
+import { screenBill, startingLists } from "@/lib/sales/desk-data";
 import PaperSaleClient from "../../new/paper-sale-client";
 
 export const dynamic = "force-dynamic";
@@ -28,46 +27,9 @@ export default async function EditSalePage({ params }: { params: Promise<{ id: s
   const { doc } = bill;
   if (doc.status !== "POSTED" || !can(user.role, "sales", "write") || !mayEditBill({ id: user.id, role: user.role }, doc)) redirect(`/dashboard/sales/${id}`);
 
-  const customer = doc.partyAccount?.customerId
-    ? await prisma.customer.findUnique({ where: { id: doc.partyAccount.customerId }, select: { id: true, name: true, phone: true, partyNo: true } })
-    : null;
-  const [initialComponents, initialCustomers] = await Promise.all([
-    prisma.component.findMany({
-      where: { isActive: true },
-      orderBy: { totalSold: "desc" },
-      take: 15,
-      select: { id: true, name: true, sku: true, quantity: true, unitCost: true, unitPrice: true, minQuantity: true, ...SPEC_FIELDS, ...UNIT_FIELDS },
-    }),
-    prisma.customer.findMany({ where: { isActive: true }, select: { id: true, name: true, phone: true, partyNo: true }, orderBy: { visitCount: "desc" }, take: 10 }),
-  ]);
-
+  // The same saved-bill mapping as the invoice desk (one copy, so a new field reaches both screens)
+  const lists = await startingLists(prisma);
   return (
-    <PaperSaleClient
-      initialItems={JSON.parse(JSON.stringify(initialComponents.map(withSaleUnits)))}
-      initialCustomers={JSON.parse(JSON.stringify(initialCustomers.map((c) => ({ ...c, phone: c.phone ?? "" }))))}
-      editBill={JSON.parse(JSON.stringify({
-        id: doc.id,
-        invoiceNumber: doc.docNo,
-        type: doc.type,
-        date: doc.date.toISOString().slice(0, 10),
-        customer: customer ? { id: customer.id, name: customer.name, phone: customer.phone ?? "" } : null,
-        walkInName: doc.type === "CASH_SALE" ? bill.customerName : null,
-        walkInPhone: doc.type === "CASH_SALE" ? doc.walkInPhone : null,
-        amountReceived: doc.type === "CASH_SALE" ? doc.amountReceived : null,
-        notes: bill.notes,
-        // Each line comes back in the unit it was billed in (packets, cartons, ...), with its loose stock units
-        items: doc.lines.filter((l) => l.component).map((l) => ({
-          quantity: Number(l.quantity),
-          unit: l.unit,
-          loose: Number(l.loose ?? 0),
-          baseQuantity: Number(l.baseQuantity),
-          unitPrice: Number(l.unitPrice ?? 0),
-          component: withSaleUnits(l.component!),
-          // The size, gm and rate per kg the line was priced with (as saved, not the item's current values)
-          paper: l.paperX && l.paperY && l.paperGsm ? { x: l.paperX, y: l.paperY, gsm: l.paperGsm, divisor: l.paperDivisor, rate: l.ratePerKg } : null,
-          remarks: l.remarks,
-        })),
-      }))}
-    />
+    <PaperSaleClient {...lists} editBill={await screenBill(prisma, bill)} />
   );
 }

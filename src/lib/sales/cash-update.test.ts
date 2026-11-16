@@ -69,6 +69,31 @@ describe("cash sale paid in part, settled later (old Cash Update)", () => {
   });
 });
 
+describe("Cash Update money on a walk-in bill is never stranded (review 2026-11-16)", () => {
+  it("an edit fits later receipts beside the counter cash; lowering below them or cancelling waits for the receipt", async () => {
+    const { cancelDocument } = await import("../accounting/posting");
+    const item = (price: string) => [{ componentId: id.b, quantity: 1, unit: "packet", unitPrice: price }];
+    const r = await createScreenSale(db, admin, { date: "2026-11-14", walkInName: "Bilal", paidNow: { amount: "400", method: "CASH" }, items: item("1000") });
+    const bill = r.document;
+    const cu = await receivePayment(db, admin, { partyAccountId: bill.partyAccountId!, cashAccountId: bill.cashAccountId!, date: "2026-11-15", amount: "600", allocations: [{ invoiceId: bill.id, amount: "600" }] });
+    // Down to 900 with Rs 400 at the counter: only Rs 500 is left for the Rs 600 receipt, so the edit is refused
+    const lower = await err(amendScreenSale(db, admin, bill.id, { date: "2026-11-14", walkInName: "Bilal", paidNow: { amount: "400", method: "CASH" }, items: item("900") }, "price agreed lower"));
+    expect(lower?.status).toBe(409);
+    expect(lower?.message).toMatch(/smaller than the cash already received.*Cash Update \(CRV-/);
+    expect((await invoicePayments(db, bill.id)).paid).toBe("1000"); // nothing changed
+    // Up to 1,100: the receipt fits beside the counter cash; Rs 100 is owed
+    const up = (await amendScreenSale(db, admin, bill.id, { date: "2026-11-14", walkInName: "Bilal", paidNow: { amount: "400", method: "CASH" }, items: item("1100") }, "one more cut")) as { document: { id: string } };
+    const p = await invoicePayments(db, up.document.id);
+    expect([p.atCounter, p.paid, p.remaining, p.payments.map((x) => x.amount)]).toEqual(["400", "1000", "100", ["600"]]);
+    // Cancelling the bill waits until the Cash Update receipt is cancelled (its cash goes back out of the till)
+    const cancel = await err(cancelDocument(db, admin, up.document.id, "wrong customer"));
+    expect(cancel?.message).toMatch(/Cash Update \(CRV-.*\)\. Cancel that receipt first/);
+    await cancelDocument(db, admin, cu.receipt.id, "money handed back");
+    const done = await cancelDocument(db, admin, up.document.id, "wrong customer");
+    expect(done.status).toBe("CANCELLED");
+  });
+});
+
 describe("editing a bill keeps added rows and drops removed ones", () => {
   it("rows a+b become b+c: the revision has exactly b and c, stock follows", async () => {
     const stock = async (k: string) => Number((await db.component.findUniqueOrThrow({ where: { id: id[k] } })).quantity);

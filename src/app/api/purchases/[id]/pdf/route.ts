@@ -24,7 +24,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     date: doc.date, supplier: b.supplierName, supplierCode: b.supplierCode, supplierPhone: b.supplier?.phone,
     vendorBillNo: doc.vendorBillNo, vendorBillDate: doc.vendorBillDate, dueDate: doc.dueDate, biltyNo: doc.biltyNo,
     status: STATUS[b.status] ?? b.status,
-    lines: doc.lines.map((l) => ({ description: l.description ?? "", spec: [specLabel(l.component), paperLineText(l)].filter(Boolean).join("  ·  ") || null, sku: l.component?.sku, quantity: l.quantity, unit: l.unit, loose: l.loose, unitPrice: l.unitPrice, amount: l.amount })),
+    lines: doc.lines.map((l) => ({ description: l.description ?? "", spec: [specLabel(l.component), paperLineText(l)].filter(Boolean).join("  ·  ") || null, sku: l.component?.sku, quantity: l.quantity, unit: l.unit, loose: l.loose, unitPrice: l.unitPrice, amount: l.amount, remarks: l.remarks })),
     weightKg: doc.lines.reduce((t, l) => t + paperLineWeight(l), 0) || null,
     sheets: doc.lines.filter((l) => paperLineWeight(l) > 0).reduce((t, l) => t + Number(l.baseQuantity), 0) || null,
     total: b.total, paid: b.paid, returned: b.returned, remaining: b.remaining,

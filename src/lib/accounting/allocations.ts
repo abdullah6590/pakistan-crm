@@ -63,6 +63,27 @@ export async function refundsFundedBy(tx: Tx, receiptId: string) {
   return rows.map((r) => r.debitDoc.docNo);
 }
 
+/**
+ * Receipts set against a walk-in cash sale (old Cash Update) sit on the shared counter-sale account, where no screen can
+ * refund them or apply them to another bill. So while such receipts are on the bill it cannot be cancelled, and an edit
+ * may not leave part of them over: the receipt is cancelled first (its cash goes back out), then the bill.
+ * Returns the message to refuse with, or null. `receiptIds`: the receipts an edit could not fit (else those on the bill).
+ */
+export async function walkInReceiptsProblem(
+  tx: Tx, doc: { id: string; docNo: string; type: string; partyAccountId: string | null }, what: "cancel" | "lower", receiptIds?: string[],
+): Promise<string | null> {
+  if (doc.type !== "CASH_SALE" || !doc.partyAccountId) return null;
+  const party = await tx.ledgerAccount.findUnique({ where: { id: doc.partyAccountId }, select: { customerId: true } });
+  if (party?.customerId) return null;
+  const ids = receiptIds ?? (await tx.paymentAllocation.findMany({ where: { debitDocId: doc.id, ...ACTIVE }, select: { creditDocId: true } })).map((r) => r.creditDocId);
+  if (!ids.length) return null;
+  const nos = (await tx.accountingDocument.findMany({ where: { id: { in: [...new Set(ids)] } }, select: { docNo: true } })).map((d) => d.docNo).join(", ");
+  const them = ids.length === 1 ? "that receipt" : "those receipts";
+  return what === "cancel"
+    ? `${doc.docNo} has cash received later with Cash Update (${nos}). Cancel ${them} first, then the bill.`
+    : `This change makes ${doc.docNo} smaller than the cash already received for it with Cash Update (${nos}). Cancel ${them} first, or keep the bill at least as large as the money received.`;
+}
+
 /** Cancelling a document releases every allocation on it: an invoice's payments become unapplied credit again. */
 export async function releaseForCancelled(tx: Tx, docId: string, userId: string, reason: string) {
   const rows = await activeAllocations(tx, docId);
@@ -78,13 +99,16 @@ export async function releaseForCancelled(tx: Tx, docId: string, userId: string,
 export async function carryToRevision(
   tx: Tx,
   old: { id: string; partyAccountId: string | null },
-  fresh: { id: string; partyAccountId: string | null; total: string; docNo: string },
+  fresh: { id: string; partyAccountId: string | null; total: string; docNo: string; type?: string; amountReceived?: string | null },
   userId: string,
 ) {
   const rows = await activeAllocations(tx, old.id);
   if (rows.length === 0) return { carried: [] as PaymentAllocation[], released: [] as { allocation: PaymentAllocation; amount: Dec }[] };
   const sameParty = old.partyAccountId === fresh.partyAccountId;
-  let room = sameParty ? dec(fresh.total) : ZERO;
+  // A cash sale's cash taken at the counter already pays part of it: later receipts only fit the rest
+  const atCounter = fresh.type ? counterPaid({ type: fresh.type, amountReceived: fresh.amountReceived ?? null, total: fresh.total }) : ZERO;
+  const rest = sub(dec(fresh.total), atCounter);
+  let room = sameParty && cmp(rest, ZERO) > 0 ? rest : ZERO;
   const carried: PaymentAllocation[] = [];
   const released: { allocation: PaymentAllocation; amount: Dec }[] = [];
   const at = new Date();

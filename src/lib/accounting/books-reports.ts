@@ -89,9 +89,17 @@ export async function partyBalances(db: PrismaClient, opts: { type?: PartyType; 
 export async function partyMoney(db: PrismaClient, accountIds: string[], side: "CUSTOMER" | "SUPPLIER") {
   const out = new Map<string, { billed: string; paid: string; balance: string }>();
   if (!accountIds.length) return out;
-  const sums = await db.journalLine.groupBy({ by: ["accountId"], where: { accountId: { in: accountIds } }, _sum: { debitPaisa: true, creditPaisa: true } });
-  for (const x of sums) {
-    const dr = fromPaisa(x._sum.debitPaisa ?? BigInt(0)), cr = fromPaisa(x._sum.creditPaisa ?? BigInt(0));
+  // A cancelled or edited document is undone by a REVERSAL entry with debit and credit swapped. Taken as it is, that
+  // would count an undone bill as paid; so reversals are taken off the side they undo (review 2026-11-16).
+  const sumsOf = (kind: "POSTING" | "REVERSAL") => db.journalLine.groupBy({
+    by: ["accountId"], where: { accountId: { in: accountIds }, entry: { kind } }, _sum: { debitPaisa: true, creditPaisa: true },
+  });
+  const [posted, reversed] = await Promise.all([sumsOf("POSTING"), sumsOf("REVERSAL")]);
+  const undo = new Map(reversed.map((x) => [x.accountId, x._sum]));
+  for (const x of posted) {
+    const r = undo.get(x.accountId);
+    const dr = fromPaisa((x._sum.debitPaisa ?? BigInt(0)) - (r?.creditPaisa ?? BigInt(0)));
+    const cr = fromPaisa((x._sum.creditPaisa ?? BigInt(0)) - (r?.debitPaisa ?? BigInt(0)));
     const [billed, paid] = side === "CUSTOMER" ? [dr, cr] : [cr, dr];
     out.set(x.accountId, { billed: s(billed), paid: s(paid), balance: s(sub(billed, paid)) });
   }
