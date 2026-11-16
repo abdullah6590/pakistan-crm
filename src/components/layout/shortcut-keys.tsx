@@ -59,12 +59,30 @@ export default function ShortcutKeys() {
     return () => window.removeEventListener("keydown", onKey, true);
   }, [map, router]);
 
+  // F1, as in the old program: a box with its own list (party, item, walk-in name on the desks) answers F1 itself;
+  // anywhere else F1 opens the search for customers, suppliers, products, ledgers and bills. Listening after the page's
+  // own handlers (bubble phase) lets those boxes go first.
+  useEffect(() => {
+    const onF1 = (e: KeyboardEvent) => {
+      if (e.key !== "F1" || e.defaultPrevented || e.repeat || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+      if (document.body.dataset.shortcutRecording || document.body.dataset.layoutChoice) return;
+      e.preventDefault();
+      setHelpOpen(false);
+      window.dispatchEvent(new Event(OPEN_SEARCH));
+    };
+    window.addEventListener("keydown", onF1);
+    return () => window.removeEventListener("keydown", onF1);
+  }, []);
+
   const groups = [...new Set(SHORTCUT_ACTIONS.map((a) => a.group))];
   return (
     <Dialog open={helpOpen} onClose={() => setHelpOpen(false)}>
       <DialogHeader>
         <DialogTitle><span className="inline-flex items-center gap-2"><Keyboard className="h-5 w-5" aria-hidden />Keyboard shortcuts</span></DialogTitle>
-        <DialogDescription>Press the keys together to open the section from any page.</DialogDescription>
+        <DialogDescription>
+          Press the keys together to open the section from any page. F1 finds a customer, supplier, product, ledger or bill;
+          in a box with its own list (party, item, cash sale name) F1 opens that list.
+        </DialogDescription>
       </DialogHeader>
       <div className="max-h-[60vh] space-y-4 overflow-y-auto pr-1">
         {groups.map((g) => (

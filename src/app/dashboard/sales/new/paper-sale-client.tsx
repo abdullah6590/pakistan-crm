@@ -476,13 +476,26 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
 
   // ─── Desk: Find by number, Print / Print G, Cash Update, earlier cash bills by name (F1) ───
   const [findNo, setFindNo] = useState("");
+  /** Bills found by name (or phone, or a number that is no bill number), to pick from */
+  const [findHits, setFindHits] = useState<{ id: string; docNo: string; name: string; date: string; total: string; remaining: string; status: string }[] | null>(null);
+  const kindName = purchase ? "supplier invoice" : cashSale ? "cash sale" : "invoice";
   const find = async () => {
     const type = purchase ? "PURCHASE_INVOICE" : cashSale ? "CASH_SALE" : "SALE_INVOICE";
-    if (!/^\d+$/.test(findNo.trim())) { toast.error("Type the bill number"); return; }
-    const data = await fetch(`/api/sales/step?type=${type}&number=${findNo.trim()}`).then((r) => r.json()).catch(() => ({}));
-    if (!data.bill) { toast.error(`No ${purchase ? "supplier invoice" : cashSale ? "cash sale" : "invoice"} number ${findNo.trim()}`); return; }
-    setFindNo("");
-    router.push(deskUrl(`id=${data.bill.id}`));
+    const q = findNo.trim();
+    if (!q) { toast.error("Type a bill number or a name"); return; }
+    // A plain number is first taken as the bill number (old Find)
+    if (/^\d+$/.test(q)) {
+      const data = await fetch(`/api/sales/step?type=${type}&number=${q}`).then((r) => r.json()).catch(() => ({}));
+      if (data.bill) { setFindNo(""); setFindHits(null); router.push(deskUrl(`id=${data.bill.id}`)); return; }
+    }
+    // Otherwise the customer's, walk-in's or supplier's name, a phone number, a supplier bill number or an item
+    const url = purchase ? `/api/purchases?search=${encodeURIComponent(q)}` : `/api/sales?type=${type}&search=${encodeURIComponent(q)}`;
+    const data = await fetch(url).then((r) => r.json()).catch(() => ({}));
+    const rows = ((data.rows ?? []) as { id: string; docNo: string; customer?: string; supplier?: string; date: string; total: string; remaining: string; status: string }[])
+      .slice(0, 20).map((r) => ({ id: r.id, docNo: r.docNo, name: (purchase ? r.supplier : r.customer) ?? "", date: r.date, total: r.total, remaining: r.remaining, status: r.status }));
+    if (!rows.length) { toast.error(`No ${kindName} found for "${q}"`); return; }
+    setFindHits(rows);
+    setTimeout(() => document.querySelector<HTMLButtonElement>("[data-find-hit]")?.focus(), 30);
   };
   const print = (layout: "invoice" | "slip") => {
     if (!editBill) return;
@@ -975,10 +988,48 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
                 <Icon className="h-4 w-4" aria-hidden />
               </Button>
             ))}
-            <div className="ml-1 flex items-center gap-1">
-              <Input aria-label="Find bill number" placeholder="Bill no" inputMode="numeric" className="h-9 w-24" value={findNo}
-                onChange={(e) => setFindNo(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void find(); } }} />
+            <div className="relative ml-1 flex items-center gap-1">
+              <Input aria-label="Find bill by number or name" placeholder={purchase ? "Bill no or supplier" : "Bill no or name"} className="h-9 w-44" value={findNo}
+                title="A bill number, or a name or phone number: matching bills are listed"
+                onChange={(e) => { setFindNo(e.target.value.slice(0, 80)); setFindHits(null); }}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void find(); } else if (e.key === "Escape") setFindHits(null); }} />
               <Button type="button" variant="outline" className="h-9 gap-1" onClick={() => void find()}><Search className="h-4 w-4" aria-hidden /> Find</Button>
+              {findHits && (
+                <div role="listbox" aria-label="Bills found" data-find-list
+                  className="absolute bottom-full left-0 z-40 mb-2 max-h-80 w-[30rem] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-sky-200 bg-background shadow-xl dark:border-sky-900"
+                  onKeyDown={(e) => {
+                    const items = [...e.currentTarget.querySelectorAll<HTMLButtonElement>("[data-find-hit]")];
+                    const at = items.indexOf(document.activeElement as HTMLButtonElement);
+                    if (e.key === "ArrowDown") { e.preventDefault(); items[Math.min(at + 1, items.length - 1)]?.focus(); }
+                    else if (e.key === "ArrowUp") { e.preventDefault(); items[Math.max(at - 1, 0)]?.focus(); }
+                    else if (e.key === "Escape") { e.preventDefault(); setFindHits(null); }
+                  }}>
+                  <p className="sticky top-0 border-b bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-900 dark:bg-sky-950 dark:text-sky-200">
+                    {findHits.length} {kindName}{findHits.length === 1 ? "" : "s"} for “{findNo.trim()}” · arrow keys and Enter
+                  </p>
+                  {findHits.map((h) => {
+                    const owed = Number(h.remaining), cancelled = h.status !== "POSTED";
+                    return (
+                      <button key={h.id} type="button" role="option" aria-selected={false} data-find-hit
+                        className="flex w-full items-center justify-between gap-3 border-b px-3 py-2 text-left text-sm last:border-0 hover:bg-muted focus:bg-muted focus:outline-none"
+                        onClick={() => { setFindHits(null); setFindNo(""); router.push(deskUrl(`id=${h.id}`)); }}>
+                        <span className="min-w-0">
+                          <span className="font-semibold">{h.docNo}</span> <span className="text-muted-foreground">· {h.date.slice(0, 10)}</span>
+                          <span className="block truncate">{h.name || "-"}</span>
+                        </span>
+                        <span className="flex shrink-0 flex-col items-end gap-0.5">
+                          <span className="tabular-nums font-medium">{money(Number(h.total))}</span>
+                          <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                            cancelled ? "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                              : owed > 0 ? "bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300")}>
+                            {cancelled ? (h.status === "CANCELLED" ? "Cancelled" : "Replaced") : owed > 0 ? `${purchase ? "You owe" : "Owes"} ${money(owed)}` : "Paid"}
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
           {editBill && locked && (
