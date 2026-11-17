@@ -69,3 +69,44 @@ export function MoneyTiles({ totals, side, format }: { totals: PartyTotals; side
     </div>
   );
 }
+
+// ── The same colours on the bill lists, the bill pages and the outstanding reports ──────────────────────────────
+
+export type Tone = "red" | "green" | "blue" | "violet" | "amber" | "slate";
+export const TONE: Record<Tone, { box: string; label: string }> = {
+  red: { box: "border-rose-200 bg-rose-50 text-rose-950 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-100", label: "text-rose-700 dark:text-rose-300" },
+  green: { box: "border-emerald-200 bg-emerald-50 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100", label: "text-emerald-700 dark:text-emerald-300" },
+  blue: { box: "border-sky-200 bg-sky-50 text-sky-950 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-100", label: "text-sky-700 dark:text-sky-300" },
+  violet: { box: "border-violet-200 bg-violet-50 text-violet-950 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-100", label: "text-violet-700 dark:text-violet-300" },
+  amber: { box: "border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100", label: "text-amber-700 dark:text-amber-300" },
+  slate: { box: "border-slate-200 bg-slate-50 text-slate-950 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-100", label: "text-slate-600 dark:text-slate-300" },
+};
+
+/** One coloured figure: red for money owed, green for money paid, blue for what was billed, violet for advances. */
+export function Tile({ label, value, tone, sub, big, id }: { label: string; value: string; tone: Tone; sub?: string | null; big?: boolean; id?: string }) {
+  const t = TONE[tone];
+  return (
+    <div data-tile={id ?? label} className={cn("rounded-xl border px-4 py-3", t.box)}>
+      <p className={cn("text-xs font-medium uppercase tracking-wide", t.label)}>{label}</p>
+      <p className={cn("font-bold tabular-nums", big ? "text-2xl" : "text-xl")}>{value}</p>
+      {sub && <p className={cn("text-xs", t.label)}>{sub}</p>}
+    </div>
+  );
+}
+
+/** A bill's state with the money still on it: Paid (green), Part paid (amber), Owes / You owe Rs X (red), Cancelled (slate). */
+export function BillBadge({ status, owed, side, format, overdue }: { status: string; owed: string | number; side: "customer" | "supplier"; format: (n: number) => string; overdue?: boolean }) {
+  const o = Number(owed);
+  const base = "inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-semibold tabular-nums";
+  if (status === "CANCELLED" || status === "REPLACED") {
+    return <span data-bill-status={status} className={cn(base, "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300")}>{status === "CANCELLED" ? "Cancelled" : "Replaced"}</span>;
+  }
+  if (status === "PAID" || o <= 0) {
+    return <span data-bill-status="PAID" className={cn(base, "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300")}><CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> Paid</span>;
+  }
+  const who = side === "customer" ? "Owes" : "You owe";
+  if (status === "PARTIALLY_PAID") {
+    return <span data-bill-status="PARTIALLY_PAID" className={cn(base, "bg-amber-100 text-amber-900 dark:bg-amber-950/60 dark:text-amber-200")}>Part paid · {who.toLowerCase()} {format(o)}{overdue ? " · overdue" : ""}</span>;
+  }
+  return <span data-bill-status="UNPAID" className={cn(base, "bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300")}>{who} {format(o)}{overdue ? " · overdue" : ""}</span>;
+}

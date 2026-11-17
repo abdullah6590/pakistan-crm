@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { ArrowLeft, Download, Pencil, Printer, Wallet, Ban, History, Receipt, ChevronFirst, ChevronLeft, ChevronRight, ChevronLast } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { BillBadge, Tile } from "@/components/shared/party-money";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -93,7 +94,7 @@ export default function BookBillClient({ bill, canEdit, canReceive, canCancel, p
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-2xl font-bold tracking-tight">{isInvoice ? "Invoice" : "Cash sale"} {doc.docNo}</h1>
-                <Badge variant={st.variant}>{st.label}</Badge>
+                <BillBadge status={bill.status} owed={bill.remaining} side="customer" format={formatCurrency} />
                 {revisionNote && <Badge variant="outline">{revisionNote}</Badge>}
               </div>
               <p className="text-sm text-muted-foreground mt-0.5">{formatDate(doc.date)} · {bill.customerName} · made by {bill.madeBy}</p>
@@ -133,11 +134,11 @@ export default function BookBillClient({ bill, canEdit, canReceive, canCancel, p
           </div>
         )}
 
-        <div className="grid gap-4 sm:grid-cols-4">
-          {[["Bill total", bill.total], ["Received", bill.paid], ["Remaining", bill.remaining]].map(([label, v]) => (
-            <Card key={label}><CardContent className="p-4"><p className="text-xs text-muted-foreground">{label}</p><p className="text-xl font-bold tabular-nums">{rs(v)}</p></CardContent></Card>
-          ))}
-          <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Status</p><p className="text-xl font-bold">{st.label}</p></CardContent></Card>
+        <div className="grid gap-3 sm:grid-cols-4">
+          <Tile id="total" label="Bill total" value={rs(bill.total)} tone="blue" />
+          <Tile id="paid" label="Received" value={rs(bill.paid)} tone="green" />
+          <Tile id="owed" label="Remaining" value={rs(bill.remaining)} tone={Number(bill.remaining) > 0 ? "red" : "green"} />
+          <div className="flex items-center rounded-xl border px-4 py-3"><BillBadge status={bill.status} owed={bill.remaining} side="customer" format={formatCurrency} /></div>
         </div>
 
         <Card>

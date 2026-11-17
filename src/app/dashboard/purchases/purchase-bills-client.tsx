@@ -1,15 +1,15 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Plus, Truck, DollarSign, FileText, Wallet, History, ChevronLeft, ChevronRight, AlarmClock, Receipt } from "lucide-react";
+import { Plus, Truck, DollarSign, Wallet, History, ChevronLeft, ChevronRight, Receipt } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { AdvancedFilter } from "@/components/shared/advanced-filter";
 import { formatDate, formatPaisa } from "@/lib/utils";
+import { BillBadge, BilledPaid, Tile } from "@/components/shared/party-money";
 
 export interface PurchaseRow {
   id: string; docNo: string; revision: number; date: string; status: string;
@@ -64,19 +64,10 @@ export default function PurchaseBillsClient({ rows, stats, pagination, suppliers
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card><CardContent className="p-4 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-500/10"><FileText className="h-5 w-5 text-blue-500" aria-hidden /></div>
-          <div><p className="text-xs text-muted-foreground">Bills (purchases {rs(stats.total)})</p><p className="text-xl font-bold">{stats.count}</p></div>
-        </CardContent></Card>
-        <Card><CardContent className="p-4 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/10"><DollarSign className="h-5 w-5 text-amber-500" aria-hidden /></div>
-          <div><p className="text-xs text-muted-foreground">Still payable to suppliers</p><p className="text-xl font-bold">{rs(stats.payable)}</p></div>
-        </CardContent></Card>
-        <Card><CardContent className="p-4 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-red-500/10"><AlarmClock className="h-5 w-5 text-red-500" aria-hidden /></div>
-          <div><p className="text-xs text-muted-foreground">Bills past their due date</p><p className="text-xl font-bold">{stats.overdue}</p></div>
-        </CardContent></Card>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Tile id="bills" label="Bills" value={String(stats.count)} sub={`purchases ${rs(stats.total)}`} tone="blue" />
+        <Tile id="payable" label="Still payable to suppliers" value={rs(stats.payable)} tone={Number(stats.payable) > 0 ? "red" : "green"} />
+        <Tile id="overdue" label="Bills past their due date" value={String(stats.overdue)} tone={stats.overdue > 0 ? "amber" : "green"} />
       </div>
 
       <AdvancedFilter
@@ -103,8 +94,7 @@ export default function PurchaseBillsClient({ rows, stats, pagination, suppliers
                     <TableHead>Supplier</TableHead>
                     <TableHead>Supplier bill</TableHead>
                     <TableHead className="text-right">Total</TableHead>
-                    <TableHead className="text-right">Paid</TableHead>
-                    <TableHead className="text-right">Still payable</TableHead>
+                    <TableHead><span className="text-sky-700 dark:text-sky-300">Billed</span> / <span className="text-emerald-700 dark:text-emerald-300">Paid</span></TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Date</TableHead>
                     <TableHead>Due</TableHead>
@@ -112,16 +102,14 @@ export default function PurchaseBillsClient({ rows, stats, pagination, suppliers
                 </TableHeader>
                 <TableBody>
                   {rows.map((r) => {
-                    const st = PURCHASE_STATUS[r.paymentStatus] ?? PURCHASE_STATUS.UNPAID;
                     return (
                       <TableRow key={r.id} className="cursor-pointer hover:bg-muted/50" onClick={() => router.push(`/dashboard/purchases/${r.id}`)}>
                         <TableCell><a href={`/dashboard/purchases/${r.id}`} onClick={(e) => e.stopPropagation()} className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono hover:underline">{r.docNo}</a></TableCell>
                         <TableCell className="font-medium">{r.supplier}<div className="text-xs font-mono text-muted-foreground">{r.supplierCode}</div></TableCell>
                         <TableCell className="text-xs">{r.vendorBillNo ?? "-"}</TableCell>
-                        <TableCell className="text-right tabular-nums">{rs(r.total)}</TableCell>
-                        <TableCell className="text-right tabular-nums">{rs(r.paid)}</TableCell>
-                        <TableCell className="text-right tabular-nums font-medium">{rs(r.remaining)}</TableCell>
-                        <TableCell><Badge variant={st.variant}>{st.label}</Badge></TableCell>
+                        <TableCell className="text-right tabular-nums font-medium">{rs(r.total)}</TableCell>
+                        <TableCell>{r.status === "POSTED" ? <BilledPaid money={{ billed: r.total, paid: r.paid, balance: r.remaining }} format={formatPaisa} /> : <span className="text-muted-foreground">-</span>}</TableCell>
+                        <TableCell><BillBadge status={r.paymentStatus} owed={r.remaining} side="supplier" format={formatPaisa} overdue={r.overdue} /></TableCell>
                         <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(r.date)}</TableCell>
                         <TableCell className="text-xs whitespace-nowrap">
                           {r.dueDate ? <span className={r.overdue ? "font-medium text-red-700 dark:text-red-400" : "text-muted-foreground"}>{formatDate(r.dueDate)}{r.overdue ? " (overdue)" : ""}</span> : <span className="text-muted-foreground">-</span>}

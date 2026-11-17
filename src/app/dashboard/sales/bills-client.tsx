@@ -2,16 +2,16 @@
 
 import { useRouter } from "next/navigation";
 import {
-  Plus, ShoppingCart, DollarSign, TrendingUp, FileText, Wallet, History, ChevronLeft, ChevronRight,
+  Plus, ShoppingCart, DollarSign, Wallet, History, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { PageHeader } from "@/components/shared/page-header";
 import { EmptyState } from "@/components/shared/empty-state";
 import { AdvancedFilter } from "@/components/shared/advanced-filter";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { BillBadge, BilledPaid, Tile } from "@/components/shared/party-money";
 
 export interface BillRow {
   id: string; docNo: string; type: string; revision: number; date: string; status: string;
@@ -69,19 +69,10 @@ export default function BillsClient({ rows, stats, pagination, customers, olderC
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card><CardContent className="p-4 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-500/10"><FileText className="h-5 w-5 text-blue-500" /></div>
-          <div><p className="text-xs text-muted-foreground">Bills (sales {rs(stats.total)})</p><p className="text-xl font-bold">{stats.count}</p></div>
-        </CardContent></Card>
-        <Card><CardContent className="p-4 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/10"><DollarSign className="h-5 w-5 text-amber-500" /></div>
-          <div><p className="text-xs text-muted-foreground">Still owed by customers</p><p className="text-xl font-bold">{rs(stats.outstanding)}</p></div>
-        </CardContent></Card>
-        <Card><CardContent className="p-4 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-500/10"><TrendingUp className="h-5 w-5 text-violet-500" /></div>
-          <div><p className="text-xs text-muted-foreground">Profit (at cost)</p><p className="text-xl font-bold">{rs(stats.profit)}</p></div>
-        </CardContent></Card>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Tile id="bills" label="Bills" value={String(stats.count)} sub={`sales ${rs(stats.total)}`} tone="blue" />
+        <Tile id="owed" label="Still owed by customers" value={rs(stats.outstanding)} tone={Number(stats.outstanding) > 0 ? "red" : "green"} />
+        <Tile id="profit" label="Profit (at cost)" value={rs(stats.profit)} tone="green" />
       </div>
 
       <AdvancedFilter
@@ -108,15 +99,13 @@ export default function BillsClient({ rows, stats, pagination, customers, olderC
                     <TableHead>Customer</TableHead>
                     <TableHead>Items</TableHead>
                     <TableHead className="text-right">Total</TableHead>
-                    <TableHead className="text-right">Received</TableHead>
-                    <TableHead className="text-right">Remaining</TableHead>
+                    <TableHead><span className="text-sky-700 dark:text-sky-300">Billed</span> / <span className="text-emerald-700 dark:text-emerald-300">Received</span></TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Date</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {rows.map((r) => {
-                    const st = BILL_STATUS[r.paymentStatus] ?? BILL_STATUS.UNPAID;
                     return (
                       <TableRow key={r.id} className="cursor-pointer hover:bg-muted/50" onClick={() => router.push(`/dashboard/sales/${r.id}`)}>
                         <TableCell>
@@ -125,10 +114,9 @@ export default function BillsClient({ rows, stats, pagination, customers, olderC
                         </TableCell>
                         <TableCell className="font-medium">{r.customer}</TableCell>
                         <TableCell className="max-w-[220px] truncate text-muted-foreground text-xs">{r.items}</TableCell>
-                        <TableCell className="text-right tabular-nums">{rs(r.total)}</TableCell>
-                        <TableCell className="text-right tabular-nums">{rs(r.paid)}</TableCell>
-                        <TableCell className="text-right tabular-nums font-medium">{rs(r.remaining)}</TableCell>
-                        <TableCell><Badge variant={st.variant}>{st.label}</Badge></TableCell>
+                        <TableCell className="text-right tabular-nums font-medium">{rs(r.total)}</TableCell>
+                        <TableCell>{r.status === "POSTED" ? <BilledPaid money={{ billed: r.total, paid: r.paid, balance: r.remaining }} format={formatCurrency} /> : <span className="text-muted-foreground">-</span>}</TableCell>
+                        <TableCell><BillBadge status={r.paymentStatus} owed={r.remaining} side="customer" format={formatCurrency} /></TableCell>
                         <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(r.date)}</TableCell>
                       </TableRow>
                     );
