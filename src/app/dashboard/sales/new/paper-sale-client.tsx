@@ -7,7 +7,8 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, FilePlus2, Plus, Save, Trash2, UserPlus } from "lucide-react";
+import { Banknote, CheckCircle2, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, FilePlus2, Pencil, Plus, Printer, Receipt, Save, Search, Trash2, UserPlus, X } from "lucide-react";
+import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PAYMENT_METHODS } from "@/lib/constants";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatPaisa } from "@/lib/utils";
 import { NewCustomerDialog } from "@/components/shared/new-customer-dialog";
 import { cn } from "@/lib/utils";
 
@@ -28,7 +29,7 @@ export interface SaleItemOption {
   /** Short product number (old "ID"): typed with Enter to pick the item */
   itemNo?: number | null;
   size?: string | null; grams?: number | null;
-  kind?: string; baseUnit?: string; saleUnit?: string; units?: { code: string; factor: number }[];
+  kind?: string; baseUnit?: string; saleUnit?: string; purchaseUnit?: string; units?: { code: string; factor: number }[];
 }
 export interface SaleCustomerOption { id: string; name: string; phone: string; partyNo?: number | null }
 
@@ -42,7 +43,14 @@ export interface EditBill {
   items: {
     quantity: number; unit?: string; loose?: number; baseQuantity?: number; unitPrice: number; component: SaleItemOption;
     paper?: { x: string; y: string; gsm: string; divisor: string | null; rate: string | null } | null;
+    remarks?: string | null;
   }[];
+  /** Cash sale: the walk-in customer's phone (old "Cell No") */
+  walkInPhone?: string | null;
+  /** Supplier invoice: the supplier's own bill number and date, the bilty (BL) number and date */
+  vendorBillNo?: string | null; vendorBillDate?: string | null; biltyNo?: string | null; biltyDate?: string | null;
+  /** A supplier bill's due date (entered on New purchase); the desk has no box for it, so an edit keeps it */
+  dueDate?: string | null;
 }
 
 interface Row {
@@ -55,11 +63,15 @@ interface Row {
   /** Price per unit (packet) as typed; when not typed it follows kg x rate */
   price: string; priceTyped: boolean;
   qty: string; loose: string;
+  /** The line's own remark (old grid "Remarks") */
+  remarks: string;
+  /** The "entered in sheets, did you mean packets?" question was answered for this row (or the row came from a saved bill) */
+  sheetsOk: boolean;
 }
 
 /** An empty row. Its key is given by the screen's own counter, so the page drawn on the server and in the browser
  * name every row the same (a counter shared by all screens gave the two sides different names, and the cursor got lost). */
-const emptyRow = (key: string): Row => ({ key, item: null, query: "", unit: "", x: "", y: "", gsm: "", divisor: "15500", rate: "", price: "", priceTyped: false, qty: "", loose: "" });
+const emptyRow = (key: string): Row => ({ key, item: null, query: "", unit: "", x: "", y: "", gsm: "", divisor: "15500", rate: "", price: "", priceTyped: false, qty: "", loose: "", remarks: "", sheetsOk: false });
 const num = (v: string | number | null | undefined) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 /** A number as typed: digits and one point, at most `dp` decimals, no leading zeros. */
 const decimal = (text: string, dp: number) => {
@@ -92,20 +104,59 @@ const sheetsOf = (r: Row) => num(r.qty) * factorOf(r) + (isPack(r) ? num(r.loose
 /** As Books prices it: whole units at their price, loose sheets at the price per sheet. */
 const amountOf = (r: Row) => priceOf(r) * num(r.qty) + (isPack(r) ? (priceOf(r) / factorOf(r)) * num(r.loose) : 0);
 const weightOf = (r: Row) => { const kg = kgPerUnit(r); return kg === null ? 0 : (kg / factorOf(r)) * sheetsOf(r); };
+/** The packet of an item counted in sheets (paper). As in the old program such a row is always packets + loose sheets:
+ * the price and kg are per packet and single sheets go in Loose sheets (Report 32: Amount = P-Price x Rim + S.Price x Sheet). */
+const packetOf = (r: Row) =>
+  r.item?.baseUnit === "sheet" ? r.item.units?.find((u) => u.code === "packet" && u.factor > 1) : undefined;
+/** The units the row's unit box offers: the single sheet is left out where a packet exists (it is the Loose sheets box),
+ * unless a saved bill's line was entered in sheets. */
+const unitsFor = (r: Row) => (r.item?.units ?? []).filter((u) => !(packetOf(r) && u.code === r.item!.baseUnit && r.unit !== u.code));
+/** Only loose sheets and no packets: usually packets typed in the wrong box (owner 2026-11-16), so asked once per row. */
+const asksSheets = (r: Row) => !r.sheetsOk && !!packetOf(r) && r.unit === "packet" && !(num(r.qty) > 0) && num(r.loose) > 0;
 
-function rowFor(item: SaleItemOption, prev: Row): Row {
-  const unit = item.saleUnit ?? item.baseUnit ?? "";
+function rowFor(item: SaleItemOption, prev: Row, side: "sale" | "purchase" = "sale"): Row {
+  const own = (side === "purchase" ? item.purchaseUnit : item.saleUnit) ?? item.saleUnit ?? item.baseUnit ?? "";
+  // Paper in sheets with a packet is entered in packets + loose sheets (old program)
+  const unit = item.baseUnit === "sheet" && own === "sheet" && item.units?.some((u) => u.code === "packet") ? "packet" : own;
   const hasSize = !!(item.dimensionX && item.dimensionY && item.gsm);
-  const saleRate = item.saleRatePerKg || item.ratePerKg;
+  // A sale starts from the sale rate per kg, a purchase from the purchase rate (old Supplier Invoice)
+  const saleRate = side === "purchase" ? item.ratePerKg : item.saleRatePerKg || item.ratePerKg;
+  const listPrice = side === "purchase" ? item.unitCost : item.unitPrice;
   return {
     ...prev, item, query: "", unit,
     x: hasSize ? String(item.dimensionX) : "", y: hasSize ? String(item.dimensionY) : "", gsm: hasSize ? String(item.gsm) : "",
     divisor: String(item.divisor || 15500), rate: hasSize && saleRate ? String(saleRate) : "",
     // Without a size the item is priced per unit as before; with one the price follows kg x rate
-    price: hasSize && saleRate ? "" : item.unitPrice ? String(item.unitPrice) : "", priceTyped: !(hasSize && saleRate),
-    qty: prev.qty || "", loose: "",
+    price: hasSize && saleRate ? "" : listPrice ? String(listPrice) : "", priceTyped: !(hasSize && saleRate),
+    qty: prev.qty || "", loose: "", remarks: prev.remarks, sheetsOk: false,
   };
 }
+
+/** The invoice desk (Report 33): the bill shown locked in one window, with the old program's buttons. */
+export interface DeskInfo {
+  kind: "SALE_INVOICE" | "CASH_SALE" | "PURCHASE_INVOICE";
+  locked?: boolean;
+  status?: string;
+  printCount?: number;
+  lastPrintedAt?: string | null;
+  total?: string;
+  paid?: string;
+  remaining?: string;
+  /** The customer's balance before and after this bill, as stored when it was saved */
+  previousBalance?: string | null;
+  newBalance?: string | null;
+  canEdit?: boolean;
+  canCashUpdate?: boolean;
+  /** Receive (or, on a supplier invoice, pay) money against this bill from the desk */
+  canPay?: boolean;
+  /** Why the money cannot be taken here (shown instead of the button) */
+  payNote?: string | null;
+  /** Money already set against this bill: cash at the counter, receipts, supplier payments and returns */
+  payments?: DeskPayment[];
+  canNew?: boolean;
+}
+
+export interface DeskPayment { docNo: string; date: string; method: string; amount: string }
 
 interface Props {
   initialItems: SaleItemOption[];
@@ -113,15 +164,32 @@ interface Props {
   editBill?: EditBill;
   /** Open as a Cash Sale (walk-in), as the Classic menu's Cash Sale does */
   startWalkIn?: boolean;
+  /** Shown as the old program's invoice desk */
+  desk?: DeskInfo;
+  /** "purchase": the Supplier Invoice (the same grid with the supplier and the supplier bill's fields) */
+  side?: "sale" | "purchase";
 }
 
-export default function PaperSaleClient({ initialItems, initialCustomers, editBill, startWalkIn = false }: Props) {
+export default function PaperSaleClient({ initialItems, initialCustomers, editBill, startWalkIn = false, desk, side = "sale" }: Props) {
+  const purchase = side === "purchase";
+  // Sale bills are in whole rupees; supplier bills keep the paisa (old Net Value was not rounded)
+  const money = (n: number) => (purchase ? formatPaisa(n) : formatCurrency(n));
+  const party = purchase ? "supplier" : "customer";
   const router = useRouter();
-  const editing = !!editBill;
-  const [cashSale, setCashSale] = useState(editBill ? editBill.type === "CASH_SALE" : startWalkIn);
+  // On the desk a saved bill opens locked; Edit unlocks it (the old Edit button)
+  const [locked, setLocked] = useState(!!desk?.locked);
+  const editing = !!editBill && !locked;
+  const deskUrl = (q: string) => purchase ? `/dashboard/purchases/desk?${q}` : `/dashboard/sales/desk?kind=${(desk?.kind ?? (editBill?.type === "CASH_SALE" ? "CASH_SALE" : "SALE_INVOICE")) === "CASH_SALE" ? "cash" : "invoice"}&${q}`;
+  const [cashSale, setCashSale] = useState(!purchase && (editBill ? editBill.type === "CASH_SALE" : startWalkIn));
+  // Supplier invoice header (old S-Inv #, Inv Date, BL #, BL Date)
+  const [vendorBillNo, setVendorBillNo] = useState(editBill?.vendorBillNo ?? "");
+  const [vendorBillDate, setVendorBillDate] = useState(editBill?.vendorBillDate ?? "");
+  const [biltyNo, setBiltyNo] = useState(editBill?.biltyNo ?? "");
+  const [biltyDate, setBiltyDate] = useState(editBill?.biltyDate ?? "");
   const [date, setDate] = useState(editBill?.date ?? new Date().toISOString().slice(0, 10));
   const [customer, setCustomer] = useState<SaleCustomerOption | null>(editBill?.customer ?? null);
   const [walkInName, setWalkInName] = useState(editBill?.walkInName ?? (startWalkIn ? "Cash sale" : ""));
+  const [walkInPhone, setWalkInPhone] = useState(editBill?.walkInPhone ?? "");
   const [balance, setBalance] = useState<number | null>(null);
   const [notes, setNotes] = useState(editBill?.notes ?? "");
   const [reason, setReason] = useState("");
@@ -130,7 +198,8 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
   const [method, setMethod] = useState("CASH");
   const [saving, setSaving] = useState(false);
   const [requestId] = useState(() => crypto.randomUUID());
-  const isInvoiceEdit = editing && editBill!.type === "SALE_INVOICE";
+  // Editing an invoice (sale or purchase) keeps its payments; only a cash sale's cash is entered on the bill
+  const isInvoiceEdit = editing && editBill!.type !== "CASH_SALE";
 
   // Stock already on the bill being edited goes back when it is saved, so this bill may use it
   const onBill = useMemo(() => {
@@ -138,23 +207,31 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
     for (const i of editBill?.items ?? []) m.set(i.component.id, (m.get(i.component.id) ?? 0) + (i.baseQuantity ?? i.quantity));
     return m;
   }, [editBill]);
-  const available = useCallback((it: SaleItemOption) => it.quantity + (onBill.get(it.id) ?? 0), [onBill]);
+  // A sale being edited may use its own quantity again; on a purchase the stock is simply what is in hand
+  const available = useCallback((it: SaleItemOption) => it.quantity + (purchase ? 0 : onBill.get(it.id) ?? 0), [onBill, purchase]);
 
   // Rows are numbered by this screen: the bill's own lines r0, r1, ... then one empty row; new rows continue the count
   const nextRow = useRef((editBill?.items.length ?? 0) + 1);
   const newRow = () => emptyRow(`r${nextRow.current++}`);
   const [rows, setRows] = useState<Row[]>(() => {
     const loaded = (editBill?.items ?? []).map((i, n) => {
-      const r = rowFor(i.component, emptyRow(`r${n}`));
+      const r = rowFor(i.component, emptyRow(`r${n}`), side);
       return {
         ...r, unit: i.unit ?? r.unit, qty: String(i.quantity), loose: i.loose ? String(i.loose) : "",
         ...(i.paper ? { x: i.paper.x, y: i.paper.y, gsm: i.paper.gsm, divisor: i.paper.divisor ?? "15500", rate: i.paper.rate ?? "" } : {}),
-        price: String(i.unitPrice), priceTyped: true,
+        price: String(i.unitPrice), priceTyped: true, remarks: i.remarks ?? "", sheetsOk: true,
       };
     });
     return [...loaded, emptyRow(`r${loaded.length}`)];
   });
   const setRow = (key: string, patch: Partial<Row>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  /** Loose sheets of a whole packet or more become packets + loose, as the old T-Qty = packets x size + sheets (250 -> 2 + 50). */
+  const foldLoose = (key: string) => setRows((rs) => rs.map((r) => {
+    if (r.key !== key || !isPack(r)) return r;
+    const f = factorOf(r), loose = num(r.loose);
+    if (!(f > 1 && loose >= f)) return r;
+    return { ...r, qty: String(num(r.qty) + Math.floor(loose / f)), loose: loose % f ? String(loose % f) : "" };
+  }));
 
   // ─── Customer ───
   const [custQuery, setCustQuery] = useState("");
@@ -163,10 +240,12 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
   const [newCustomerOpen, setNewCustomerOpen] = useState(false);
   /** Enter on a customer number that is not in the list yet: ask the server for exactly that number. */
   const pickCustomerNo = async (no: number) => {
-    const d = await fetch(`/api/search/customers?q=${no}&limit=5`).then((x) => x.json()).catch(() => null);
+    const d = await fetch(`/api/search/${party}s?q=${no}&limit=5`).then((x) => x.json()).catch(() => null);
     const hit = (d?.data as SaleCustomerOption[] | undefined)?.find((c) => c.partyNo === no);
-    if (!hit) { toast.error(`No customer with number ${no}`); return; }
-    setCustomer({ ...hit, phone: hit.phone ?? "" }); setCustQuery(""); setCustOpen(false); setFocusNext(`${rows[0].key}:item`);
+    if (!hit) { toast.error(`No ${party} with number ${no}`); return; }
+    setCustomer({ ...hit, phone: hit.phone ?? "" }); setCustQuery(""); setCustOpen(false);
+    // Old Supplier Invoice order: Sup-Id, then S-Inv #, Inv Date, BL #, BL Date, then the grid
+    if (purchase) setTimeout(() => document.getElementById("s-inv")?.focus(), 50); else setFocusNext(`${rows[0].key}:item`);
   };
   const custNo = shortNo(custQuery);
   const custList = custQuery.trim().length < 2 && !custNo ? (custQuery.trim() ? [] : initialCustomers) : custResults?.q === custQuery ? custResults.items : [];
@@ -174,19 +253,21 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
     if (custQuery.trim().length < 2 && !shortNo(custQuery)) return;
     const c = new AbortController();
     const t = setTimeout(() => {
-      fetch(`/api/search/customers?q=${encodeURIComponent(custQuery)}&limit=10`, { signal: c.signal })
+      fetch(`/api/search/${party}s?q=${encodeURIComponent(custQuery)}&limit=10`, { signal: c.signal })
         .then((r) => r.json()).then((d) => setCustResults({ q: custQuery, items: d.data ?? [] })).catch(() => {});
     }, 200);
     return () => { clearTimeout(t); c.abort(); };
-  }, [custQuery]);
+  }, [custQuery, party]);
   // The customer's balance before this bill (old "Balance"), when this user may see it
   useEffect(() => {
-    if (!customer) return;
+    // A saved bill on the desk shows the balance stored with it, so today's is not fetched
+    if (!customer || (editBill && desk)) return;
     const c = new AbortController();
-    fetch(`/api/sales/payments?customerId=${customer.id}`, { signal: c.signal })
-      .then((r) => (r.ok ? r.json() : null)).then((d) => setBalance(d?.account ? Number(d.account.balance) : null)).catch(() => {});
+    // A supplier's balance is what is owed to them (old Supplier Invoice "Balance")
+    fetch(purchase ? `/api/suppliers/${customer.id}?summary=1` : `/api/sales/payments?customerId=${customer.id}`, { signal: c.signal })
+      .then((r) => (r.ok ? r.json() : null)).then((d) => setBalance(purchase ? (d?.balance != null ? Number(d.balance) : null) : d?.account ? Number(d.account.balance) : null)).catch(() => {});
     return () => c.abort();
-  }, [customer]);
+  }, [customer, purchase, editBill, desk]);
 
   // ─── Item search (one open box at a time) ───
   const [searchRow, setSearchRow] = useState<string | null>(null);
@@ -271,7 +352,7 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
   };
   const pick = (row: Row, item: SaleItemOption) => {
     setSearchRow(null);
-    const next = rowFor(item, row);
+    const next = rowFor(item, row, side);
     setRows((rs) => {
       const updated = rs.map((r) => (r.key === row.key ? next : r));
       return updated[updated.length - 1].item ? [...updated, newRow()] : updated;
@@ -285,6 +366,17 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
     return left.length && left[left.length - 1].item === null ? left : [...left, newRow()];
   });
 
+  // ─── Stock strip (old T-Rim / Sheet / T-Sheet): stock in hand of the item in the row the cursor is in ───
+  const [activeKey, setActiveKey] = useState<string | null>(null);
+  const activeItem = rows.find((r) => r.key === activeKey)?.item ?? null;
+  const strip = (() => {
+    if (!activeItem || activeItem.kind === "SERVICE") return null;
+    const base = available(activeItem);
+    const pack = activeItem.saleUnit && activeItem.saleUnit !== activeItem.baseUnit ? activeItem.units?.find((u) => u.code === activeItem.saleUnit) : undefined;
+    const packs = pack ? Math.trunc(base / pack.factor) : null;
+    return { name: activeItem.name, packs, loose: pack ? base - (packs ?? 0) * pack.factor : null, total: base, packCode: pack?.code ?? null, baseUnit: activeItem.baseUnit ?? "" };
+  })();
+
   // ─── Totals (old T-Rim, Sheet, T-Sheet, Net Wait, Net Amount) ───
   const filled = rows.filter((r) => r.item);
   const paperRows = filled.filter(isPaper);
@@ -295,21 +387,22 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
     weight: paperRows.reduce((t, r) => t + weightOf(r), 0),
     amount: filled.reduce((t, r) => t + amountOf(r), 0),
   };
-  const net = Math.round(totals.amount);
+  const net = purchase ? Math.round(totals.amount * 100) / 100 : Math.round(totals.amount);
   const receivedNow = received === "" ? (cashSale ? net : 0) : Math.min(num(received), net);
   const owedOnBill = net - receivedNow;
 
   // ─── Save ───
   const problem = (): string | null => {
     if (!filled.length) return "Add at least one item";
-    if (!cashSale && !customer) return "Choose the customer";
+    if (!cashSale && !customer) return `Choose the ${party}`;
     if (cashSale && !walkInName.trim()) return "Enter the customer's name";
     for (const r of filled) {
       const name = r.item!.name;
       if (!(num(r.qty) > 0) && !(isPack(r) && num(r.loose) > 0)) return `${name}: enter the quantity`;
+      if (asksSheets(r)) return `${name}: ${r.loose} loose sheets and no packets. Answer the question under the row`;
       if (isPack(r) && num(r.loose) >= factorOf(r)) return `${name}: loose sheets must be fewer than one ${r.unit} (${factorOf(r)})`;
       if (!(priceOf(r) > 0)) return `${name}: enter the price${isPaper(r) ? " or the rate per kg" : ""}`;
-      if (!isService(r) && sheetsOf(r) > available(r.item!)) return `${name}: only ${fmt(available(r.item!), 0)} ${r.item!.baseUnit ?? ""} in stock`;
+      if (!purchase && !isService(r) && sheetsOf(r) > available(r.item!)) return `${name}: only ${fmt(available(r.item!), 0)} ${r.item!.baseUnit ?? ""} in stock`;
     }
     if (received !== "" && num(received) > net) return "Received now is more than the bill";
     if (editing && reason.trim().length < 3) return "Give a reason for the change";
@@ -317,19 +410,24 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
   };
 
   const save = async () => {
+    if (locked) return;
     const p = problem();
     if (p) { toast.error(p); return; }
     setSaving(true);
     try {
-      const res = await fetch(editing ? `/api/sales/${editBill!.id}` : "/api/sales", {
+      const api = purchase ? "/api/purchases" : "/api/sales";
+      const res = await fetch(editing ? `${api}/${editBill!.id}` : api, {
         method: editing ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           date,
-          customerId: cashSale ? null : customer!.id,
+          ...(purchase
+            ? { supplierId: customer!.id, vendorBillNo: vendorBillNo.trim() || null, vendorBillDate: vendorBillDate || null, biltyNo: biltyNo.trim() || null, biltyDate: biltyDate || null, dueDate: editBill?.dueDate || null }
+            : { customerId: cashSale ? null : customer!.id }),
           walkInName: cashSale ? walkInName.trim() : null,
+          walkInPhone: cashSale ? walkInPhone.trim() || null : null,
           notes: notes.trim() || null,
-          ...(isInvoiceEdit ? {} : { paidNow: { amount: String(receivedNow), method } }),
+          ...(isInvoiceEdit || (purchase && !(receivedNow > 0)) ? {} : { paidNow: { amount: String(receivedNow), method } }),
           ...(editing ? { reason: reason.trim() } : { requestId }),
           items: filled.map((r) => ({
             componentId: r.item!.id,
@@ -338,6 +436,7 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
             loose: isPack(r) && num(r.loose) > 0 ? num(r.loose) : undefined,
             unitPrice: String(priceOf(r)),
             paper: isPaper(r) ? { x: r.x, y: r.y, gsm: r.gsm, divisor: r.divisor || null, ratePerKg: r.rate || null } : undefined,
+            remarks: r.remarks.trim() || undefined,
           })),
         }),
       });
@@ -345,13 +444,14 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
       if (!res.ok) throw new Error(data.error || "The bill was not saved");
       if (data.pending) {
         toast.success(`Saved on this computer as ${data.entry.provisionalRef ?? "a pending entry"}; it gets its number when it syncs`, { duration: 10000 });
-        router.push("/dashboard/sales");
+        router.push(desk ? deskUrl("new=1") : "/dashboard/sales");
         return;
       }
-      toast.success(`Bill ${data.sale.docNo} saved`);
+      const savedBill = data.sale ?? data.purchase;
+      toast.success(`Bill ${savedBill.docNo} saved`);
       const freed = (data.releasedCredit ?? []).reduce((t: number, c: { amount: string }) => t + Number(c.amount), 0);
-      if (freed > 0) toast.info(`${formatCurrency(freed)} already paid no longer fits this bill; it is now the customer's credit.`, { duration: 12000 });
-      router.push(`/dashboard/sales/${data.sale.id}`);
+      if (freed > 0) toast.info(`${money(freed)} already paid no longer fits this bill; it is now the customer's credit.`, { duration: 12000 });
+      router.push(desk ? deskUrl(`id=${savedBill.id}`) : purchase ? `/dashboard/purchases/${savedBill.id}` : `/dashboard/sales/${savedBill.id}`);
       router.refresh();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "The bill was not saved");
@@ -371,15 +471,76 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
   }, []);
 
   const step = async (dir: "first" | "prev" | "next" | "last") => {
-    const type = cashSale ? "CASH_SALE" : "SALE_INVOICE";
+    const type = purchase ? "PURCHASE_INVOICE" : cashSale ? "CASH_SALE" : "SALE_INVOICE";
     const res = await fetch(`/api/sales/step?type=${type}&dir=${dir}${editBill ? `&from=${editBill.id}` : ""}`);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) { toast.error(data.error || "Could not open the bill"); return; }
     if (!data.bill) { toast.info(dir === "next" ? "This is the last bill" : dir === "prev" ? "This is the first bill" : "No bills yet"); return; }
-    router.push(`/dashboard/sales/${data.bill.id}`);
+    router.push(desk ? deskUrl(`id=${data.bill.id}`) : `/dashboard/sales/${data.bill.id}`);
   };
 
-  const title = editing ? `Edit ${cashSale ? "cash sale" : "invoice"} ${editBill!.invoiceNumber}` : cashSale ? "Cash Sale" : "Customer Invoice";
+  // ─── Desk: Find by number, Print / Print G, Cash Update, earlier cash bills by name (F1) ───
+  const [findNo, setFindNo] = useState("");
+  /** Bills found by name (or phone, or a number that is no bill number), to pick from */
+  const [findHits, setFindHits] = useState<{ id: string; docNo: string; name: string; date: string; total: string; remaining: string; status: string }[] | null>(null);
+  const kindName = purchase ? "supplier invoice" : cashSale ? "cash sale" : "invoice";
+  const find = async () => {
+    const type = purchase ? "PURCHASE_INVOICE" : cashSale ? "CASH_SALE" : "SALE_INVOICE";
+    const q = findNo.trim();
+    if (!q) { toast.error("Type a bill number or a name"); return; }
+    // A plain number is first taken as the bill number (old Find)
+    if (/^\d+$/.test(q)) {
+      const data = await fetch(`/api/sales/step?type=${type}&number=${q}`).then((r) => r.json()).catch(() => ({}));
+      if (data.bill) { setFindNo(""); setFindHits(null); router.push(deskUrl(`id=${data.bill.id}`)); return; }
+    }
+    // Otherwise the customer's, walk-in's or supplier's name, a phone number, a supplier bill number or an item
+    const url = purchase ? `/api/purchases?search=${encodeURIComponent(q)}` : `/api/sales?type=${type}&search=${encodeURIComponent(q)}`;
+    const data = await fetch(url).then((r) => r.json()).catch(() => ({}));
+    const rows = ((data.rows ?? []) as { id: string; docNo: string; customer?: string; supplier?: string; date: string; total: string; remaining: string; status: string }[])
+      .slice(0, 20).map((r) => ({ id: r.id, docNo: r.docNo, name: (purchase ? r.supplier : r.customer) ?? "", date: r.date, total: r.total, remaining: r.remaining, status: r.status }));
+    if (!rows.length) { toast.error(`No ${kindName} found for "${q}"`); return; }
+    setFindHits(rows);
+    setTimeout(() => document.querySelector<HTMLButtonElement>("[data-find-hit]")?.focus(), 30);
+  };
+  const print = (layout: "invoice" | "slip") => {
+    if (!editBill) return;
+    window.open(`/api/${purchase ? "purchases" : "sales"}/${editBill.id}/pdf?inline=1${layout === "slip" ? "&layout=slip" : ""}`, "_blank", "noopener");
+    // The print count and date on the screen follow once the file is made
+    setTimeout(() => router.refresh(), 1500);
+  };
+  const [cashUpdate, setCashUpdate] = useState<null | { amount: string; method: string; busy: boolean }>(null);
+  const [cashRequest, setCashRequest] = useState(() => crypto.randomUUID());
+  const payLabel = purchase ? "Pay supplier" : cashSale ? "Cash Update" : "Receive payment";
+  const sendCashUpdate = async () => {
+    if (!editBill || !cashUpdate) return;
+    setCashUpdate({ ...cashUpdate, busy: true });
+    const date = new Date().toISOString().slice(0, 10);
+    const amount = cashUpdate.amount;
+    // A cash sale's walk-in has no customer record: its Cash Update goes through the bill itself (main server)
+    const [url, body] = editBill.type === "CASH_SALE"
+      ? [`/api/sales/${editBill.id}/cash-update`, { amount, method: cashUpdate.method, requestId: cashRequest }]
+      : purchase
+        ? ["/api/purchases/payments", { supplierId: editBill.customer?.id, date, amount, method: cashUpdate.method, allocations: [{ billId: editBill.id, amount }], requestId: cashRequest }]
+        : ["/api/sales/payments", { customerId: editBill.customer?.id, date, amount, method: cashUpdate.method, allocations: [{ invoiceId: editBill.id, amount }], requestId: cashRequest }];
+    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { toast.error(data.error || "The payment was not recorded"); setCashUpdate({ ...cashUpdate, busy: false }); return; }
+    const doc = data.receipt ?? data.payment;
+    toast.success(data.pending ? `${money(Number(amount))} kept on this computer; it reaches the office server when connected`
+      : `${money(Number(amount))} ${purchase ? "paid" : "received"}${doc?.docNo ? ` as ${doc.docNo}` : ""}`);
+    setCashUpdate(null);
+    setCashRequest(crypto.randomUUID());
+    router.refresh();
+  };
+  const [nameHits, setNameHits] = useState<{ id: string; docNo: string; customer: string; date: string; remaining: string }[] | null>(null);
+  const findByName = async () => {
+    const q = walkInName.trim();
+    const data = await fetch(`/api/sales?type=CASH_SALE&search=${encodeURIComponent(q === "Cash sale" ? "" : q)}`).then((r) => r.json()).catch(() => ({}));
+    setNameHits((data.rows ?? []).slice(0, 15));
+  };
+
+  const title = desk ? (purchase ? "Supplier Invoice" : cashSale ? "Cash Sale" : "Customer Invoice") + (editing ? " — editing" : "")
+    : editing ? `Edit ${cashSale ? "cash sale" : "invoice"} ${editBill!.invoiceNumber}` : cashSale ? "Cash Sale" : "Customer Invoice";
   const unitLabel = (r: Row) => r.unit || r.item?.baseUnit || "";
 
   // ─── Layout ─────────────────────────────────────────────────────────
@@ -389,7 +550,8 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
   const shown = "px-2 py-1 text-right tabular-nums whitespace-nowrap text-sm";
 
   return (
-    <div className="space-y-4">
+    // The desk is a window of its own, as the old program's, not the full page: centred, with a soft deep shadow
+    <div className={cn("space-y-4", desk && "mx-auto max-w-6xl rounded-2xl border border-border/60 bg-card p-4 shadow-[0_1px_2px_rgba(15,23,42,.06),0_18px_48px_-16px_rgba(15,23,42,.35)] ring-1 ring-black/[.04] sm:p-6 dark:border-border dark:shadow-[0_18px_48px_-16px_rgba(0,0,0,.8)] dark:ring-white/[.06]")} data-desk-window={desk ? "" : undefined}>
       <NewCustomerDialog
         open={newCustomerOpen}
         initialText={custQuery}
@@ -397,14 +559,16 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
         onCreated={(c) => { setCustomer(c); setCustQuery(""); setNewCustomerOpen(false); }}
       />
 
+      {/* Locked (a saved bill on the desk): every box keeps full contrast so the bill reads as printed */}
+      <fieldset disabled={locked} className="m-0 min-w-0 space-y-4 border-0 p-0 [&_input:disabled]:cursor-default [&_input:disabled]:opacity-100 [&_select:disabled]:opacity-100 [&_button:disabled]:opacity-100">
       {/* Title row: which bill, its number and date, and the kind switch */}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
-          <p className="text-sm text-muted-foreground">Enter moves to the next box; at the end of a row it opens a new one. Ctrl+S saves.</p>
+          <p className="text-sm text-muted-foreground">{locked ? "Saved bill. << < > >> and Find show other bills; Edit changes this one." : "Enter moves to the next box; at the end of a row it opens a new one. Ctrl+S saves."}</p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
-          {!editing && (
+          {!editing && !desk && (
             <div role="radiogroup" aria-label="Kind of bill" className="inline-flex rounded-lg border p-0.5">
               {([["invoice", "Customer invoice"], ["cash", "Cash sale"]] as const).map(([k, label]) => {
                 const on = (k === "cash") === cashSale;
@@ -423,7 +587,7 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
           </div>
           <div className="rounded-md border bg-muted/40 px-3 py-1.5 text-sm">
             <span className="text-muted-foreground">Bill no </span>
-            <span className="font-semibold tabular-nums">{editing ? editBill!.invoiceNumber : "New"}</span>
+            <span className="font-semibold tabular-nums">{editBill ? editBill.invoiceNumber : "New"}</span>
           </div>
         </div>
       </div>
@@ -433,29 +597,55 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
         <CardContent className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_auto]">
           <div className="space-y-2">
             {cashSale ? (
-              <div className="max-w-md space-y-1">
-                <Label htmlFor="walkin">Customer name</Label>
-                <Input id="walkin" value={walkInName} onChange={(e) => setWalkInName(e.target.value)} placeholder="Cash sale" />
+              <div className="grid max-w-xl gap-3 sm:grid-cols-[minmax(0,1fr)_12rem]">
+                <div className="relative space-y-1">
+                  <Label htmlFor="walkin">Customer name <span className="font-normal text-muted-foreground">(F1: earlier bills)</span></Label>
+                  <Input id="walkin" value={walkInName} onChange={(e) => setWalkInName(e.target.value)} placeholder="Cash sale"
+                    onBlur={() => setTimeout(() => setNameHits(null), 200)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); document.getElementById("walkin-phone")?.focus(); }
+                      // F1: earlier cash bills of this name (old Cash Sale)
+                      else if (e.key === "F1") { e.preventDefault(); void findByName(); }
+                      else if (e.key === "Escape") setNameHits(null);
+                    }} />
+                  {nameHits && (
+                    <div role="listbox" aria-label="Earlier cash bills" className="absolute z-30 mt-1 max-h-64 w-[28rem] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-lg border bg-background shadow-lg">
+                      {nameHits.length ? nameHits.map((h) => (
+                        <button key={h.id} type="button" role="option" aria-selected={false} className="flex w-full items-center justify-between gap-3 border-b px-3 py-2 text-left text-sm hover:bg-muted"
+                          onMouseDown={(e) => { e.preventDefault(); setNameHits(null); router.push(`/dashboard/sales/desk?kind=cash&id=${h.id}`); }}>
+                          <span><span className="font-medium">{h.docNo}</span> · {h.customer}</span>
+                          <span className="tabular-nums text-muted-foreground">{h.date.slice(0, 10)}{Number(h.remaining) > 0 ? ` · owes ${money(Number(h.remaining))}` : ""}</span>
+                        </button>
+                      )) : <p className="px-3 py-2 text-sm text-muted-foreground">No cash bills for this name</p>}
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="walkin-phone">Cell No</Label>
+                  <Input id="walkin-phone" inputMode="tel" value={walkInPhone} onChange={(e) => setWalkInPhone(e.target.value.slice(0, 40))}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); setFocusNext(`${rows[0].key}:item`); setRows((rs) => [...rs]); } }} />
+                </div>
               </div>
             ) : customer ? (
               <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
                 <div>
-                  <p className="text-xs text-muted-foreground">Customer</p>
+                  <p className="text-xs text-muted-foreground">{purchase ? "Supplier" : "Customer"}</p>
                   <p className="font-semibold">{customer.name}{customer.phone && <span className="ml-2 text-sm font-normal text-muted-foreground">{customer.phone}</span>}</p>
                 </div>
-                {balance !== null && (
+                {(editBill && desk ? desk.previousBalance != null : balance !== null) && (
                   <div>
-                    <p className="text-xs text-muted-foreground">Balance before this bill</p>
-                    <p className={cn("font-semibold tabular-nums", balance > 0 && "text-amber-700 dark:text-amber-400")}>{formatCurrency(balance)}</p>
+                    <p className="text-xs text-muted-foreground">{purchase ? "Owed to them before this bill" : "Balance before this bill"}</p>
+                    {/* A saved bill shows the balance stored with it; a new bill today's balance */}
+                    <p className={cn("font-semibold tabular-nums", (editBill && desk ? Number(desk.previousBalance) : balance!) > 0 && "text-amber-700 dark:text-amber-400")}>{money(editBill && desk ? ((purchase ? -1 : 1) * Number(desk.previousBalance) || 0) : balance!)}</p>
                   </div>
                 )}
-                {!editing && <Button type="button" variant="ghost" size="sm" onClick={() => { setCustomer(null); setBalance(null); }}>Change</Button>}
+                {!editBill && <Button type="button" variant="ghost" size="sm" onClick={() => { setCustomer(null); setBalance(null); }}>Change</Button>}
               </div>
             ) : (
               <div className="relative max-w-md space-y-1">
-                <Label htmlFor="cust">Customer</Label>
+                <Label htmlFor="cust">{purchase ? "Supplier (number + Enter, F1 list)" : "Customer"}</Label>
                 <Input
-                  id="cust" autoFocus placeholder="Type the customer's name or phone"
+                  id="cust" autoFocus placeholder={purchase ? "Supplier number or name" : "Type the customer's name or phone"}
                   value={custQuery}
                   onChange={(e) => { setCustQuery(e.target.value); setCustOpen(true); }}
                   onFocus={() => setCustOpen(true)}
@@ -464,7 +654,7 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
                     // F1 opens the customer list (old program); a typed number + Enter picks that customer
                     if (e.key === "F1") { e.preventDefault(); setCustQuery(""); setCustOpen(true); return; }
                     if (e.key === "Enter" && custNo && !custList.some((c) => c.partyNo === custNo)) { e.preventDefault(); void pickCustomerNo(custNo); return; }
-                    if (e.key === "Enter" && custList[0]) { e.preventDefault(); setCustomer(custList[0]); setCustQuery(""); setCustOpen(false); setFocusNext(`${rows[0].key}:item`); }
+                    if (e.key === "Enter" && custList[0]) { e.preventDefault(); setCustomer(custList[0]); setCustQuery(""); setCustOpen(false); if (purchase) setTimeout(() => document.getElementById("s-inv")?.focus(), 50); else setFocusNext(`${rows[0].key}:item`); }
                     if (e.key === "Escape") setCustOpen(false);
                   }}
                   role="combobox" aria-expanded={custOpen} aria-controls="cust-list" aria-autocomplete="list"
@@ -479,19 +669,30 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
                         {c.phone && <span className="text-xs text-muted-foreground">{c.phone}</span>}
                       </button>
                     ))}
-                    <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-primary hover:bg-muted"
+                    {!purchase && <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-primary hover:bg-muted"
                       onMouseDown={(e) => { e.preventDefault(); setCustOpen(false); setNewCustomerOpen(true); }}>
                       <UserPlus className="h-4 w-4" aria-hidden /> {custQuery.trim() ? `New customer "${custQuery.trim()}"` : "New customer"}
-                    </button>
+                    </button>}
                   </div>
                 )}
               </div>
             )}
           </div>
+          {purchase && (
+            <div className="grid gap-2 sm:grid-cols-4 lg:col-span-2">
+              {([["s-inv", "S-Inv #", vendorBillNo, setVendorBillNo, "text"], ["s-inv-date", "Inv Date", vendorBillDate, setVendorBillDate, "date"], ["bl-no", "BL #", biltyNo, setBiltyNo, "text"], ["bl-date", "BL Date", biltyDate, setBiltyDate, "date"]] as const).map(([id, label, value, setter, kind], k, all) => (
+                <div key={id} className="space-y-1">
+                  <Label htmlFor={id} className="text-xs">{label}</Label>
+                  <Input id={id} type={kind} className="h-9" value={value} maxLength={60} onChange={(e) => setter(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (all[k + 1]) document.getElementById(all[k + 1][0])?.focus(); else { setFocusNext(`${rows[0].key}:item`); setRows((rs) => [...rs]); } } }} />
+                </div>
+              ))}
+            </div>
+          )}
           <dl className="grid grid-cols-3 gap-x-5 gap-y-1 text-sm sm:grid-cols-5" aria-label="Bill totals">
             {[
               ["Packets", fmt(totals.packets, 0)], ["Loose sheets", fmt(totals.loose, 0)], ["Total sheets", fmt(totals.sheets, 0)],
-              ["Net weight", `${fmt(totals.weight, 2)} kg`], ["Net amount", formatCurrency(net)],
+              ["Net weight", `${fmt(totals.weight, 2)} kg`], ["Net amount", money(net)],
             ].map(([k, v]) => (
               <div key={k}>
                 <dt className="text-xs text-muted-foreground">{k}</dt>
@@ -503,11 +704,19 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
       </Card>
 
       {/* The rows, typed across */}
+      <div className="flex min-h-9 flex-wrap items-center gap-x-6 gap-y-1 rounded-lg border bg-muted/30 px-3 py-1.5 text-sm" aria-live="polite" aria-label="Stock in hand of the item in this row">
+        {strip ? (<>
+          <span className="font-medium">{strip.name}</span>
+          {strip.packCode && <span>T-Rim <strong className="tabular-nums">{fmt(strip.packs ?? 0, 0)}</strong> {strip.packCode}s</span>}
+          {strip.packCode && <span>Sheet <strong className="tabular-nums">{fmt(strip.loose ?? 0, 3)}</strong></span>}
+          <span>T-Sheet <strong className="tabular-nums">{fmt(strip.total, 3)}</strong> {strip.baseUnit}s in stock</span>
+        </>) : <span className="text-muted-foreground">Stock in hand shows here for the item in the row you are on. F1 lists items · Esc on an item removes its row · F2 goes to the row&apos;s remarks.</span>}
+      </div>
       <Card>
         <CardContent className="p-0">
           {/* relative: hidden screen-reader labels inside the grid are placed in this box, so they cannot widen the page */}
           <div className="relative overflow-x-auto">
-            <table className="w-full min-w-[1180px] border-collapse text-sm">
+            <table className="w-full min-w-[1330px] border-collapse text-sm">
               <thead className="border-b bg-muted/40">
                 <tr>
                   <th className={`${th} w-8`}>#</th>
@@ -524,6 +733,7 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
                   <th className={thNum}>Loose sheets</th>
                   <th className={thNum}>Total sheets</th>
                   <th className={thNum}>Amount</th>
+                  <th className={`${th} min-w-[140px]`}>Remarks</th>
                   <th className={`${th} w-10`}><span className="sr-only">Remove</span></th>
                 </tr>
               </thead>
@@ -533,19 +743,28 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
                   const calc = calcPrice(r);
                   const pack = isPack(r);
                   const service = isService(r);
-                  const short = r.item && !service && sheetsOf(r) > available(r.item);
+                  const short = !purchase && r.item && !service && sheetsOf(r) > available(r.item);
                   const open = searchRow === r.key;
+                  const askN = !locked && asksSheets(r) ? num(r.loose) : 0;
+                  const units = unitsFor(r);
                   return (
                     <Fragment key={r.key}>
-                      <tr className={cn("border-b align-middle", short && "bg-destructive/5")}>
+                      <tr className={cn("border-b align-middle", short && "bg-destructive/5")} onFocusCapture={() => setActiveKey(r.key)}
+                        onKeyDown={(e) => {
+                          // F2 jumps to this row's remarks (old program)
+                          if (e.key === "F2" && r.item) { e.preventDefault(); grid.current?.querySelector<HTMLInputElement>(`[data-cell="${r.key}:remarks"]`)?.focus(); }
+                        }}>
                         <td className="px-2 py-1 text-muted-foreground tabular-nums">{i + 1}</td>
                         <td className="relative px-2 py-1">
                           {r.item && !open ? (
                             <button type="button" data-cell={`${r.key}:item`}
                               className="flex w-full flex-col items-start rounded-md px-2 py-1 text-left hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                               onClick={() => { setRow(r.key, { query: "" }); setSearchRow(r.key); setHighlight(0); setFocusNext(`${r.key}:item`); }}
-                              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); moveOn(e.currentTarget); } }}
-                              title="Change the item">
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") { e.preventDefault(); moveOn(e.currentTarget); }
+                                else if (e.key === "Escape") { e.preventDefault(); const next = rows[i + 1]?.key; removeRow(r.key); if (next) setFocusNext(`${next}:item`); }
+                              }}
+                              title="Change the item (Esc removes the row)">
                               <span className="font-medium">{r.item.name}</span>
                               <span className="text-xs text-muted-foreground">
                                 {r.item.sku}{service ? " · service" : ` · stock ${stockText(r.item, available(r.item))}`}
@@ -626,10 +845,10 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
                               aria-label={`${unitLabel(r) || "Quantity"}, row ${i + 1}`} value={r.qty}
                               onFocus={(e) => e.target.select()} onKeyDown={onEnter}
                               onChange={(e) => setRow(r.key, { qty: r.item?.kind === "WEIGHT" ? decimal(e.target.value, 3) : whole(e.target.value) })} />
-                            {r.item && (r.item.units?.length ?? 0) > 1 ? (
+                            {r.item && units.length > 1 ? (
                               <select aria-label={`Unit, row ${i + 1}`} className="h-8 rounded-md border bg-background px-1 text-xs"
                                 value={r.unit} onChange={(e) => setRow(r.key, { unit: e.target.value, loose: "" })}>
-                                {r.item.units!.map((u) => <option key={u.code} value={u.code}>{u.code}</option>)}
+                                {units.map((u) => <option key={u.code} value={u.code}>{u.code}</option>)}
                               </select>
                             ) : r.item ? <span className="w-12 text-xs text-muted-foreground">{unitLabel(r)}</span> : null}
                           </div>
@@ -640,10 +859,15 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
                           <Input data-cell={`${r.key}:loose`} disabled={!r.item || !pack} className={`${cellInput} w-16`} inputMode="numeric"
                             aria-label={`Loose ${r.item?.baseUnit ?? "sheets"}, row ${i + 1}`} value={r.loose}
                             onFocus={(e) => e.target.select()} onKeyDown={onEnter}
+                            onBlur={() => foldLoose(r.key)}
                             onChange={(e) => setRow(r.key, { loose: whole(e.target.value) })} />
                         </td>
                         <td className={shown}>{r.item && !service ? fmt(sheetsOf(r), 0) : ""}</td>
                         <td className={cn(shown, "font-semibold")}>{r.item ? fmt(amountOf(r), 2) : ""}</td>
+                        <td className="px-1 py-1">
+                          <Input data-cell={`${r.key}:remarks`} disabled={!r.item} className="h-8 w-36 px-2" aria-label={`Remarks, row ${i + 1}`}
+                            value={r.remarks} maxLength={500} onKeyDown={onEnter} onChange={(e) => setRow(r.key, { remarks: e.target.value })} />
+                        </td>
                         <td className="px-1 py-1 text-center">
                           {r.item && (
                             <Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label={`Remove row ${i + 1}`} onClick={() => removeRow(r.key)}>
@@ -653,9 +877,28 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
                         </td>
                       </tr>
                       {short && (
-                        <tr className="bg-destructive/5"><td /><td colSpan={14} className="px-2 pb-2 text-xs text-destructive">
+                        <tr className="bg-destructive/5"><td /><td colSpan={15} className="px-2 pb-2 text-xs text-destructive">
                           Only {fmt(available(r.item!), 0)} {r.item!.baseUnit} in stock ({stockText(r.item!, available(r.item!))}).
                         </td></tr>
+                      )}
+                      {askN > 0 && (
+                        <tr className="bg-amber-50 dark:bg-amber-950/30" data-sheets-ask={r.key}>
+                          <td /><td colSpan={15} className="px-2 py-2 text-xs">
+                            <div role="group" aria-label={`Row ${i + 1}: loose sheets and no packets`} className="flex flex-wrap items-center gap-2">
+                              <span className="font-medium text-amber-900 dark:text-amber-200">
+                                {fmt(askN, 0)} loose sheets of {r.item!.name} and no packets. Did you mean {fmt(askN, 0)} packets?
+                              </span>
+                              <Button type="button" size="sm" className="h-7" data-sheets-choice="packets" onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => { setRow(r.key, { qty: String(askN), loose: "", sheetsOk: true }); setFocusNext(`${r.key}:qty`); }}>
+                                Yes: {fmt(askN, 0)} packets ({fmt(askN * factorOf(r), 0)} sheets)
+                              </Button>
+                              <Button type="button" size="sm" variant="ghost" className="h-7" data-sheets-choice="sheets" onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => setRow(r.key, { sheetsOk: true })}>
+                                No, {fmt(askN, 0)} loose sheets
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
                       )}
                     </Fragment>
                   );
@@ -672,13 +915,15 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
         </CardContent>
       </Card>
 
+      </fieldset>
+
       {/* Remarks, money and the old program's buttons */}
-      <Card>
+      <Card className="[&_input:disabled]:cursor-default [&_input:disabled]:opacity-100 [&_button:disabled]:opacity-100">
         <CardContent className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
           <div className="space-y-3">
             <div className="space-y-1">
               <Label htmlFor="remarks">Remarks</Label>
-              <Input id="remarks" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Shown on the bill" />
+              <Input id="remarks" disabled={locked} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Shown on the bill" />
             </div>
             {editing && (
               <div className="space-y-1">
@@ -688,32 +933,40 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
               </div>
             )}
           </div>
+          {desk && editBill ? (
+            <PaymentPanel desk={desk} money={money} purchase={purchase} cashSale={cashSale} editing={editing} payLabel={payLabel}
+              onPay={() => setCashUpdate({ amount: String(Number(desk.remaining ?? 0) || ""), method: "CASH", busy: false })} />
+          ) : (
           <div className="space-y-2">
             {isInvoiceEdit ? (
               <p className="text-sm text-muted-foreground">Payments already received stay with this bill. Receive more from the bill page.</p>
             ) : (
               <div className="grid grid-cols-[1fr_auto] items-end gap-2">
                 <div className="space-y-1">
-                  <Label htmlFor="received">{cashSale ? "Cash received" : "Received now"}</Label>
-                  <Input id="received" inputMode="decimal" className="tabular-nums" value={received === "" ? String(receivedNow) : received}
+                  <Label htmlFor="received">{purchase ? "Paid now" : cashSale ? "Cash received" : "Received now"}</Label>
+                  <Input id="received" disabled={locked} inputMode="decimal" className="tabular-nums" value={received === "" ? String(receivedNow) : received}
                     onFocus={(e) => e.target.select()} onChange={(e) => setReceived(decimal(e.target.value, 2))}
                     onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); document.getElementById("save-bill")?.focus(); } }} />
                 </div>
-                <Select value={method} onChange={(v: string) => setMethod(v)}>
+                <Select value={method} disabled={locked} onChange={(v: string) => setMethod(v)}>
                   <SelectTrigger className="w-36" aria-label="Paid by"><SelectValue /></SelectTrigger>
                   <SelectContent>{PAYMENT_METHODS.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
             )}
             <dl className="space-y-1 text-sm">
-              <div className="flex justify-between"><dt className="text-muted-foreground">Net amount</dt><dd className="font-semibold tabular-nums">{formatCurrency(net)}</dd></div>
-              {!isInvoiceEdit && <div className="flex justify-between"><dt className="text-muted-foreground">Left to pay on this bill</dt><dd className="tabular-nums">{formatCurrency(owedOnBill)}</dd></div>}
-              {!cashSale && balance !== null && !editing && (
-                <div className="flex justify-between border-t pt-1"><dt className="text-muted-foreground">Customer&apos;s balance after this bill</dt><dd className="font-semibold tabular-nums">{formatCurrency(balance + owedOnBill)}</dd></div>
+              <div className="flex justify-between"><dt className="text-muted-foreground">Net amount</dt><dd className="font-semibold tabular-nums">{money(net)}</dd></div>
+              {!isInvoiceEdit && <div className="flex justify-between"><dt className="text-muted-foreground">Left to pay on this bill</dt><dd className="tabular-nums">{money(owedOnBill)}</dd></div>}
+              {!cashSale && !editBill && balance !== null && (
+                <div className="flex justify-between border-t pt-1"><dt className="text-muted-foreground">{purchase ? "Owed to them after this bill" : <>Customer&apos;s balance after this bill</>}</dt><dd className="font-semibold tabular-nums">{money(balance + owedOnBill)}</dd></div>
+              )}
+              {!cashSale && editBill && locked && desk?.newBalance != null && (
+                <div className="flex justify-between border-t pt-1"><dt className="text-muted-foreground">{purchase ? "Owed to them after this bill" : <>Customer&apos;s balance after this bill</>}</dt><dd className="font-semibold tabular-nums">{money((purchase ? -1 : 1) * Number(desk.newBalance) || 0)}</dd></div>
               )}
             </dl>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 lg:col-span-2">
+          )}
+          {!desk && <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 lg:col-span-2">
             <div className="flex gap-1" role="group" aria-label="Step through bills">
               {([["first", ChevronFirst, "First bill"], ["prev", ChevronLeft, "Previous bill"], ["next", ChevronRight, "Next bill"], ["last", ChevronLast, "Last bill"]] as const).map(([d, Icon, label]) => (
                 <Button key={d} type="button" variant="outline" size="icon" className="h-9 w-9" aria-label={label} title={label} onClick={() => step(d)}>
@@ -729,10 +982,184 @@ export default function PaperSaleClient({ initialItems, initialCustomers, editBi
                 <Save className="h-4 w-4" aria-hidden /> {saving ? "Saving..." : editing ? "Save changes" : "Save bill"}
               </Button>
             </div>
-          </div>
+          </div>}
         </CardContent>
       </Card>
+
+      {desk && (
+        <div className="sticky bottom-0 z-20 flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-background/95 p-3 shadow-sm backdrop-blur" role="toolbar" aria-label="Invoice desk">
+          <div className="flex flex-wrap items-center gap-1">
+            {([["first", ChevronFirst, "First bill"], ["prev", ChevronLeft, "Previous bill"], ["next", ChevronRight, "Next bill"], ["last", ChevronLast, "Last bill"]] as const).map(([d, Icon, label]) => (
+              <Button key={d} type="button" variant="outline" size="icon" className="h-9 w-9" aria-label={label} title={label} disabled={!locked && !!editBill} onClick={() => step(d)}>
+                <Icon className="h-4 w-4" aria-hidden />
+              </Button>
+            ))}
+            <div className="relative ml-1 flex items-center gap-1">
+              <Input aria-label="Find bill by number or name" placeholder={purchase ? "Bill no or supplier" : "Bill no or name"} className="h-9 w-44" value={findNo}
+                title="A bill number, or a name or phone number: matching bills are listed"
+                onChange={(e) => { setFindNo(e.target.value.slice(0, 80)); setFindHits(null); }}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void find(); } else if (e.key === "Escape") setFindHits(null); }} />
+              <Button type="button" variant="outline" className="h-9 gap-1" onClick={() => void find()}><Search className="h-4 w-4" aria-hidden /> Find</Button>
+              {findHits && (
+                <div role="listbox" aria-label="Bills found" data-find-list
+                  className="absolute bottom-full left-0 z-40 mb-2 max-h-80 w-[30rem] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-sky-200 bg-background shadow-xl dark:border-sky-900"
+                  onKeyDown={(e) => {
+                    const items = [...e.currentTarget.querySelectorAll<HTMLButtonElement>("[data-find-hit]")];
+                    const at = items.indexOf(document.activeElement as HTMLButtonElement);
+                    if (e.key === "ArrowDown") { e.preventDefault(); items[Math.min(at + 1, items.length - 1)]?.focus(); }
+                    else if (e.key === "ArrowUp") { e.preventDefault(); items[Math.max(at - 1, 0)]?.focus(); }
+                    else if (e.key === "Escape") { e.preventDefault(); setFindHits(null); }
+                  }}>
+                  <p className="sticky top-0 border-b bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-900 dark:bg-sky-950 dark:text-sky-200">
+                    {findHits.length} {kindName}{findHits.length === 1 ? "" : "s"} for “{findNo.trim()}” · arrow keys and Enter
+                  </p>
+                  {findHits.map((h) => {
+                    const owed = Number(h.remaining), cancelled = h.status !== "POSTED";
+                    return (
+                      <button key={h.id} type="button" role="option" aria-selected={false} data-find-hit
+                        className="flex w-full items-center justify-between gap-3 border-b px-3 py-2 text-left text-sm last:border-0 hover:bg-muted focus:bg-muted focus:outline-none"
+                        onClick={() => { setFindHits(null); setFindNo(""); router.push(deskUrl(`id=${h.id}`)); }}>
+                        <span className="min-w-0">
+                          <span className="font-semibold">{h.docNo}</span> <span className="text-muted-foreground">· {h.date.slice(0, 10)}</span>
+                          <span className="block truncate">{h.name || "-"}</span>
+                        </span>
+                        <span className="flex shrink-0 flex-col items-end gap-0.5">
+                          <span className="tabular-nums font-medium">{money(Number(h.total))}</span>
+                          <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                            cancelled ? "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                              : owed > 0 ? "bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300")}>
+                            {cancelled ? (h.status === "CANCELLED" ? "Cancelled" : "Replaced") : owed > 0 ? `${purchase ? "You owe" : "Owes"} ${money(owed)}` : "Paid"}
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+          {editBill && locked && (
+            <p className="text-xs text-muted-foreground" aria-live="polite">
+              {desk.status === "CANCELLED" ? "Cancelled · " : ""}Printed {desk.printCount ?? 0} time{desk.printCount === 1 ? "" : "s"}{desk.lastPrintedAt ? `, last ${new Date(desk.lastPrintedAt).toLocaleString("en-PK")}` : ""}
+              {Number(desk.remaining ?? 0) > 0 ? ` · ${purchase ? "you owe" : "owes"} ${money(Number(desk.remaining))}` : ""}
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            {locked ? (<>
+              {desk.canNew !== false && <Button type="button" variant="outline" className="gap-1" onClick={() => router.push(deskUrl("new=1"))}><FilePlus2 className="h-4 w-4" aria-hidden /> New</Button>}
+              {desk.canEdit && <Button type="button" variant="outline" className="gap-1" onClick={() => { setLocked(false); setTimeout(() => document.getElementById("reason")?.focus(), 50); }}><Pencil className="h-4 w-4" aria-hidden /> Edit</Button>}
+              {(desk.canPay || desk.canCashUpdate) && <Button type="button" variant="outline" className="gap-1 border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/40" onClick={() => setCashUpdate({ amount: String(Number(desk.remaining ?? 0) || ""), method: "CASH", busy: false })}><Banknote className="h-4 w-4" aria-hidden /> {payLabel}</Button>}
+              <Button type="button" variant="outline" className="gap-1" onClick={() => print("invoice")}><Printer className="h-4 w-4" aria-hidden /> Print</Button>
+              {!purchase && <Button type="button" variant="outline" className="gap-1" onClick={() => print("slip")} title="The slip (old Print G)"><Receipt className="h-4 w-4" aria-hidden /> Print G</Button>}
+            </>) : (<>
+              <Button type="button" variant="outline" className="gap-1" disabled={saving} // Cancel throws the unsaved changes away: the saved bill is loaded again, locked
+                onClick={() => window.location.assign(editBill ? deskUrl(`id=${editBill.id}`) : deskUrl(""))}
+                aria-label="Cancel"><X className="h-4 w-4" aria-hidden /> Cancel</Button>
+              <Button id="save-bill" type="button" className="gap-1" onClick={save} disabled={saving}><Save className="h-4 w-4" aria-hidden /> {saving ? "Saving..." : editing ? "Save changes" : "Save bill"}</Button>
+            </>)}
+          </div>
+        </div>
+      )}
+
+      <Dialog open={!!cashUpdate} onClose={() => !cashUpdate?.busy && setCashUpdate(null)}>
+        {cashUpdate && (<>
+          <DialogHeader>
+            <DialogTitle>{payLabel} · {editBill?.invoiceNumber}</DialogTitle>
+            <DialogDescription>
+              {purchase ? `Money paid to ${editBill?.customer?.name ?? "the supplier"} for this bill. It is kept as a payment voucher set against the bill.`
+                : `Money received${cashSale ? "" : ` from ${editBill?.customer?.name ?? "the customer"}`} for this bill. It is kept as a receipt set against the bill.`}
+              {" "}The bill itself stays as saved. Still owed: {money(Number(desk?.remaining ?? 0))}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-[1fr_auto] items-end gap-2 py-2">
+            <div className="space-y-1">
+              <Label htmlFor="cash-update-amount">{purchase ? "Amount paid" : "Amount received"}</Label>
+              <Input id="cash-update-amount" autoFocus inputMode="decimal" className="tabular-nums" value={cashUpdate.amount}
+                onChange={(e) => setCashUpdate({ ...cashUpdate, amount: decimal(e.target.value, 2) })}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void sendCashUpdate(); } }} />
+            </div>
+            <Select value={cashUpdate.method} onChange={(v: string) => setCashUpdate({ ...cashUpdate, method: v })}>
+              <SelectTrigger className="w-36" aria-label={purchase ? "Paid from" : "Received into"}><SelectValue /></SelectTrigger>
+              <SelectContent>{PAYMENT_METHODS.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCashUpdate(null)} disabled={cashUpdate.busy}>Cancel</Button>
+            <Button onClick={() => void sendCashUpdate()} disabled={cashUpdate.busy || !(Number(cashUpdate.amount) > 0)}>{cashUpdate.busy ? "Saving…" : purchase ? "Record payment" : cashSale ? "Record cash" : "Record receipt"}</Button>
+          </DialogFooter>
+        </>)}
+      </Dialog>
     </div>
+  );
+}
+
+/** A saved bill's money on the desk: the bill, what is paid, what is still owed, each payment, and the payment button. */
+function PaymentPanel({ desk, money, purchase, cashSale, editing, payLabel, onPay }: {
+  desk: DeskInfo; money: (n: number) => string; purchase: boolean; cashSale: boolean; editing: boolean; payLabel: string; onPay: () => void;
+}) {
+  const total = Number(desk.total ?? 0), paid = Number(desk.paid ?? 0), owed = Number(desk.remaining ?? 0);
+  const cancelled = desk.status && desk.status !== "POSTED";
+  const pct = total > 0 ? Math.min(100, Math.round(((total - owed) / total) * 100)) : 0;
+  const state = cancelled ? { text: desk.status === "CANCELLED" ? "Cancelled" : "Replaced", cls: "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300" }
+    : owed <= 0 ? { text: "Paid in full", cls: "bg-emerald-600 text-white" }
+    : owed < total ? { text: "Part paid", cls: "bg-amber-500 text-white" }
+    : { text: "Not paid yet", cls: "bg-rose-600 text-white" };
+  const tile = "rounded-lg border px-3 py-2";
+  return (
+    <section aria-label="Payment" data-payment-panel
+      className="space-y-3 rounded-xl border border-sky-200 bg-gradient-to-br from-sky-50 via-white to-emerald-50 p-3 dark:border-sky-900 dark:from-sky-950/50 dark:via-background dark:to-emerald-950/40">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold">{purchase ? "Payment to the supplier" : cashSale ? "Cash for this sale" : "Payment from the customer"}</h3>
+        <span data-payment-state className={cn("rounded-full px-2.5 py-0.5 text-xs font-semibold", state.cls)}>{state.text}</span>
+      </div>
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <div className={cn(tile, "border-sky-200 bg-sky-100/70 dark:border-sky-900 dark:bg-sky-950/60")}>
+          <div className="text-[11px] font-medium uppercase tracking-wide text-sky-800 dark:text-sky-300">Bill</div>
+          <div data-pay="total" className="font-semibold tabular-nums text-sky-950 dark:text-sky-100">{money(total)}</div>
+        </div>
+        <div className={cn(tile, "border-emerald-200 bg-emerald-100/70 dark:border-emerald-900 dark:bg-emerald-950/60")}>
+          <div className="text-[11px] font-medium uppercase tracking-wide text-emerald-800 dark:text-emerald-300">Paid</div>
+          <div data-pay="paid" className="font-semibold tabular-nums text-emerald-950 dark:text-emerald-100">{money(paid)}</div>
+        </div>
+        <div className={cn(tile, owed > 0 ? "border-rose-200 bg-rose-100/70 dark:border-rose-900 dark:bg-rose-950/60" : "border-emerald-200 bg-emerald-100/70 dark:border-emerald-900 dark:bg-emerald-950/60")}>
+          <div className={cn("text-[11px] font-medium uppercase tracking-wide", owed > 0 ? "text-rose-800 dark:text-rose-300" : "text-emerald-800 dark:text-emerald-300")}>{purchase ? "You owe" : "Still owed"}</div>
+          <div data-pay="owed" className={cn("flex items-center justify-center gap-1 font-semibold tabular-nums", owed > 0 ? "text-rose-950 dark:text-rose-100" : "text-emerald-950 dark:text-emerald-100")}>
+            {owed <= 0 && <CheckCircle2 className="h-4 w-4" aria-hidden />}{money(owed)}
+          </div>
+        </div>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-rose-200 dark:bg-rose-950" role="progressbar" aria-label="Paid so far" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
+        <div className="h-full rounded-full bg-emerald-500 transition-[width]" style={{ width: `${pct}%` }} />
+      </div>
+      {(desk.payments?.length ?? 0) > 0 && (
+        <ul className="space-y-1 text-xs" aria-label="Payments on this bill">
+          {desk.payments!.map((p, i) => (
+            <li key={`${p.docNo}-${i}`} className="flex items-center justify-between gap-2 rounded-md bg-background/70 px-2 py-1">
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" aria-hidden />
+                <span className="truncate">{p.date.slice(0, 10)} · {p.docNo} · {p.method}</span>
+              </span>
+              <span className="font-medium tabular-nums">{money(Number(p.amount))}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {!cashSale && desk.newBalance != null && (
+        <div className="flex items-center justify-between rounded-lg bg-violet-100/70 px-3 py-1.5 text-sm dark:bg-violet-950/50">
+          <span className="text-violet-900 dark:text-violet-200">{purchase ? "Owed to them after this bill" : "Customer's balance after this bill"}</span>
+          <span className="font-semibold tabular-nums text-violet-950 dark:text-violet-100">{money((purchase ? -1 : 1) * Number(desk.newBalance) || 0)}</span>
+        </div>
+      )}
+      {editing ? (
+        <p className="text-xs text-muted-foreground">Payments already made stay with this bill. Receive or pay more after saving.</p>
+      ) : (desk.canPay || desk.canCashUpdate) && owed > 0 ? (
+        <Button type="button" data-pay-button onClick={onPay} className="h-10 w-full gap-2 bg-emerald-600 text-white hover:bg-emerald-700">
+          <Banknote className="h-4 w-4" aria-hidden /> {payLabel} · {money(owed)}
+        </Button>
+      ) : desk.payNote && owed > 0 ? (
+        <p data-pay-note className="rounded-lg bg-amber-100 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">{desk.payNote}</p>
+      ) : null}
+    </section>
   );
 }
 

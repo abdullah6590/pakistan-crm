@@ -49,7 +49,7 @@ export const SIDEBAR_NAV: NavItem[] = [
     title: 'Purchases',
     href: '/dashboard/purchases',
     icon: Truck,
-    roles: ['ADMIN', 'INVENTORY_MANAGER'],
+    roles: ['ADMIN', 'ACCOUNTANT'],
   },
   {
     title: 'Finance',
@@ -73,7 +73,7 @@ export const SIDEBAR_NAV: NavItem[] = [
     title: 'Suppliers',
     href: '/dashboard/suppliers',
     icon: Truck,
-    roles: ['ADMIN', 'INVENTORY_MANAGER'],
+    roles: ['ADMIN', 'ACCOUNTANT'],
   },
   {
     title: 'Reports',
@@ -102,7 +102,7 @@ export const SIDEBAR_NAV: NavItem[] = [
   {
     // A cash sale is a Books sale to the walk-in customer (2026-11-10); the old Cash Sales screen is read-only
     title: 'Cash Sales',
-    href: '/dashboard/sales/new?walkin=1',
+    href: '/dashboard/sales/desk?kind=cash',
     icon: Receipt,
     roles: ['ADMIN', 'EMPLOYEE', 'ACCOUNTANT'],
   },

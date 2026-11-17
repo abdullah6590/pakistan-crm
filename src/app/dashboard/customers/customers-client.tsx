@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Plus, Users, Search, Trash2, Edit, Phone, Mail, MapPin, AlertTriangle, Wallet, FileText, MoreHorizontal } from "lucide-react";
+import { Plus, Users, Search, Trash2, Edit, Phone, Mail, AlertTriangle, Wallet, FileText, MoreHorizontal } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { SortableTableHead } from "@/components/shared/sortable-table-head";
@@ -22,6 +22,7 @@ import { toast } from "sonner";
 import { findDuplicates, type DuplicateMatch } from "@/lib/ai-engine";
 import { AdvancedFilter } from "@/components/shared/advanced-filter";
 import { Pagination } from "@/components/shared/pagination";
+import { BalanceBadge, BilledPaid, MoneyTiles, type PartyMoney, type PartyTotals } from "@/components/shared/party-money";
 
 interface CustomerItem {
   id: string; name: string; email: string | null; phone: string | null; partyNo?: number | null;
@@ -30,6 +31,8 @@ interface CustomerItem {
   notes: string | null; isActive: boolean;
   createdAt: string; updatedAt: string;
   _count: { sales: number };
+  /** Billed, paid and balance from Books */
+  money?: PartyMoney | null;
 }
 
 
@@ -37,11 +40,12 @@ interface CustomerItem {
 interface Props { 
   customers: CustomerItem[];
   pagination: { page: number; totalPages: number; totalRecords: number };
+  totals: PartyTotals;
 }
 
 const emptyForm = { name: "", email: "", phone: "", city: "", address: "", notes: "" };
 
-export default function CustomersClient({ customers: initialCustomers, pagination }: Props) {
+export default function CustomersClient({ customers: initialCustomers, pagination, totals }: Props) {
   const router = useRouter();
   const [search, setSearch] = useState(typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("search") || "" : "");
   const [showAdd, setShowAdd] = useState(false);
@@ -68,8 +72,6 @@ export default function CustomersClient({ customers: initialCustomers, paginatio
     if (!!editing || !form.name.trim()) return [];
     return findDuplicates(form.name, form.phone, initialCustomers);
   }, [form.name, form.phone, initialCustomers, editing]);
-
-  const totalRevenue = initialCustomers.reduce((s, c) => s + c.totalPurchased, 0);
 
   const resetForm = () => setForm(emptyForm);
 
@@ -140,35 +142,7 @@ export default function CustomersClient({ customers: initialCustomers, paginatio
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="rounded-full p-2 bg-blue-100 dark:bg-blue-900/30 text-blue-600"><Users className="h-4 w-4" /></div>
-            <div>
-              <p className="text-xs text-muted-foreground">Total Customers</p>
-              <p className="text-xl font-bold">{initialCustomers.length}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="rounded-full p-2 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600"><MapPin className="h-4 w-4" /></div>
-            <div>
-              <p className="text-xs text-muted-foreground">Total Revenue</p>
-              <p className="text-xl font-bold">{formatCurrency(totalRevenue)}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="rounded-full p-2 bg-amber-100 dark:bg-amber-900/30 text-amber-600"><Phone className="h-4 w-4" /></div>
-            <div>
-              <p className="text-xs text-muted-foreground">Total Sales Orders</p>
-              <p className="text-xl font-bold">{initialCustomers.reduce((s, c) => s + c._count.sales, 0)}</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <MoneyTiles totals={totals} side="customer" format={formatCurrency} />
 
       <AdvancedFilter
         moduleName="customers"
@@ -201,7 +175,8 @@ export default function CustomersClient({ customers: initialCustomers, paginatio
                     <SortableTableHead field="name">Name</SortableTableHead>
                     <TableHead>Contact</TableHead>
                     <TableHead>City</TableHead>
-                    <TableHead className="text-right">Total Purchased</TableHead>
+                    <TableHead><span className="text-sky-700 dark:text-sky-300">Billed</span> / <span className="text-emerald-700 dark:text-emerald-300">Paid</span></TableHead>
+                    <TableHead className="text-right">Balance</TableHead>
                     <TableHead className="text-center">Orders</TableHead>
                     <TableHead className="text-center">Status</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -210,7 +185,7 @@ export default function CustomersClient({ customers: initialCustomers, paginatio
                 <TableBody>
                   {initialCustomers.map(c => (
                     <TableRow key={c.id}>
-                      <TableCell className="font-medium">{c.partyNo ? <span className="mr-2 text-xs font-normal text-muted-foreground tabular-nums">No. {c.partyNo}</span> : null}{c.name}</TableCell>
+                      <TableCell className="font-medium">{c.partyNo ? <span className="mr-2 text-xs font-normal text-muted-foreground tabular-nums">No. {c.partyNo}</span> : null}<a href={`/dashboard/customers/${c.id}/ledger`} className="hover:underline">{c.name}</a></TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-0.5 text-sm">
                           {c.email && <span className="text-muted-foreground flex items-center gap-1"><Mail className="h-3 w-3" />{c.email}</span>}
@@ -218,7 +193,8 @@ export default function CustomersClient({ customers: initialCustomers, paginatio
                         </div>
                       </TableCell>
                       <TableCell>{c.city || "—"}</TableCell>
-                      <TableCell className="text-right font-medium">{formatCurrency(c.totalPurchased)}</TableCell>
+                      <TableCell><BilledPaid money={c.money} format={formatCurrency} /></TableCell>
+                      <TableCell className="text-right" data-customer-balance={c.name}><BalanceBadge money={c.money} side="customer" format={formatCurrency} /></TableCell>
                       <TableCell className="text-center">{c._count.sales}</TableCell>
                       <TableCell className="text-center">
                         <Badge variant={c.isActive ? "success" : "secondary"}>{c.isActive ? "Active" : "Inactive"}</Badge>

@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { ArrowLeft, Ban, Download, History, Paperclip, Pencil, Printer, Receipt, Truck, Undo2, Wallet, X } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { BillBadge, Tile } from "@/components/shared/party-money";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,7 +15,6 @@ import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogTitle } fr
 import { formatDate, formatPaisa } from "@/lib/utils";
 import { quantityLabel } from "@/lib/domain/units";
 import { paperLineText, paperLineWeight, specLabel } from "@/lib/product-spec";
-import { PURCHASE_STATUS } from "../purchase-bills-client";
 
 interface Line { id: string; lineNo: number; description: string; quantity: string; unit: string; loose: string; baseQuantity: string; unitPrice: string | null; amount: string | null; component: { sku: string; name: string; size?: string | null; grams?: number | null } | null;
   paperX?: string | null; paperY?: string | null; paperGsm?: string | null; paperDivisor?: string | null; kgPerUnit?: string | null; ratePerKg?: string | null }
@@ -47,7 +47,6 @@ export default function PurchaseBillClient({ bill, canEdit, canPay, canReturn, c
 }) {
   const router = useRouter();
   const { doc } = bill;
-  const st = PURCHASE_STATUS[bill.status] ?? PURCHASE_STATUS.UNPAID;
   const revisionNote = doc.revision > 0 ? `Revision R${doc.revision} of ${doc.docNo.split("/")[0]}` : null;
   const [dialog, setDialog] = useState<null | "cancel" | "return">(null);
   const [reason, setReason] = useState("");
@@ -115,8 +114,7 @@ export default function PurchaseBillClient({ bill, canEdit, canPay, canReturn, c
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-bold tracking-tight">Purchase bill {doc.docNo}</h1>
-              <Badge variant={st.variant}>{st.label}</Badge>
-              {bill.overdue && <Badge variant="destructive">overdue</Badge>}
+              <BillBadge status={bill.status} owed={bill.remaining} side="supplier" format={formatPaisa} overdue={bill.overdue} />
               {revisionNote && <Badge variant="outline">{revisionNote}</Badge>}
             </div>
             <p className="text-sm text-muted-foreground mt-0.5">
@@ -146,10 +144,11 @@ export default function PurchaseBillClient({ bill, canEdit, canPay, canReturn, c
         </div>
       )}
 
-      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-        {([["Bill total", bill.total], ["Paid", bill.paid], ["Goods returned", bill.returned], ["Still payable", bill.remaining]] as const).map(([label, v]) => (
-          <Card key={label}><CardContent className="p-4"><p className="text-xs text-muted-foreground">{label}</p><p className="text-xl font-bold tabular-nums">{rs(v)}</p></CardContent></Card>
-        ))}
+      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+        <Tile id="total" label="Bill total" value={rs(bill.total)} tone="blue" />
+        <Tile id="paid" label="Paid" value={rs(bill.paid)} tone="green" />
+        <Tile id="returned" label="Goods returned" value={rs(bill.returned)} tone="violet" />
+        <Tile id="owed" label="Still payable" value={rs(bill.remaining)} tone={Number(bill.remaining) > 0 ? "red" : "green"} />
       </div>
 
       <Card>

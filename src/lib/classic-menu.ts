@@ -49,7 +49,7 @@ export const CLASSIC_MENUS: ClassicMenu[] = [
     id: "supplier", label: "Supplier", icon: "Truck", tone: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
     items: [
       { id: "add-supplier", label: "Add New Supplier", href: "/dashboard/suppliers?new=1", icon: "UserPlus", access: write("suppliers") },
-      { id: "stock-invoice", label: "Stock invoice", href: "/dashboard/purchases/new", icon: "FilePlus2", shortcut: "new-purchase", quick: "Stock invoice", access: write("purchases") },
+      { id: "stock-invoice", label: "Stock invoice", href: "/dashboard/purchases/desk", icon: "FilePlus2", shortcut: "new-purchase", quick: "Stock invoice", access: write("purchases") },
       { id: "cash-paid", label: "Cash Paid", href: "/dashboard/purchases/pay", icon: "HandCoins", shortcut: "pay-supplier", quick: "Cash paid", access: write("supplierPayments") },
       { id: "supplier-ledger", label: "Supplier Ledger", picker: "suppliers", icon: "BookOpen", access: read("suppliers") },
       { id: "suppliers", label: "Suppliers list", href: "/dashboard/suppliers", icon: "Truck", shortcut: "suppliers", access: read("suppliers"), group: true },
@@ -61,7 +61,7 @@ export const CLASSIC_MENUS: ClassicMenu[] = [
     id: "customer", label: "Customer", icon: "Contact", tone: "bg-indigo-500/15 text-indigo-700 dark:text-indigo-300",
     items: [
       { id: "add-customer", label: "Add New Customer", href: "/dashboard/customers?new=1", icon: "UserPlus", access: write("customers") },
-      { id: "customer-invoice", label: "Customer invoice", href: "/dashboard/sales/new", icon: "FileText", shortcut: "new-sale", quick: "Customer invoice", access: write("sales") },
+      { id: "customer-invoice", label: "Customer invoice", href: "/dashboard/sales/desk?kind=invoice", icon: "FileText", shortcut: "new-sale", quick: "Customer invoice", access: write("sales") },
       { id: "cash-received", label: "Cash Received", href: "/dashboard/sales/payments", icon: "Wallet", shortcut: "receive-payment", quick: "Cash received", access: write("customerPayments") },
       { id: "customer-ledger", label: "Customer Ledger", picker: "customers", icon: "BookOpen", access: read("customers") },
       { id: "day-book", label: "Day Book", href: "/dashboard/accounting/reports?report=daybook", icon: "CalendarDays", shortcut: "daybook", quick: "Day book", access: read("ledgers") },
@@ -73,7 +73,9 @@ export const CLASSIC_MENUS: ClassicMenu[] = [
   {
     id: "cash-sale", label: "Cash Sale", icon: "Banknote", tone: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
     items: [
-      { id: "cash-sale", label: "Cash Sale (walk-in)", href: "/dashboard/sales/new?walkin=1", icon: "Banknote", quick: "Cash sale", access: write("sales") },
+      { id: "cash-sale", label: "Cash Sale invoice", href: "/dashboard/sales/desk?kind=cash", icon: "Banknote", shortcut: "cash-sale", quick: "Cash sale", access: write("sales") },
+      // Old Cash Sale → Cash Report: between dates, still owing, unpaid, all, day book (Report 33)
+      { id: "cash-report", label: "Cash Report", href: "/dashboard/sales/cash-report", icon: "FileText", access: read("sales") },
     ],
   },
   {

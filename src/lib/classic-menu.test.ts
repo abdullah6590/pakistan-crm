@@ -84,8 +84,11 @@ describe("classic menu bar", () => {
   it("marks the tab of the page being shown", () => {
     expect(menuForPath(CLASSIC_MENUS, "/dashboard/purchases/new")).toBe("supplier");
     expect(menuForPath(CLASSIC_MENUS, "/dashboard/purchases/abc123")).toBe("supplier");
+    expect(menuForPath(CLASSIC_MENUS, "/dashboard/purchases/desk", "?id=x")).toBe("supplier");
     expect(menuForPath(CLASSIC_MENUS, "/dashboard/sales/new")).toBe("customer");
-    expect(menuForPath(CLASSIC_MENUS, "/dashboard/sales/new", "?walkin=1")).toBe("cash-sale");
+    // The invoice desks (Report 33)
+    expect(menuForPath(CLASSIC_MENUS, "/dashboard/sales/desk", "?kind=cash")).toBe("cash-sale");
+    expect(menuForPath(CLASSIC_MENUS, "/dashboard/sales/desk", "?kind=invoice&id=x")).toBe("customer");
     expect(menuForPath(CLASSIC_MENUS, "/dashboard/accounting/reports", "?report=daybook")).toBe("customer");
     expect(menuForPath(CLASSIC_MENUS, "/dashboard/accounting/reports", "?report=balance-sheet&to=2026-11-01")).toBe("reports");
     expect(menuForPath(CLASSIC_MENUS, "/dashboard/inventory/groups")).toBe("product");

@@ -97,7 +97,7 @@ export interface InvoicePdf {
   customer: string;
   phone?: string | null;
   status: string;
-  lines: { description: string; spec?: string | null; sku?: string | null; quantity: string; unit?: string | null; loose?: string | null; unitPrice: string | null; amount: string | null }[];
+  lines: { description: string; spec?: string | null; sku?: string | null; quantity: string; unit?: string | null; loose?: string | null; unitPrice: string | null; amount: string | null; remarks?: string | null }[];
   /** Paper lines: total sheets and net weight (old "T-Sheet" and "Net Wait") */
   sheets?: number | null;
   weightKg?: number | null;
@@ -111,8 +111,9 @@ export interface InvoicePdf {
 }
 
 /** The item column: name, size and grams ("20x39 · 200g"), then the SKU. */
-function itemText(l: { description: string; spec?: string | null; sku?: string | null }) {
-  return [l.description, l.spec || null, l.sku ? `(${l.sku})` : null].filter(Boolean).join("  ");
+function itemText(l: { description: string; spec?: string | null; sku?: string | null; remarks?: string | null }) {
+  const main = [l.description, l.spec || null, l.sku ? `(${l.sku})` : null].filter(Boolean).join("  ");
+  return l.remarks ? `${main}\n${l.remarks}` : main;
 }
 
 export function invoicePdf(b: InvoicePdf) {
@@ -226,7 +227,7 @@ export interface PurchaseBillPdf {
   dueDate?: string | Date | null;
   biltyNo?: string | null;
   status: string;
-  lines: { description: string; spec?: string | null; sku?: string | null; quantity: string; unit?: string | null; loose?: string | null; unitPrice: string | null; amount: string | null }[];
+  lines: { description: string; spec?: string | null; sku?: string | null; quantity: string; unit?: string | null; loose?: string | null; unitPrice: string | null; amount: string | null; remarks?: string | null }[];
   /** Paper lines: total sheets and net weight (old "T-Sheet" and "Net Wait") */
   sheets?: number | null;
   weightKg?: number | null;
@@ -353,5 +354,55 @@ export function supplierStatementPdf(st: SupplierStatementPdf) {
     ], { boldLast: true });
     y = totalsBlock(doc, y, [[Number(st.closing) >= 0 ? "Payable to supplier" : "Supplier owes us", rp(Math.abs(Number(st.closing))), true]]);
     footer(doc, y + 6, ["Credit: purchase bills and refunds received from the supplier. Debit: payments and goods returned. Dr: the supplier owes the business."], st.printedBy);
+  });
+}
+
+/**
+ * Print G (old Customer Invoice / Cash Sale "Print G", Report 33): the slip, a narrow 80 mm print for a receipt printer
+ * or the gate, with the same lines and totals as the invoice. The page is as long as the bill.
+ */
+export function slipPdf(b: InvoicePdf) {
+  const W = 226; // 80 mm
+  const M = 10;
+  const lineH = (l: InvoicePdf["lines"][number]) => 26 + (l.spec ? 10 : 0) + (l.remarks ? 10 : 0);
+  const height = 190 + b.lines.reduce((t, l) => t + lineH(l), 0) + (b.sheets ? 12 : 0) + (b.weightKg ? 12 : 0) + (b.notes ? 24 : 0);
+  return new Promise<Buffer>((resolve, reject) => {
+    const doc = new PDFDocument({ size: [W, Math.max(height, 280)], margin: M, info: { Title: `Slip ${b.docNo}` } });
+    const chunks: Buffer[] = [];
+    doc.on("data", (c: Buffer) => chunks.push(c));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+    const w = W - M * 2;
+    const row = (left: string, right: string, bold = false) => {
+      const y = doc.y;
+      doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(bold ? 9 : 8);
+      doc.text(left, M, y, { width: w * 0.6 });
+      const after = doc.y;
+      doc.text(right, M, y, { width: w, align: "right" });
+      doc.y = Math.max(after, doc.y);
+    };
+    const rule = () => { doc.moveTo(M, doc.y + 2).lineTo(W - M, doc.y + 2).dash(1, { space: 2 }).stroke("#000000").undash(); doc.y += 6; };
+    doc.font("Helvetica-Bold").fontSize(11).fillColor("#000000").text(b.business.name, M, M, { width: w, align: "center" });
+    doc.font("Helvetica").fontSize(8).text(`${b.kind === "SALE_INVOICE" ? "Invoice" : "Cash sale"} ${b.docNo}  ·  ${formatDate(b.date)}`, { width: w, align: "center" });
+    if (b.cancelled) doc.font("Helvetica-Bold").text("CANCELLED", { width: w, align: "center" });
+    doc.font("Helvetica").text(`${b.customer}${b.phone ? `  ${b.phone}` : ""}`, { width: w, align: "center" });
+    rule();
+    b.lines.forEach((l, i) => {
+      doc.font("Helvetica-Bold").fontSize(8).text(`${i + 1}. ${l.description}`, M, doc.y, { width: w });
+      if (l.spec) doc.font("Helvetica").fontSize(7).text(l.spec, { width: w });
+      row(`${quantityLabel(l.quantity, l.unit, l.loose)} x ${rs(l.unitPrice ?? 0)}`, rs(l.amount ?? 0));
+      if (l.remarks) doc.font("Helvetica-Oblique").fontSize(7).text(l.remarks, M, doc.y, { width: w });
+      doc.y += 2;
+    });
+    rule();
+    if (b.sheets) row("Total sheets", b.sheets.toLocaleString("en-PK"));
+    if (b.weightKg) row("Net weight", `${b.weightKg.toLocaleString("en-PK", { maximumFractionDigits: 2 })} kg`);
+    row("Total", rs(b.total), true);
+    row("Received", rs(b.paid));
+    row("Remaining", rs(b.remaining), true);
+    if (b.notes) { doc.y += 4; doc.font("Helvetica").fontSize(7).text(b.notes, M, doc.y, { width: w }); }
+    doc.y += 6;
+    doc.font("Helvetica").fontSize(6).fillColor("#444444").text(`Printed by ${b.printedBy} on ${formatDate(new Date())}`, M, doc.y, { width: w, align: "center" });
+    doc.end();
   });
 }

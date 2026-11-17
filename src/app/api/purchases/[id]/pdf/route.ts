@@ -24,14 +24,16 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     date: doc.date, supplier: b.supplierName, supplierCode: b.supplierCode, supplierPhone: b.supplier?.phone,
     vendorBillNo: doc.vendorBillNo, vendorBillDate: doc.vendorBillDate, dueDate: doc.dueDate, biltyNo: doc.biltyNo,
     status: STATUS[b.status] ?? b.status,
-    lines: doc.lines.map((l) => ({ description: l.description ?? "", spec: [specLabel(l.component), paperLineText(l)].filter(Boolean).join("  ·  ") || null, sku: l.component?.sku, quantity: l.quantity, unit: l.unit, loose: l.loose, unitPrice: l.unitPrice, amount: l.amount })),
+    lines: doc.lines.map((l) => ({ description: l.description ?? "", spec: [specLabel(l.component), paperLineText(l)].filter(Boolean).join("  ·  ") || null, sku: l.component?.sku, quantity: l.quantity, unit: l.unit, loose: l.loose, unitPrice: l.unitPrice, amount: l.amount, remarks: l.remarks })),
     weightKg: doc.lines.reduce((t, l) => t + paperLineWeight(l), 0) || null,
     sheets: doc.lines.filter((l) => paperLineWeight(l) > 0).reduce((t, l) => t + Number(l.baseQuantity), 0) || null,
     total: b.total, paid: b.paid, returned: b.returned, remaining: b.remaining,
     payments: b.payments.map((p) => ({ date: p.date, docNo: p.docNo, method: p.method, reference: p.reference, amount: p.amount })),
     charges: b.charges, words: b.words, notes: doc.remarks, printedBy: auth.user.name,
   });
-  await prisma.accountingDocument.update({ where: { id: doc.id }, data: { printCount: { increment: 1 }, lastPrintedAt: new Date() } });
+  // Every print and reprint is counted and kept in the bill's history (Report 33)
+  const printed = await prisma.accountingDocument.update({ where: { id: doc.id }, data: { printCount: { increment: 1 }, lastPrintedAt: new Date() } });
+  await prisma.auditLog.create({ data: { entity: "AccountingDocument", entityId: doc.id, action: "PRINT", userId: auth.user.id, after: JSON.stringify({ layout: "invoice", printCount: printed.printCount }) } });
   const inline = request.nextUrl.searchParams.get("inline") === "1";
   return new NextResponse(new Uint8Array(pdf), {
     headers: { "Content-Type": "application/pdf", "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="Purchase-${doc.docNo.replace(/\//g, "-")}.pdf"`, "Cache-Control": "no-store" },

@@ -35,10 +35,19 @@ describe("permission matrix (audit SEC-02/03/05/06)", () => {
   });
 
   it("filters dashboard sections by module permission (R-SEC-1)", () => {
-    expect(dashboardVisibility("INVENTORY_MANAGER")).toEqual({ finance: false, sales: false, purchases: true, projects: false, partners: false });
+    // P-3 (2026-11-13): purchases are for administrators and accountants only
+    expect(dashboardVisibility("INVENTORY_MANAGER")).toEqual({ finance: false, sales: false, purchases: false, projects: false, partners: false });
+    expect(dashboardVisibility("ACCOUNTANT").purchases).toBe(true);
     expect(dashboardVisibility("EMPLOYEE")).toEqual({ finance: false, sales: true, purchases: false, projects: true, partners: false });
     expect(dashboardVisibility("ADMIN")).toEqual({ finance: true, sales: true, purchases: true, projects: true, partners: true });
     for (const role of ["ADMIN", "PARTNER", "EMPLOYEE", "INVENTORY_MANAGER", "ACCOUNTANT"]) expect(can(role, "dashboard", "read")).toBe(true);
+  });
+
+  it("P-3: supplier invoices, the supplier ledger and supplier payments only for administrators and accountants", () => {
+    for (const res of ["purchases", "suppliers", "supplierPayments"]) {
+      for (const role of ["ADMIN", "ACCOUNTANT"]) expect([res, role, can(role, res, "read"), can(role, res, "write")]).toEqual([res, role, true, true]);
+      for (const role of ["INVENTORY_MANAGER", "EMPLOYEE", "PARTNER"]) expect([res, role, can(role, res, "read"), can(role, res, "write")]).toEqual([res, role, false, false]);
+    }
   });
 
   it("denies unknown roles and resources", () => {

@@ -1,7 +1,7 @@
 // src/lib/accounting/books-reports.ts - Cash book / bank book (the old program's cash ledger) and party balances (its
 // "all balances" list with a minimum-balance filter), from posted journals. Read-only.
 import type { Prisma, PrismaClient } from "@prisma/client";
-import { Dec, ZERO, add, sub, cmp, isNegative, toPlain, fromPaisa } from "@/lib/domain/decimal";
+import { Dec, ZERO, add, sub, cmp, isNegative, toPlain, fromPaisa, dec } from "@/lib/domain/decimal";
 import { accountBalance } from "./posting";
 
 const s = toPlain;
@@ -79,6 +79,51 @@ export async function partyBalances(db: PrismaClient, opts: { type?: PartyType; 
       return { accountId: r.a.id, code: r.a.code, name: r.a.name, phone: r.a.phone, type: r.a.subType, active: r.a.isActive, balance: s(r.balance) };
     });
   return { rows, owedToYou: s(owedToYou), youOwe: s(youOwe), net: s(sub(owedToYou, youOwe)) };
+}
+
+/**
+ * Billed, paid and balance of party accounts from Books, for the customer and supplier lists. A customer is billed by
+ * debits (bills, opening balance, refunds paid back) and pays by credits (receipts, returns); a supplier the other way
+ * round. The balance is positive when the customer owes you, or when you owe the supplier.
+ */
+export async function partyMoney(db: PrismaClient, accountIds: string[], side: "CUSTOMER" | "SUPPLIER") {
+  const out = new Map<string, { billed: string; paid: string; balance: string }>();
+  if (!accountIds.length) return out;
+  // A cancelled or edited document is undone by a REVERSAL entry with debit and credit swapped. Taken as it is, that
+  // would count an undone bill as paid; so reversals are taken off the side they undo (review 2026-11-16).
+  const sumsOf = (kind: "POSTING" | "REVERSAL") => db.journalLine.groupBy({
+    by: ["accountId"], where: { accountId: { in: accountIds }, entry: { kind } }, _sum: { debitPaisa: true, creditPaisa: true },
+  });
+  const [posted, reversed] = await Promise.all([sumsOf("POSTING"), sumsOf("REVERSAL")]);
+  const undo = new Map(reversed.map((x) => [x.accountId, x._sum]));
+  for (const x of posted) {
+    const r = undo.get(x.accountId);
+    const dr = fromPaisa((x._sum.debitPaisa ?? BigInt(0)) - (r?.creditPaisa ?? BigInt(0)));
+    const cr = fromPaisa((x._sum.creditPaisa ?? BigInt(0)) - (r?.debitPaisa ?? BigInt(0)));
+    const [billed, paid] = side === "CUSTOMER" ? [dr, cr] : [cr, dr];
+    out.set(x.accountId, { billed: s(billed), paid: s(paid), balance: s(sub(billed, paid)) });
+  }
+  return out;
+}
+
+/**
+ * Every customer (or supplier) together: what is owed, advances, and how many have a balance. Accounts with no customer
+ * or supplier record (the counter-sale account of walk-in cash sales) are not counted as parties; what they are owed is
+ * given apart (`otherOwed`).
+ */
+export async function partyMoneyTotals(db: PrismaClient, side: "CUSTOMER" | "SUPPLIER") {
+  const accounts = await db.ledgerAccount.findMany({ where: { kind: "PARTY", subType: side }, select: { id: true, customerId: true, supplierId: true } });
+  const linked = new Set(accounts.filter((a) => (side === "CUSTOMER" ? a.customerId : a.supplierId)).map((a) => a.id));
+  const money = await partyMoney(db, accounts.map((a) => a.id), side);
+  let owed = ZERO, advance = ZERO, otherOwed = ZERO, withBalance = 0;
+  for (const [id, m] of money) {
+    const b = dec(m.balance);
+    if (cmp(b, ZERO) === 0) continue;
+    if (!linked.has(id)) { if (!isNegative(b)) otherOwed = add(otherOwed, b); continue; }
+    withBalance++;
+    if (isNegative(b)) advance = add(advance, abs(b)); else owed = add(owed, b);
+  }
+  return { owed: s(owed), advance: s(advance), otherOwed: s(otherOwed), withBalance, parties: linked.size };
 }
 
 /** The dashboard's money summary: cash in hand, bank, what customers owe you and what you owe suppliers, today. */

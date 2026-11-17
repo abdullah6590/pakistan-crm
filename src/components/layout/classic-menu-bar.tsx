@@ -157,7 +157,7 @@ export function QuickStrip({ menus }: { menus: ClassicMenu[] }) {
   const pathname = usePathname();
   const search = useSearchParams();
   const keys = useShortcutKeys();
-  const items = menus.flatMap((m) => m.items.filter((i) => i.quick && i.href));
+  const items = menus.flatMap((m) => m.items.filter((i) => i.quick && i.href).map((i) => ({ ...i, tone: m.tone })));
   if (!items.length) return null;
   const here = `${pathname}${search.toString() ? `?${search}` : ""}`;
   return (
@@ -175,7 +175,7 @@ export function QuickStrip({ menus }: { menus: ClassicMenu[] }) {
                 aria-current={active ? "page" : undefined}
                 className={cn("flex flex-col items-center gap-1 rounded-lg px-1 py-2.5 text-center text-xs leading-tight transition-colors duration-150 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", active && "bg-muted font-medium")}
               >
-                <ClassicIcon name={i.icon} className="h-6 w-6 text-foreground/80" />
+                <span className={cn("flex h-10 w-10 items-center justify-center rounded-xl shadow-sm", i.tone)} aria-hidden><ClassicIcon name={i.icon} className="h-5 w-5" /></span>
                 <span>{i.quick}</span>
               </Link>
             </li>

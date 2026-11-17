@@ -10,6 +10,9 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import PrintButton from "@/app/dashboard/accounting/print-button";
+import { BillBadge, BilledPaid, Tile, type Tone } from "@/components/shared/party-money";
+
+const AGE_TONE: Record<string, Tone> = { "0-30": "blue", "31-60": "amber", "61-90": "amber", "90+": "red" };
 
 export const dynamic = "force-dynamic";
 
@@ -33,11 +36,9 @@ export default async function ReceivablesPage() {
         <PrintButton />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-5">
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Total owed</p><p className="text-xl font-bold tabular-nums">{rs(r.total)}</p></CardContent></Card>
-        {r.buckets.map((b) => (
-          <Card key={b}><CardContent className="p-4"><p className="text-xs text-muted-foreground">{AGE_LABEL[b]}</p><p className="text-xl font-bold tabular-nums">{rs(r.ageTotals[b])}</p></CardContent></Card>
-        ))}
+      <div className="grid gap-3 sm:grid-cols-5">
+        <Tile id="owed" label="Total owed" value={rs(r.total)} tone={Number(r.total) > 0 ? "red" : "green"} big />
+        {r.buckets.map((b) => <Tile key={b} id={b} label={AGE_LABEL[b]} value={rs(r.ageTotals[b])} tone={Number(r.ageTotals[b]) > 0 ? AGE_TONE[b] : "green"} />)}
       </div>
 
       {r.customers.length === 0 ? (
@@ -47,12 +48,12 @@ export default async function ReceivablesPage() {
           <CardHeader className="pb-2">
             <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
               <span>{c.name}{c.phone ? <span className="ml-2 text-sm font-normal text-muted-foreground">{c.phone}</span> : null}</span>
-              <span className="tabular-nums">{rs(c.outstanding)}{Number(c.credit) > 0 && <span className="ml-2 text-sm font-normal text-emerald-600">credit {rs(c.credit)}</span>}</span>
+              <span className="flex flex-wrap items-center gap-2"><BillBadge status="UNPAID" owed={c.outstanding} side="customer" format={formatCurrency} />{Number(c.credit) > 0 && <span className="rounded-full bg-violet-100 px-2.5 py-0.5 text-xs font-semibold text-violet-800 dark:bg-violet-950/60 dark:text-violet-300">Advance {rs(c.credit)}</span>}</span>
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <Table>
-              <TableHeader><TableRow><TableHead>Bill</TableHead><TableHead>Date</TableHead><TableHead className="text-right">Age</TableHead><TableHead className="text-right">Total</TableHead><TableHead className="text-right">Received</TableHead><TableHead className="text-right">Remaining</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead>Bill</TableHead><TableHead>Date</TableHead><TableHead className="text-right">Age</TableHead><TableHead className="text-right">Total</TableHead><TableHead><span className="text-sky-700 dark:text-sky-300">Billed</span> / <span className="text-emerald-700 dark:text-emerald-300">Received</span></TableHead><TableHead className="text-right">Remaining</TableHead></TableRow></TableHeader>
               <TableBody>
                 {c.invoices.map((i) => (
                   <TableRow key={i.id}>
@@ -60,14 +61,14 @@ export default async function ReceivablesPage() {
                     <TableCell className="text-xs">{formatDate(i.date)}</TableCell>
                     <TableCell className="text-right text-xs">{i.days} days</TableCell>
                     <TableCell className="text-right tabular-nums">{rs(i.total)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{rs(i.paid)}</TableCell>
-                    <TableCell className="text-right tabular-nums font-medium">{rs(i.remaining)}</TableCell>
+                    <TableCell><BilledPaid money={{ billed: i.total, paid: i.paid, balance: i.remaining }} format={formatCurrency} /></TableCell>
+                    <TableCell className="text-right tabular-nums font-semibold text-rose-700 dark:text-rose-300">{rs(i.remaining)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
             <div className="flex flex-wrap gap-3 border-t p-3 text-sm print:hidden">
-              {canReceive && c.customerId && <Link className="underline" href={`/dashboard/sales/payments?customerId=${c.customerId}`}>Receive payment</Link>}
+              {canReceive && c.customerId && <Link className="inline-flex items-center rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700" href={`/dashboard/sales/payments?customerId=${c.customerId}`}>Receive payment</Link>}
               {c.customerId && <Link className="underline" href={`/dashboard/customers/${c.customerId}/statement`}>Statement</Link>}
             </div>
           </CardContent>

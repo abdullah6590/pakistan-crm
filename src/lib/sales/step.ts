@@ -2,7 +2,8 @@
 // of one kind by number. Only the current version of each bill counts (an edited bill keeps its number, OD-11).
 import type { PrismaClient } from "@prisma/client";
 
-export const STEP_TYPES = ["SALE_INVOICE", "CASH_SALE"] as const;
+// Supplier invoices step the same way on the Supplier Invoice desk (Report 33)
+export const STEP_TYPES = ["SALE_INVOICE", "CASH_SALE", "PURCHASE_INVOICE"] as const;
 export type StepType = (typeof STEP_TYPES)[number];
 export type StepDirection = "first" | "prev" | "next" | "last";
 
@@ -18,4 +19,9 @@ export async function stepBill(db: PrismaClient, type: StepType, dir: StepDirect
   return dir === "prev"
     ? db.accountingDocument.findFirst({ where: { ...current, number: { lt: from.number } }, orderBy: { number: "desc" }, select })
     : db.accountingDocument.findFirst({ where: { ...current, number: { gt: from.number } }, orderBy: { number: "asc" }, select });
+}
+
+/** The old Find button: the current version of the bill with this number, or null. */
+export async function findBill(db: PrismaClient, type: StepType, number: number): Promise<{ id: string; docNo: string } | null> {
+  return db.accountingDocument.findFirst({ where: { type, number, supersededBy: { is: null } }, select: { id: true, docNo: true } });
 }

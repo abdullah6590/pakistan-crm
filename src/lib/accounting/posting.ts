@@ -17,7 +17,7 @@ import {
 } from "@/lib/domain/ledger";
 import { can } from "@/lib/permissions";
 import { Db, MAIN_LOCATION, STOCK_ISSUE_REASONS, PRESS_LOSS_REASONS, getSetting, SettingKey } from "./setup";
-import { carryToRevision, refundsFundedBy, releaseForCancelled } from "./allocations";
+import { carryToRevision, refundsFundedBy, releaseForCancelled, walkInReceiptsProblem } from "./allocations";
 
 export type Tx = Prisma.TransactionClient;
 
@@ -67,6 +67,8 @@ export interface ItemLineInput {
   /** Price per `unit`; required on sale and purchase documents. */
   unitPrice?: number | string;
   description?: string;
+  /** The line's own remark (old invoice grid "Remarks") */
+  remarks?: string | null;
   /** Paper bought or sold by weight: kept on the line (size, GSM, kg per unit, rate per kg), as the old Supplier Invoice did. */
   paper?: PaperDetails;
 }
@@ -118,6 +120,8 @@ export interface CashSaleInput {
   amountReceived?: number | string;
   partyAccountId?: string;
   customerName?: string;
+  /** Walk-in customer's phone (old Cash Sale "Cell No") */
+  customerPhone?: string;
   lines: ItemLineInput[];
   remarks?: string;
 }
@@ -682,6 +686,7 @@ function lineRecord(documentId: string, lineNo: number, item: ItemContext, l: It
     quantity: s(dec(l.quantity)), unit: l.unit ?? item.cfg.baseUnit,
     loose: l.loose === undefined || l.loose === "" ? "0" : s(dec(l.loose)), baseQuantity: s(baseQuantity),
     ...paperFields(item, l),
+    remarks: l.remarks?.trim() ? l.remarks.trim().slice(0, 500) : null,
     ...extra,
   };
 }
@@ -723,6 +728,7 @@ async function cashSaleInTx(tx: Tx, actor: Actor, input: CashSaleInput, supersed
   const remarks = [input.customerName ? `Customer: ${input.customerName}` : null, input.remarks].filter(Boolean).join(" | ") || null;
   const doc = await newDocument(tx, {
     type: "CASH_SALE", date, status: "POSTED", cashAccountId: cash.id, locationId: main.id,
+    walkInName: input.customerName?.trim() || null, walkInPhone: input.customerPhone?.trim() || null,
     roundingMode: DEFAULT_TOTAL_ROUNDING.CASH_SALE, remarks, createdById: actor.id, postedAt: new Date(),
   }, { supersedes });
   const ctx = await newCtx(tx, doc.id, date);
@@ -1305,6 +1311,8 @@ export async function cancelInTx(tx: Tx, actor: Actor, id: string, reason: strin
     });
   }
   // Its payments become unapplied credit again; an amendment instead carries them to the new revision (Report 28)
+  const stranded = action === "AMEND" ? null : await walkInReceiptsProblem(tx, doc, "cancel");
+  if (stranded) throw new PostingError(stranded, 409);
   const released = action === "AMEND" ? [] : await releaseForCancelled(tx, id, actor.id, reason);
   await audit(tx, id, action, actor.id, {
     reason,
@@ -1405,6 +1413,11 @@ export async function amendDocument(db: Db, actor: Actor, id: string, input: unk
     const revised = (await creator(tx, actor, input as never, fresh)) as AccountingDocument;
     // Payments follow the bill (and a receipt's allocations follow the receipt) to the new revision (Report 28)
     const moved = await carryToRevision(tx, fresh, revised, actor.id);
+    // Cash Update money left over on a walk-in bill would be stranded on the counter-sale account
+    if (moved.released.length) {
+      const stranded = await walkInReceiptsProblem(tx, revised, "lower", moved.released.map((r) => r.allocation.creditDocId));
+      if (stranded) throw new PostingError(stranded, 409);
+    }
     if (moved.carried.length || moved.released.length) {
       await audit(tx, revised.id, "ALLOCATIONS_MOVED", actor.id, {
         reason,

@@ -1,0 +1,69 @@
+// src/app/dashboard/sales/desk/page.tsx - The Customer Invoice and Cash Sale desks (Report 33): one window as in the old
+// program. It opens on the last bill, locked; << < > >> and Find show other bills in the same window; New starts a
+// bill; Edit unlocks the shown bill (with a reason); Print, Print G (slip) and, on a part-paid cash sale, Cash Update.
+import { redirect } from "next/navigation";
+import { catalogReady } from "@/lib/accounting/server";
+import { prisma } from "@/lib/prisma";
+import { getAuthUser } from "@/lib/auth";
+import { can } from "@/lib/permissions";
+import { loadBooksBill } from "@/lib/sales/books-queries";
+import { counterPaid } from "@/lib/accounting/allocations";
+import { isAuthority } from "@/lib/sync/local";
+import { mayEditBill } from "@/lib/sales/books-sales";
+import { stepBill } from "@/lib/sales/step";
+import { screenBill, startingLists } from "@/lib/sales/desk-data";
+import PaperSaleClient from "../new/paper-sale-client";
+
+export const dynamic = "force-dynamic";
+
+export default async function SaleDeskPage({ searchParams }: { searchParams: Promise<{ kind?: string; id?: string; new?: string }> }) {
+  const user = await getAuthUser();
+  if (!user) redirect("/login");
+  if (!can(user.role, "sales", "read")) redirect("/dashboard");
+  await catalogReady();
+  const sp = await searchParams;
+  const kind = sp.kind === "cash" ? "CASH_SALE" : "SALE_INVOICE";
+  const lists = await startingLists(prisma);
+  const canWrite = can(user.role, "sales", "write");
+
+  // Which bill: the one asked for, else the last of this kind (as the old screens opened), else a new one
+  const id = sp.new === "1" ? null : sp.id ?? (await stepBill(prisma, kind, "last"))?.id ?? null;
+  const bill = id ? await loadBooksBill(prisma, id) : null;
+  if (!bill || (bill.doc.type !== "SALE_INVOICE" && bill.doc.type !== "CASH_SALE")) {
+    if (!canWrite) redirect("/dashboard/sales");
+    return <PaperSaleClient key={`new-${kind}`} {...lists} startWalkIn={kind === "CASH_SALE"} desk={{ kind }} />;
+  }
+  const { doc } = bill;
+  const current = doc.status === "POSTED";
+  // Cash taken at the counter, then the receipts loadBooksBill already found (no second allocations query)
+  const atCounter = Number(counterPaid(doc));
+  const payments = [
+    ...(atCounter > 0 ? [{ docNo: doc.docNo, date: doc.date.toISOString(), method: "At the counter", amount: String(atCounter) }] : []),
+    ...bill.payments.filter((p) => p.source !== "CASH_SALE").map((p) => ({ docNo: p.receiptNo, date: new Date(p.date).toISOString(), method: p.method, amount: String(p.amount) })),
+  ];
+  // A walk-in's Cash Update needs the main server (the receipt has no customer a computer could queue it against)
+  const cashUpdateHere = doc.type !== "CASH_SALE" || isAuthority();
+  const mayReceive = current && Number(bill.remaining) > 0 && can(user.role, "customerPayments", "write");
+  return (
+    <PaperSaleClient
+      key={doc.id}
+      {...lists}
+      editBill={await screenBill(prisma, bill)}
+      desk={{
+        kind: doc.type as "SALE_INVOICE" | "CASH_SALE",
+        locked: true,
+        status: doc.status,
+        printCount: doc.printCount,
+        lastPrintedAt: doc.lastPrintedAt ? doc.lastPrintedAt.toISOString() : null,
+        total: bill.total, paid: bill.paid, remaining: bill.remaining,
+        previousBalance: doc.previousBalance, newBalance: doc.newBalance,
+        canEdit: current && canWrite && mayEditBill({ id: user.id, role: user.role }, doc),
+        canCashUpdate: mayReceive && doc.type === "CASH_SALE" && cashUpdateHere,
+        canPay: mayReceive && cashUpdateHere,
+        payNote: mayReceive && !cashUpdateHere ? "Cash Update for a walk-in sale is done on the office server, not on this computer." : null,
+        payments,
+        canNew: canWrite,
+      }}
+    />
+  );
+}
