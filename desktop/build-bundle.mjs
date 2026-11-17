@@ -32,7 +32,17 @@ function vcRedistDir() {
 
 // Start clean: an old bundle or build must not be picked up by the build's file tracing
 fs.rmSync(out, { recursive: true, force: true });
+// Next.js stops a build once to show an upgrade notice and lets the same command run again within 5 minutes; the
+// receipt for that lives in the build folder, so it is kept while everything else is cleaned (2026-11-17).
+const retries = path.join(dist, "cache", "next-agentic-upgrade-retries");
+const keptRetries = path.join(root, ".next-desktop-upgrade-retries");
+fs.rmSync(keptRetries, { recursive: true, force: true });
+if (fs.existsSync(retries)) fs.renameSync(retries, keptRetries);
 fs.rmSync(dist, { recursive: true, force: true });
+if (fs.existsSync(keptRetries)) {
+  fs.mkdirSync(path.dirname(retries), { recursive: true });
+  fs.renameSync(keptRetries, retries);
+}
 // Cargo checks and earlier packages can leave generated app/node staging copies in either profile. If a debug copy
 // remains, Next's runtime migration-directory trace can mistake its duplicated prisma/migrations tree for an input
 // and reproduce the whole top-level desktop directory in the standalone output.
